@@ -182,13 +182,17 @@ function exportExcel(selectedOnly) {
 // ── Helpers ──
 function is3DObjectWithDimensions(obj) {
   // Exclude objects with weight = 0 AND area = 0
-  // Must have at least one of: weight > 0, area > 0
+  // Must have at least one of: weight > 0, area > 0, volume > 0
   const hasWeight = obj.weight > 0;
   const hasArea = obj.area > 0;
   const hasVolume = obj.volume > 0;
-  // Some Tekla objects (bolts/discrete accessories) may not export weight/area
-  // but can still have a valid volume.
-  return hasWeight || hasArea || hasVolume;
+  
+  // Include Tekla Bolt components even if they lack standard dimensions
+  // They should be counted in statistics
+  const isBolt = obj.isTeklaBolt || false;
+  
+  // Objects accepted: have weight, area, volume, OR are bolts/fasteners
+  return hasWeight || hasArea || hasVolume || isBolt;
 }
 
 function getGroupKey(obj, groupBy) {

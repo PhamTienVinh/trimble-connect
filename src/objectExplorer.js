@@ -241,8 +241,25 @@ async function scanObjects() {
         seen.set(key, obj);
       } else {
         // Keep the entry with more physical data
-        const existingScore = (existing.volume > 0 ? 1 : 0) + (existing.weight > 0 ? 1 : 0) + (existing.area > 0 ? 1 : 0) + (existing.assembly ? 1 : 0) + (existing.profile ? 1 : 0);
-        const newScore = (obj.volume > 0 ? 1 : 0) + (obj.weight > 0 ? 1 : 0) + (obj.area > 0 ? 1 : 0) + (obj.assembly ? 1 : 0) + (obj.profile ? 1 : 0);
+        // Score includes: volume, weight, area, assembly info, profile, bolt info
+        const existingScore = 
+          (existing.volume > 0 ? 3 : 0) +
+          (existing.weight > 0 ? 2 : 0) +
+          (existing.area > 0 ? 2 : 0) +
+          (existing.assemblyPos ? 2 : 0) +
+          (existing.profile ? 1 : 0) +
+          (existing.isTeklaBolt ? 2 : 0) +
+          (existing.isTekla ? 1 : 0);
+        
+        const newScore = 
+          (obj.volume > 0 ? 3 : 0) +
+          (obj.weight > 0 ? 2 : 0) +
+          (obj.area > 0 ? 2 : 0) +
+          (obj.assemblyPos ? 2 : 0) +
+          (obj.profile ? 1 : 0) +
+          (obj.isTeklaBolt ? 2 : 0) +
+          (obj.isTekla ? 1 : 0);
+        
         if (newScore > existingScore) {
           seen.set(key, obj);
         }
@@ -638,22 +655,32 @@ async function buildAssemblyHierarchyMap(models) {
 
 // ── Enrich objects with assembly info from IFC hierarchy ──
 // Uses cached hierarchy info — no extra API calls.
-// Strategy 1: IfcElementAssembly nodes → use node name as ASSEMBLY_POS
-// Strategy 2: Parent node from hierarchy → use parent name as fallback
+// Implements MULTIPLE strategies to minimize "(Không xác định)" category:
+// Strategy 1: IfcElementAssembly membership
+// Strategy 2: Direct parent node name
+// Strategy 3: IFC Class-based grouping
+// Strategy 4: Object name (for assembly nodes themselves)
+// Strategy 5: Model-level fallback
 async function enrichAssemblyFromHierarchy() {
   let enrichedFromAssembly = 0;
   let enrichedFromParent = 0;
+  let enrichedFromClass = 0;
+  let enrichedFromName = 0;
+  let skippedAlreadyHas = 0;
 
   for (const obj of allObjects) {
-    if (obj.assemblyPos) continue; // already has ASSEMBLY_POS
+    if (obj.assemblyPos && obj.assemblyPos.trim()) {
+      skippedAlreadyHas++;
+      continue; // already has valid ASSEMBLY_POS
+    }
 
     const objectKey = `${obj.modelId}:${obj.id}`;
 
-    // Strategy 1: Check IfcElementAssembly membership
+    // Strategy 1: Check explicit IfcElementAssembly membership first
     const assemblyKey = assemblyMembershipMap.get(objectKey);
     if (assemblyKey) {
       const nodeInfo = assemblyNodeInfoMap.get(assemblyKey);
-      if (nodeInfo && nodeInfo.name) {
+      if (nodeInfo && nodeInfo.name && nodeInfo.name.trim()) {
         obj.assemblyPos = nodeInfo.name;
         if (!obj.assemblyName) obj.assemblyName = nodeInfo.name;
         if (!obj.assembly) obj.assembly = nodeInfo.name;
@@ -663,15 +690,15 @@ async function enrichAssemblyFromHierarchy() {
       }
     }
 
-    // Strategy 2: Use direct parent node name from hierarchy
+    // Strategy 2: Use direct parent node name from spatial hierarchy
     const parentInfo = hierarchyParentMap.get(objectKey);
-    if (parentInfo && parentInfo.name) {
-      // Only use parent as assembly if parent class suggests it's a grouping node
+    if (parentInfo && parentInfo.name && parentInfo.name.trim()) {
       const parentClass = (parentInfo.class || "").toLowerCase();
-      const isGroupingParent = (
+      
+      // Accept parent as assembly if it's a structural element or assembly type
+      const isStructuralElement = (
         parentClass.includes("assembly") ||
         parentClass.includes("ifcelementassembly") ||
-        parentClass.includes("elementassembly") ||
         parentClass.includes("ifcbeam") ||
         parentClass.includes("ifccolumn") ||
         parentClass.includes("ifcplate") ||
@@ -679,31 +706,88 @@ async function enrichAssemblyFromHierarchy() {
         parentClass.includes("ifcslab") ||
         parentClass.includes("ifcwall") ||
         parentClass.includes("ifcbuildingelementproxy") ||
-        parentClass === ""
+        parentClass.includes("ifcdiscreteaccessory") ||
+        parentClass.includes("ifcfastener") ||
+        parentClass.includes("ifcmechanicalfastener") ||
+        parentClass === "" // generic parent
       );
-      // If the parent looks like an assembly/group node, use its name.
-      // (Previous logic was inverted and could prevent bolts/discrete accessories from being assigned.)
-      if (isGroupingParent) {
+      
+      if (isStructuralElement) {
         obj.assemblyPos = parentInfo.name;
         if (!obj.assemblyName) obj.assemblyName = parentInfo.name;
         if (!obj.assembly) obj.assembly = parentInfo.name;
         enrichedFromParent++;
+        continue;
       }
     }
 
-    // Strategy 3: For IfcElementAssembly objects without assemblyPos, use object name
-    // This helps fill in "(Không xác định)" for assembly nodes
+    // Strategy 3: Group objects by IFC Class when parent name unavailable
+    // This prevents many objects from falling to "(Không xác định)"
     const ifcClass = (obj.ifcClass || "").toLowerCase();
+    if (ifcClass && !obj.assemblyPos) {
+      // Map common IFC classes to meaningful groups
+      const classGroupMap = {
+        "ifcbeam": "Beams",
+        "ifccolumn": "Columns",
+        "ifcslab": "Slabs",
+        "ifcwall": "Walls",
+        "ifcplate": "Plates",
+        "ifcroof": "Roofs",
+        "ifcdoor": "Doors",
+        "ifcwindow": "Windows",
+        "ifcmember": "Members",
+        "ifcelementassembly": "Element Assemblies",
+        "ifcdiscreteaccessory": "Discrete Accessories",
+        "ifcfastener": "Fasteners",
+        "ifcmechanicalfastener": "Mechanical Fasteners",
+        "ifcbuildingelementproxy": "Building Element Proxies",
+        "ifcramp": "Ramps",
+        "ifcstaircase": "Staircases",
+      };
+      
+      const groupName = classGroupMap[ifcClass];
+      if (groupName) {
+        obj.assemblyPos = groupName;
+        enrichedFromClass++;
+        continue;
+      }
+    }
+
+    // Strategy 4: For assembly node objects themselves, use their own name
     if (!obj.assemblyPos && (ifcClass === "ifcelementassembly" || ifcClass.includes("elementassembly"))) {
       if (obj.name && obj.name.trim()) {
         obj.assemblyPos = obj.name;
+        enrichedFromName++;
+        continue;
+      }
+    }
+
+    // Strategy 5: Use secondary assembly properties if available
+    if (!obj.assemblyPos) {
+      if (obj.assemblyName && obj.assemblyName.trim()) {
+        obj.assemblyPos = obj.assemblyName;
+        enrichedFromName++;
+        continue;
+      } else if (obj.assembly && obj.assembly.trim()) {
+        obj.assemblyPos = obj.assembly;
+        enrichedFromName++;
+        continue;
+      }
+    }
+
+    // Last resort for structural/bolt objects: use type classification
+    if (!obj.assemblyPos && obj.type) {
+      const typeStr = obj.type.toLowerCase();
+      if (typeStr.includes("bolt") || typeStr.includes("fastener") || typeStr.includes("washer")) {
+        obj.assemblyPos = "Bolts & Fasteners";
+        enrichedFromClass++;
       }
     }
   }
 
-  const total = enrichedFromAssembly + enrichedFromParent;
+  const total = enrichedFromAssembly + enrichedFromParent + enrichedFromClass + enrichedFromName;
   if (total > 0) {
-    console.log(`[ObjectExplorer] Enriched from hierarchy: ${enrichedFromAssembly} from IfcElementAssembly, ${enrichedFromParent} from parent nodes (total: ${total})`);
+    console.log(`[ObjectExplorer] Enriched from hierarchy: ${enrichedFromAssembly} from IfcElementAssembly, ${enrichedFromParent} from parent, ${enrichedFromClass} from IFC class, ${enrichedFromName} from names (total: ${total}). Already had assemblyPos: ${skippedAlreadyHas}`);
   }
 }
 
@@ -755,6 +839,184 @@ function parseQuantityNumber(value) {
   const n = parseFloat(numStr);
   return Number.isFinite(n) ? n : NaN;
 }
+
+// ── Tekla Bolt & Fastener Property Detector ──
+// Identifies and extracts Tekla Bolt properties like washer type, count, etc.
+// Returns object with detected bolt properties
+function detectTeklaBoltProperties(props, modelId) {
+  const boltProps = {
+    isTeklaBolt: false,
+    boltType: "",
+    boltSize: "",
+    boltGrade: "",
+    washerType: "",
+    washerCount: 0,
+    nutType: "",
+    nutCount: 0,
+    tightened: false,
+    comments: "",
+    allBoltProperties: {}, // Store all detected bolt-related properties
+  };
+
+  const propertySets = props.properties || [];
+  for (const pSet of propertySets) {
+    const setName = (pSet.name || "").toLowerCase();
+    const properties = pSet.properties || [];
+
+    // Check if this property set contains bolt/fastener information
+    const isBoltPropSet = (
+      setName.includes("bolt") ||
+      setName.includes("fastener") ||
+      setName.includes("tekla") ||
+      setName.includes("connection") ||
+      setName.includes("assembly")
+    );
+
+    for (const prop of properties) {
+      const propNameLower = (prop.name || "").toLowerCase();
+      const propValue = String(prop.value || "").trim();
+
+      // Normalize property name for matching
+      const normalized = propNameLower
+        .replace(/[\s_.\-]/g, "")
+        .replace(/[()]/g, "");
+
+      // Store all potential bolt properties
+      if (isBoltPropSet && propValue) {
+        boltProps.allBoltProperties[prop.name] = propValue;
+      }
+
+      // ── Bolt Type Detection ──
+      if (
+        normalized.includes("bolttype") ||
+        normalized.includes("bolt_type") ||
+        normalized.includes("type") && isBoltPropSet
+      ) {
+        if (propValue && propValue !== "") {
+          boltProps.boltType = propValue;
+          boltProps.isTeklaBolt = true;
+        }
+      }
+
+      // ── Bolt Size/Diameter Detection ──
+      if (
+        normalized.includes("boltsize") ||
+        normalized.includes("bolt_size") ||
+        normalized.includes("bolt_diameter") ||
+        normalized.includes("diameter") ||
+        normalized.includes("size") && propNameLower.includes("bolt")
+      ) {
+        if (propValue && propValue !== "") {
+          boltProps.boltSize = propValue;
+          boltProps.isTeklaBolt = true;
+        }
+      }
+
+      // ── Bolt Grade Detection ──
+      if (
+        normalized.includes("boltgrade") ||
+        normalized.includes("bolt_grade") ||
+        normalized.includes("grade") && propNameLower.includes("bolt")
+      ) {
+        if (propValue && propValue !== "") {
+          boltProps.boltGrade = propValue;
+          boltProps.isTeklaBolt = true;
+        }
+      }
+
+      // ── Washer Type Detection ──
+      if (
+        normalized.includes("washertype") ||
+        normalized.includes("washer_type") ||
+        normalized.includes("washername") ||
+        normalized.includes("washer_name") ||
+        normalized === "washertype" ||
+        (normalized.includes("washer") && normalized.includes("type"))
+      ) {
+        if (propValue && propValue !== "") {
+          boltProps.washerType = propValue;
+          boltProps.isTeklaBolt = true;
+        }
+      }
+
+      // ── Washer Count Detection ──
+      if (
+        normalized.includes("washercount") ||
+        normalized.includes("washer_count") ||
+        normalized.includes("numberofwashers") ||
+        normalized.includes("number_of_washers") ||
+        normalized === "washercount"
+      ) {
+        const count = parseQuantityNumber(propValue);
+        if (!isNaN(count) && count > 0) {
+          boltProps.washerCount = Math.floor(count);
+          boltProps.isTeklaBolt = true;
+        }
+      }
+
+      // ── Nut Type Detection ──
+      if (
+        normalized.includes("nuttype") ||
+        normalized.includes("nut_type") ||
+        normalized.includes("nutname") ||
+        normalized.includes("nut_name")
+      ) {
+        if (propValue && propValue !== "") {
+          boltProps.nutType = propValue;
+          boltProps.isTeklaBolt = true;
+        }
+      }
+
+      // ── Nut Count Detection ──
+      if (
+        normalized.includes("nutcount") ||
+        normalized.includes("nut_count") ||
+        normalized.includes("numberofnuts")
+      ) {
+        const count = parseQuantityNumber(propValue);
+        if (!isNaN(count) && count > 0) {
+          boltProps.nutCount = Math.floor(count);
+          boltProps.isTeklaBolt = true;
+        }
+      }
+
+      // ── Tightened Status Detection ──
+      if (
+        normalized.includes("tightened") ||
+        normalized.includes("tightened_torque") ||
+        normalized.includes("preloaded")
+      ) {
+        boltProps.tightened = 
+          propValue.toLowerCase() === "yes" ||
+          propValue.toLowerCase() === "true" ||
+          propValue === "1";
+        boltProps.isTeklaBolt = true;
+      }
+
+      // ── Comments/Notes Detection ──
+      if (
+        normalized.includes("comment") ||
+        normalized.includes("notes") ||
+        normalized.includes("remark")
+      ) {
+        boltProps.comments = propValue;
+      }
+
+      // Auto-detect if this is a bolt object based on property names
+      if (
+        normalized.includes("bolt") ||
+        normalized.includes("fastener") ||
+        normalized.includes("washer") ||
+        normalized.includes("nut")
+      ) {
+        boltProps.isTeklaBolt = true;
+      }
+    }
+  }
+
+  return boltProps;
+}
+
 // ObjectProperties: { id: number, class?: string, product?: Product, properties?: PropertySet[] }
 // Product: { name?: string, description?: string, objectType?: string }
 // PropertySet: { name?: string, properties?: Property[] }
@@ -780,8 +1042,37 @@ function parseObjectProperties(props, modelId) {
     isTekla: false,
     isAssemblyParent: false,     // Marked as IfcElementAssembly or assembly parent node
     isAssemblyComponent: false,  // Marked as component/child of an assembly
+    // ── Tekla Bolt Properties ──
+    isTeklaBolt: false,
+    boltType: "",
+    boltSize: "",
+    boltGrade: "",
+    washerType: "",
+    washerCount: 0,
+    nutType: "",
+    nutCount: 0,
+    boltTightened: false,
+    boltComments: "",
+    allBoltProperties: {}, // All detected bolt properties
     rawProperties: [], // [{pset, name, value}] for debug/export
   };
+
+  // ── Detect Tekla Bolt Properties ──
+  const boltProps = detectTeklaBoltProperties(props, modelId);
+  if (boltProps.isTeklaBolt) {
+    result.isTeklaBolt = true;
+    result.boltType = boltProps.boltType;
+    result.boltSize = boltProps.boltSize;
+    result.boltGrade = boltProps.boltGrade;
+    result.washerType = boltProps.washerType;
+    result.washerCount = boltProps.washerCount;
+    result.nutType = boltProps.nutType;
+    result.nutCount = boltProps.nutCount;
+    result.boltTightened = boltProps.tightened;
+    result.boltComments = boltProps.comments;
+    result.allBoltProperties = boltProps.allBoltProperties;
+    result.isTekla = true; // Mark as Tekla if it has bolt properties
+  }
 
   // Product info (standardized)
   if (props.product) {
@@ -1114,9 +1405,17 @@ function renderTree() {
       html += `<div class="tree-item${isSelected ? " selected" : ""}" data-uid="${escHtml(uid)}" data-model-id="${escHtml(obj.modelId)}" data-object-id="${obj.id}">`;
       html += `<input type="checkbox" class="tree-item-checkbox" ${isSelected ? "checked" : ""} />`;
       html += `<span class="tree-item-name" title="${escHtml(tooltip)}">${escHtml(displayLabel)}</span>`;
-      if (obj.isTekla) {
+      
+      // Tekla Bolt badge (highest priority)
+      if (obj.isTeklaBolt) {
+        html += `<span class="tree-item-badge bolt" title="Tekla Bolt - ${obj.boltType || 'Fastener'}">⚙️ Bolt</span>`;
+      }
+      // Tekla Structures badge
+      else if (obj.isTekla) {
         html += `<span class="tree-item-badge tekla" title="Vẽ bằng Tekla Structures">🏗️</span>`;
       }
+      
+      // Profile badge
       if (obj.profile) {
         html += `<span class="tree-item-badge profile">${escHtml(obj.profile)}</span>`;
       } else if (obj.type) {
@@ -1637,6 +1936,18 @@ function buildTooltip(obj) {
   if (obj.assemblyPos) parts.push(`Assembly Pos: ${obj.assemblyPos}`);
   if (obj.assemblyPosCode) parts.push(`Assembly Pos Code: ${obj.assemblyPosCode}`);
   if (obj.material) parts.push(`Vật liệu: ${obj.material}`);
+  
+  // ── Tekla Bolt Properties ──
+  if (obj.isTeklaBolt) {
+    parts.push(`[TEKLA BOLT]`);
+    if (obj.boltType) parts.push(`Bolt Type: ${obj.boltType}`);
+    if (obj.boltSize) parts.push(`Bolt Size: ${obj.boltSize}`);
+    if (obj.boltGrade) parts.push(`Bolt Grade: ${obj.boltGrade}`);
+    if (obj.washerType) parts.push(`Washer: ${obj.washerType}${obj.washerCount > 0 ? ` (x${obj.washerCount})` : ""}`);
+    if (obj.nutType) parts.push(`Nut: ${obj.nutType}${obj.nutCount > 0 ? ` (x${obj.nutCount})` : ""}`);
+    if (obj.boltComments) parts.push(`Comments: ${obj.boltComments}`);
+  }
+  
   return parts.join(" | ") || `Object ${obj.id}`;
 }
 
