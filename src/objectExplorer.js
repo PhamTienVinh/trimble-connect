@@ -945,11 +945,15 @@ function renderTree() {
     const allChecked = allGroupUids.every((uid) => selectedIds.has(uid));
     const someChecked = allGroupUids.some((uid) => selectedIds.has(uid));
 
+    // Add Assembly badge when grouping by assemblyPos
+    const isAssemblyGroup = groupBy === "assemblyPos";
+    const groupDisplayName = isAssemblyGroup ? `🏗️ ${escHtml(key)}` : escHtml(key);
+
     html += `<div class="tree-group" data-group="${escHtml(key)}">`;
     html += `<div class="tree-group-header">`;
     html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm" />`;
     html += `<span class="tree-toggle" onclick="this.closest('.tree-group').classList.toggle('collapsed')">▼</span>`;
-    html += `<span class="tree-group-name" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${escHtml(key)}</span>`;
+    html += `<span class="tree-group-name" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${groupDisplayName}</span>`;
     html += `<span class="tree-group-count" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${items.length}</span>`;
     html += `</div>`;
     html += `<div class="tree-items">`;
