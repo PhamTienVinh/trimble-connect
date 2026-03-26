@@ -331,33 +331,9 @@ async function scanObjects() {
       }
     }
 
-    // Filter Stage 3: Remove component objects (parts inside assemblies) from the object list
-    // but keep assembly parent nodes and standalone objects with their own assemblyPos
-    const beforeComponentFilter = allObjects.length;
-    allObjects = allObjects.filter((obj) => {
-      // Keep assembly parent nodes (IfcElementAssembly)
-      if (obj.isAssemblyParent) return true;
-      
-      // Keep objects that are NOT components of an assembly
-      if (!obj.isAssemblyComponent) return true;
-      
-      // Keep component objects only if they have their own meaningful assemblyPos
-      // (i.e., they are Tekla main parts with assembly information)
-      if (obj.assemblyPos && obj.assemblyPos !== "(Không xác định)") return true;
-      // Bolts/connections sometimes only export assemblyName/assembly, not assemblyPos.
-      if (obj.assemblyName && obj.assemblyName !== "(Không xác định)") return true;
-      if (obj.assembly && obj.assembly !== "(Không xác định)") return true;
-      
-      // Remove all other component objects
-      return false;
-    });
-    
-    if (beforeComponentFilter !== allObjects.length) {
-      console.log(
-        `[ObjectExplorer] Stage 3 filter: ${beforeComponentFilter} → ${allObjects.length} objects (removed ${beforeComponentFilter - allObjects.length} component objects nested in assemblies)`,
-      );
-    }
-
+    // Stage 3: keep ALL objects (including assembly components).
+    // The requirement "each 3D object is 1 object" needs a 1:1 mapping.
+    // Grouping into assemblyPos will be handled by assigning assemblyPos/assemblyName/assembly.
     filteredObjects = [...allObjects];
 
     selectedIds.clear();
@@ -744,6 +720,41 @@ function buildAssemblyDisplayNames() {
     }
   }
 }
+
+// Parses numeric quantity values returned from Trimble Connect.
+// Handles cases like "0,12", "1,234.56", "1.234,56", "12.3 m³", etc.
+function parseQuantityNumber(value) {
+  if (value === null || value === undefined) return NaN;
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+
+  const raw = String(value).trim();
+  if (!raw) return NaN;
+
+  // Extract the first numeric-like token.
+  const m = raw.match(/[-+]?\d[\d.,]*/);
+  if (!m) return NaN;
+
+  let numStr = m[0];
+  const hasDot = numStr.includes(".");
+  const hasComma = numStr.includes(",");
+
+  if (hasDot && hasComma) {
+    // Decimal separator is whichever appears last.
+    const lastDot = numStr.lastIndexOf(".");
+    const lastComma = numStr.lastIndexOf(",");
+    const decimalSep = lastDot > lastComma ? "." : ",";
+    const thousandSep = decimalSep === "." ? "," : ".";
+    numStr = numStr.replace(new RegExp("\\" + thousandSep, "g"), "");
+    if (decimalSep === ",") numStr = numStr.replace(",", ".");
+  } else if (hasComma && !hasDot) {
+    const parts = numStr.split(",");
+    if (parts.length === 2 && parts[1].length === 3) numStr = parts.join("");
+    else numStr = numStr.replace(",", ".");
+  }
+
+  const n = parseFloat(numStr);
+  return Number.isFinite(n) ? n : NaN;
+}
 // ObjectProperties: { id: number, class?: string, product?: Product, properties?: PropertySet[] }
 // Product: { name?: string, description?: string, objectType?: string }
 // PropertySet: { name?: string, properties?: Property[] }
@@ -869,7 +880,9 @@ function parseObjectProperties(props, modelId) {
       }
 
       // Volume (PropertyType.VolumeMeasure = 2, value in m³)
-      const normalizedVolume = propName.replace(/[\s_.\-]/g, "");
+      const normalizedVolume = propName
+        .replace(/[\s_.\-]/g, "")
+        .replace(/[()]/g, "");
       if (
         propType === 2 ||
         propName === "volume" ||
@@ -882,28 +895,32 @@ function parseObjectProperties(props, modelId) {
         normalizedVolume === "grossvolume" ||
         normalizedVolume === "netvolume" ||
         normalizedVolume === "totalvolume" ||
-        normalizedVolume.endsWith("volume") ||
-        (propType && String(propType).toLowerCase().includes("volume"))
+        normalizedVolume.includes("volume")
       ) {
-        const v = parseFloat(propValue);
+        const v = parseQuantityNumber(propValue);
         if (!isNaN(v) && v > result.volume) result.volume = v;
       }
 
       // Weight (PropertyType.MassMeasure = 3, value in kg)
+      const normalizedWeight = propName.replace(/[\s_.\-]/g, "").replace(/[()]/g, "");
       if (
         propType === 3 ||
         propName === "weight" ||
         propName === "khối lượng" ||
         propName === "grossweight" ||
         propName === "netweight" ||
-        propName === "mass"
+        propName === "mass" ||
+        normalizedWeight.includes("weight") ||
+        normalizedWeight.includes("mass")
       ) {
-        const w = parseFloat(propValue);
+        const w = parseQuantityNumber(propValue);
         if (!isNaN(w) && w > 0 && w > result.weight) result.weight = w;
       }
 
       // Surface Area (m²)
+      const normalizedArea = propName.replace(/[\s_.\-]/g, "").replace(/[()]/g, "");
       if (
+        propType === 1 ||
         propName === "area" ||
         propName === "diện tích" ||
         propName === "surfacearea" ||
@@ -913,13 +930,18 @@ function parseObjectProperties(props, modelId) {
         propName === "totalsurfacearea" ||
         propName === "netarea" ||
         propName === "grossarea"
+        || normalizedArea.includes("area")
       ) {
-        const a = parseFloat(propValue);
+        const a = parseQuantityNumber(propValue);
         if (!isNaN(a) && a > result.area) result.area = a;
       }
 
       // Length (m)
+      const normalizedLength = propName
+        .replace(/[\s_.\-]/g, "")
+        .replace(/[()]/g, "");
       if (
+        propType === 0 ||
         propName === "length" ||
         propName === "chiều dài" ||
         propName === "span" ||
@@ -927,9 +949,10 @@ function parseObjectProperties(props, modelId) {
         propName === "netlength" ||
         propName === "totallength" ||
         propName === "height" ||
-        propName === "chiều cao"
+        propName === "chiều cao" ||
+        normalizedLength.includes("length")
       ) {
-        const l = parseFloat(propValue);
+        const l = parseQuantityNumber(propValue);
         if (!isNaN(l) && l > result.length) result.length = l;
       }
 
@@ -978,6 +1001,12 @@ function parseObjectProperties(props, modelId) {
   if (!result.assemblyPos || result.assemblyPos === "(Không xác định)") {
     if (result.assemblyName && result.assemblyName !== "(Không xác định)") {
       result.assemblyPos = result.assemblyName;
+    } else if (
+      result.assemblyPosCode &&
+      result.assemblyPosCode !== "(Không xác định)"
+    ) {
+      // Some Tekla bolts/connections may export only assembly position code.
+      result.assemblyPos = result.assemblyPosCode;
     } else if (result.assembly && result.assembly !== "(Không xác định)") {
       result.assemblyPos = result.assembly;
     }
