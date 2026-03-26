@@ -1614,11 +1614,7 @@ function handleViewerSelectionChanged(data) {
     // Step 4: Match incoming IDs against our allObjects
     const knownUids = new Set(allObjects.map((o) => `${o.modelId}:${o.id}`));
     const matchedUids = new Set();
-    // For multi-selection, scroll to the last matched uid in the incoming event order.
     let targetUid = null;
-    for (const uid of incomingUidList) {
-      if (knownUids.has(uid)) targetUid = uid;
-    }
     const unmatchedCount = { count: 0 };
 
     for (const uid of incomingUids) {
@@ -1650,6 +1646,35 @@ function handleViewerSelectionChanged(data) {
     if (!selectionChanged) {
       // Polling returned the same selection — no need to update or scroll
       return;
+    }
+
+    // Decide which UID we should scroll to:
+    // - Ctrl-add selection: scroll to the last newly-added object (relative to previous selection).
+    // - Other selection types: fallback to last matched UID by incoming event order.
+    const prevSelectedUids = new Set(selectedIds);
+    const newlyAddedUids = new Set();
+    for (const uid of matchedUids) {
+      if (!prevSelectedUids.has(uid)) newlyAddedUids.add(uid);
+    }
+
+    if (newlyAddedUids.size > 0) {
+      // Pick the last newly-added UID as it appears in the viewer event list.
+      for (let i = incomingUidList.length - 1; i >= 0; i--) {
+        const uid = incomingUidList[i];
+        if (newlyAddedUids.has(uid)) {
+          targetUid = uid;
+          break;
+        }
+      }
+    } else {
+      // Fallback: pick last matched UID in viewer event order.
+      for (let i = incomingUidList.length - 1; i >= 0; i--) {
+        const uid = incomingUidList[i];
+        if (matchedUids.has(uid)) {
+          targetUid = uid;
+          break;
+        }
+      }
     }
 
     // Step 6: Apply selection to panel
