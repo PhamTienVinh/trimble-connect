@@ -281,6 +281,18 @@ async function scanObjects() {
       `[ObjectExplorer] Stage 1 filter: ${beforeFilter} → ${allObjects.length} objects (removed ${beforeFilter - allObjects.length} non-3D classes)`,
     );
 
+    // Filter Stage 2: exclude objects with zero dimensions (volume=0, weight=0, area=0)
+    const beforeStage2 = allObjects.length;
+    allObjects = allObjects.filter((obj) => {
+      const hasVolume = obj.volume > 0;
+      const hasWeight = obj.weight > 0;
+      const hasArea = obj.area > 0;
+      return hasVolume || hasWeight || hasArea;
+    });
+    console.log(
+      `[ObjectExplorer] Stage 2 filter: ${beforeStage2} → ${allObjects.length} objects (removed ${beforeStage2 - allObjects.length} objects with zero dimensions)`,
+    );
+
     // Assign assembly instances via Tekla properties (ASSEMBLY_POS)
     assignAssemblyInstances();
 
@@ -298,15 +310,8 @@ async function scanObjects() {
     // Build display names for assembly groups
     buildAssemblyDisplayNames();
 
-    // Log objects without physical data (for debugging, but keep them in the list)
-    const noPhysicalData = allObjects.filter((obj) => obj.volume === 0 && obj.weight === 0 && obj.area === 0);
-    if (noPhysicalData.length > 0) {
-      console.log(
-        `[ObjectExplorer] ${noPhysicalData.length}/${allObjects.length} objects have no physical data (volume/weight/area) — kept in list`,
-      );
-    }
-
     filteredObjects = [...allObjects];
+
     selectedIds.clear();
     updateSummary();
     renderTree();

@@ -64,6 +64,14 @@ function updateStatistics() {
     return;
   }
 
+  // Filter out non-3D objects and objects with zero dimensions
+  objects = objects.filter(is3DObjectWithDimensions);
+
+  if (objects.length === 0) {
+    clearStats();
+    return;
+  }
+
   // Calculate totals
   let totalVolume = 0;
   let totalWeight = 0;
@@ -147,10 +155,18 @@ function renderStatsTable(groups, totalVolume, totalWeight, totalArea) {
 // ── Export Excel ──
 function exportExcel(selectedOnly) {
   const groupBy = document.getElementById("stats-group-by").value;
-  const data = selectedOnly ? getSelectedObjects() : getAllObjects();
+  let data = selectedOnly ? getSelectedObjects() : getAllObjects();
 
   if (!data || data.length === 0) {
     console.warn("[Statistics] No data to export");
+    return;
+  }
+
+  // Filter out non-3D objects and objects with zero dimensions
+  data = data.filter(is3DObjectWithDimensions);
+
+  if (data.length === 0) {
+    console.warn("[Statistics] No 3D objects with dimensions to export");
     return;
   }
 
@@ -164,6 +180,17 @@ function exportExcel(selectedOnly) {
 }
 
 // ── Helpers ──
+function is3DObjectWithDimensions(obj) {
+  // Exclude objects without any physical dimensions (volume=0, weight=0, area=0)
+  const hasVolume = obj.volume > 0;
+  const hasWeight = obj.weight > 0;
+  const hasArea = obj.area > 0;
+
+  // Object must have at least one non-zero dimension
+  // and at least minimal geometry (volume > 0 indicates 3D)
+  return hasVolume || hasWeight || hasArea;
+}
+
 function getGroupKey(obj, groupBy) {
   switch (groupBy) {
     case "assemblyName": return obj.assemblyName || obj.assembly || "(Không xác định)";
