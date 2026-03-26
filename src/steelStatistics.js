@@ -109,8 +109,6 @@ function updateStatistics() {
 
   const sortedGroups = Object.values(groups).sort((a, b) => b.weight - a.weight);
 
-  document.getElementById("stat-total-groups").textContent = formatNumber(sortedGroups.length);
-
   // Render table
   renderStatsTable(sortedGroups, totalVolume, totalWeight, totalArea);
 
@@ -184,10 +182,15 @@ function clearStats() {
   document.getElementById("stat-total-volume").textContent = "0 m³";
   document.getElementById("stat-total-weight").textContent = "0 kg";
   document.getElementById("stat-total-area").textContent = "0 m²";
-  document.getElementById("stat-total-groups").textContent = "0";
   document.getElementById("stats-table-body").innerHTML = "";
-  document.getElementById("stats-table-footer").innerHTML = "";
-  document.getElementById("stats-placeholder").style.display = "flex";
+  const tfoot = document.getElementById("stats-table-footer");
+  if (tfoot) {
+    tfoot.innerHTML = "";
+  }
+  const placeholder = document.getElementById("stats-placeholder");
+  if (placeholder) {
+    placeholder.style.display = "block";
+  }
 }
 
 function formatNumber(n) {

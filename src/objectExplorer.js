@@ -63,29 +63,50 @@ export function initObjectExplorer(api, viewer) {
   }, 2000);
 
   // UI bindings
-  document
-    .getElementById("search-input")
-    .addEventListener("input", onSearchInput);
-  document
-    .getElementById("search-clear-btn")
-    .addEventListener("click", clearSearch);
-  document
-    .getElementById("group-by-select")
-    .addEventListener("change", renderTree);
-  document
-    .getElementById("btn-isolate")
-    .addEventListener("click", toggleIsolate);
-  document.getElementById("btn-reset").addEventListener("click", resetAll);
-  document.getElementById("btn-refresh").addEventListener("click", scanObjects);
-  document
-    .getElementById("btn-select-assembly")
-    .addEventListener("click", selectAssembly);
-  document
-    .getElementById("btn-collapse-all")
-    .addEventListener("click", collapseAll);
-  document
-    .getElementById("btn-expand-all")
-    .addEventListener("click", expandAll);
+  const searchInput = document.getElementById("search-input");
+  if (searchInput) {
+    searchInput.addEventListener("input", onSearchInput);
+  }
+  
+  const searchClearBtn = document.getElementById("search-clear-btn");
+  if (searchClearBtn) {
+    searchClearBtn.addEventListener("click", clearSearch);
+  }
+  
+  const groupBySelect = document.getElementById("group-by-select");
+  if (groupBySelect) {
+    groupBySelect.addEventListener("change", renderTree);
+  }
+  
+  const isolateBtn = document.getElementById("btn-isolate");
+  if (isolateBtn) {
+    isolateBtn.addEventListener("click", toggleIsolate);
+  }
+  
+  const resetBtn = document.getElementById("btn-reset");
+  if (resetBtn) {
+    resetBtn.addEventListener("click", resetAll);
+  }
+  
+  const refreshBtn = document.getElementById("btn-refresh");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", scanObjects);
+  }
+  
+  const selectAsmBtn = document.getElementById("btn-select-assembly");
+  if (selectAsmBtn) {
+    selectAsmBtn.addEventListener("click", selectAssembly);
+  }
+  
+  const collapseBtn = document.getElementById("btn-collapse-all");
+  if (collapseBtn) {
+    collapseBtn.addEventListener("click", collapseAll);
+  }
+  
+  const expandBtn = document.getElementById("btn-expand-all");
+  if (expandBtn) {
+    expandBtn.addEventListener("click", expandAll);
+  }
 }
 
 // ── Export data for statistics module ──
