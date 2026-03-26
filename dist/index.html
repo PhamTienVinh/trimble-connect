@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="vi">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,10 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <script type="module" crossorigin src="/TC-Object-Explorer/assets/index-Hnw_d4R4.js"></script>
-  <link rel="stylesheet" crossorigin href="/TC-Object-Explorer/assets/index-B86nuV8i.css">
+  <script type="module" crossorigin src="/trimble-connect/assets/index-CT0AGR-M.js"></script>
+  <link rel="stylesheet" crossorigin href="/trimble-connect/assets/index-B86nuV8i.css">
 </head>
-
 <body>
   <div id="app">
     <!-- Header -->
@@ -34,16 +32,13 @@
     <nav class="tab-nav">
       <button class="tab-btn active" data-tab="search" id="tabSearch">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8" />
-          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
         </svg>
         <span>Tìm kiếm</span>
       </button>
       <button class="tab-btn" data-tab="statistics" id="tabStats">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="20" x2="18" y2="10" />
-          <line x1="12" y1="20" x2="12" y2="4" />
-          <line x1="6" y1="20" x2="6" y2="14" />
+          <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
         </svg>
         <span>Thống kê</span>
       </button>
@@ -54,17 +49,13 @@
       <!-- Search Bar -->
       <div class="search-section">
         <div class="search-input-wrapper">
-          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
-            <circle cx="11" cy="11" r="8" />
-            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
-          <input type="text" id="searchInput" placeholder="Tìm theo tên, assembly, group, material..."
-            autocomplete="off" />
+          <input type="text" id="searchInput" placeholder="Tìm theo tên, assembly, group, material..." autocomplete="off" />
           <button class="clear-btn" id="clearSearch" title="Xóa tìm kiếm">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
@@ -91,8 +82,7 @@
       <div class="results-section">
         <div class="results-header">
           <div class="results-header-info">
-            <span class="total-badge" id="totalBadge" title="Tổng cấu kiện trong model">Tổng: <strong
-                id="totalObjectCount">0</strong></span>
+            <span class="total-badge" id="totalBadge" title="Tổng cấu kiện trong model">Tổng: <strong id="totalObjectCount">0</strong></span>
             <span class="separator">│</span>
             <span id="resultCount">0 đối tượng</span>
           </div>
@@ -105,14 +95,12 @@
             </button>
             <button class="action-btn" id="isolateBtn" title="Isolate đối tượng đã chọn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10" />
-                <circle cx="12" cy="12" r="4" />
+                <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" />
               </svg>
             </button>
             <button class="action-btn" id="resetViewBtn" title="Reset view">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="1 4 1 10 7 10" />
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
               </svg>
             </button>
           </div>
@@ -133,16 +121,14 @@
         <div class="stats-actions">
           <button class="btn-primary" id="refreshStatsBtn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="1 4 1 10 7 10" />
-              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
             </svg>
             Tải lại
           </button>
           <button class="btn-export" id="exportExcelBtn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
+              <polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
             </svg>
             Xuất Excel
           </button>
@@ -183,8 +169,7 @@
         <div class="stat-card">
           <div class="stat-icon volume">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path
-                d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
             </svg>
           </div>
           <div class="stat-info">
@@ -195,9 +180,7 @@
         <div class="stat-card">
           <div class="stat-icon weight">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M8 12l4 4 4-4" />
-              <line x1="12" y1="8" x2="12" y2="16" />
+              <circle cx="12" cy="12" r="10" /><path d="M8 12l4 4 4-4" /><line x1="12" y1="8" x2="12" y2="16" />
             </svg>
           </div>
           <div class="stat-info">
@@ -208,10 +191,8 @@
         <div class="stat-card">
           <div class="stat-icon count">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="7" height="7" />
-              <rect x="14" y="3" width="7" height="7" />
-              <rect x="14" y="14" width="7" height="7" />
-              <rect x="3" y="14" width="7" height="7" />
+              <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />
             </svg>
           </div>
           <div class="stat-info">
@@ -257,5 +238,4 @@
   </div>
 
 </body>
-
 </html>

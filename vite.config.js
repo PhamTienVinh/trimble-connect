@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  base: "/TC-Object-Explorer/",
+  base: "/trimble-connect/",
   server: {
     port: 3000,
     host: true,
