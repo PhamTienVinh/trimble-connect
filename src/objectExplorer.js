@@ -26,6 +26,7 @@ let lastGroupClickAction = "select"; // "select" or "deselect" — for group Shi
 let isSyncingFromViewer = false; // flag to prevent re-entry during sync
 let lastViewerSelectionKey = ""; // dedup key for polling
 let selectionFromPanel = false; // true when selection originates from panel click
+let shouldScrollToTop = false; // flag to scroll to top after renderTree()
 
 // ── Init ──
 export function initObjectExplorer(api, viewer) {
@@ -1203,6 +1204,13 @@ function renderTree() {
       }
     });
   });
+
+  // If some external action (e.g. "Thu gọn tất cả") changed list height,
+  // reset scroll to the start so the UI doesn't clamp to the bottom.
+  if (shouldScrollToTop) {
+    if (container) container.scrollTop = 0;
+    shouldScrollToTop = false;
+  }
 }
 
 // ── Update group checkbox states after individual item changes ──
@@ -1368,12 +1376,15 @@ function updateTreeAndNotify() {
 // ── Collapse / Expand All Groups ──
 function collapseAll() {
   document.querySelectorAll(".tree-group").forEach((g) => g.classList.add("collapsed"));
-  // Scroll to top when collapsing all
-  const container = document.getElementById("object-tree");
-  if (container) {
-    container.scrollTop = 0;
-    console.log("[ObjectExplorer] Collapsed all groups and scrolled to top");
-  }
+  // Browser may clamp scrollTop to the new max position (often the bottom).
+  // Force reset to top immediately after reflow.
+  shouldScrollToTop = true;
+  requestAnimationFrame(() => {
+    const treeContainer = document.getElementById("object-tree");
+    if (treeContainer) treeContainer.scrollTop = 0;
+    shouldScrollToTop = false;
+  });
+  console.log("[ObjectExplorer] Collapse all triggered, will scroll to top");
 }
 
 function expandAll() {
@@ -1657,53 +1668,36 @@ function handleViewerSelectionChanged(data) {
     notifySelectionChanged();
     applyHighlightColors();
 
-    // Auto-scroll to the last selected item in the tree (most recent selection)
+    // Auto-scroll to selected item(s) based on their position in the current tree DOM.
+    // - Single selection: scroll to that item.
+    // - Multiple selection: scroll to the bottom-most selected item.
     if (matchedUids.size > 0) {
-      // Use requestAnimationFrame to ensure DOM is updated before scrolling
       requestAnimationFrame(() => {
         const container = document.getElementById("object-tree");
-        
-        // Get the last (most recent) selected UID instead of first
-        // Convert Set to Array and get the last element
-        const uidsArray = Array.from(matchedUids);
-        const targetUid = uidsArray[uidsArray.length - 1];
-        
-        // Find the element by iterating (avoids CSS.escape issues with colons in UIDs)
+        if (!container) return;
+
         const allTreeItems = document.querySelectorAll(".tree-item");
         let targetEl = null;
+        let targetUid = null;
+
         for (const el of allTreeItems) {
-          if (el.dataset.uid === targetUid) {
+          const uid = el.dataset.uid;
+          if (matchedUids.has(uid)) {
+            // Keep updating so the final match is the bottom-most selected item in DOM order.
             targetEl = el;
-            break;
+            targetUid = uid;
           }
         }
-        
-        if (targetEl && container) {
-          // Step 1: Auto-expand the parent group if it's collapsed
+
+        if (targetEl) {
+          // Auto-expand the parent group if it's collapsed (so the element can be scrolled to).
           const parentGroup = targetEl.closest(".tree-group");
           if (parentGroup && parentGroup.classList.contains("collapsed")) {
             parentGroup.classList.remove("collapsed");
-            console.log(`[ObjectExplorer] Auto-expanded parent group`);
           }
-          
-          // Step 2: Ensure the item is in viewport by scrolling
-          // Use smooth scroll behavior for better UX
-          const itemRect = targetEl.getBoundingClientRect();
-          const containerRect = container.getBoundingClientRect();
-          
-          // Calculate if item is visible
-          const isItemVisible = (
-            itemRect.top >= containerRect.top &&
-            itemRect.bottom <= containerRect.bottom
-          );
-          
-          if (!isItemVisible) {
-            // Scroll to center the item in view with smooth animation
-            targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
-            console.log(`[ObjectExplorer] Auto-scrolled to last selected object: ${targetUid}`);
-          } else {
-            console.log(`[ObjectExplorer] Last selected object already visible: ${targetUid}`);
-          }
+
+          targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          console.log(`[ObjectExplorer] Scrolled to selected item: ${targetUid}`);
         }
       });
     }
