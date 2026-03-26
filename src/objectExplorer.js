@@ -271,8 +271,6 @@ async function scanObjects() {
       "ifcvirtualelement",
       // Distribution systems (MEP abstract)
       "ifcdistributionsystem", "ifcsystem",
-      // Assembly objects (Revit/IFC) - often have no physical weight
-      "ifcelementassembly", "ifcelementassemblytype",
     ]);
     const beforeFilter = allObjects.length;
     allObjects = allObjects.filter((obj) => {
@@ -1468,6 +1466,8 @@ function buildTooltip(obj) {
   if (obj.type) parts.push(`Type: ${obj.type}`);
   if (obj.ifcClass) parts.push(`IFC Class: ${obj.ifcClass}`);
   if (obj.assembly) parts.push(`Assembly: ${obj.assembly}`);
+  if (obj.assemblyPos) parts.push(`Assembly Pos: ${obj.assemblyPos}`);
+  if (obj.assemblyPosCode) parts.push(`Assembly Pos Code: ${obj.assemblyPosCode}`);
   if (obj.material) parts.push(`Vật liệu: ${obj.material}`);
   return parts.join(" | ") || `Object ${obj.id}`;
 }
