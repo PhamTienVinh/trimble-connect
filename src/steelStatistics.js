@@ -185,7 +185,10 @@ function is3DObjectWithDimensions(obj) {
   // Must have at least one of: weight > 0, area > 0
   const hasWeight = obj.weight > 0;
   const hasArea = obj.area > 0;
-  return hasWeight || hasArea;
+  const hasVolume = obj.volume > 0;
+  // Some Tekla objects (bolts/discrete accessories) may not export weight/area
+  // but can still have a valid volume.
+  return hasWeight || hasArea || hasVolume;
 }
 
 function getGroupKey(obj, groupBy) {

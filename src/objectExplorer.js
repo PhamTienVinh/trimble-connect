@@ -287,10 +287,13 @@ async function scanObjects() {
     allObjects = allObjects.filter((obj) => {
       const hasWeight = obj.weight > 0;
       const hasArea = obj.area > 0;
-      return hasWeight || hasArea;
+      const hasVolume = obj.volume > 0;
+      // Some Tekla objects (e.g. bolts/discrete accessories) may not export area/weight,
+      // but they can still have volume; keep them so statistics can calculate weight from volume.
+      return hasWeight || hasArea || hasVolume;
     });
     console.log(
-      `[ObjectExplorer] Stage 2 filter: ${beforeStage2} → ${allObjects.length} objects (removed ${beforeStage2 - allObjects.length} objects with weight=0 and area=0)`,
+      `[ObjectExplorer] Stage 2 filter: ${beforeStage2} → ${allObjects.length} objects (removed ${beforeStage2 - allObjects.length} objects with weight=0, area=0, volume=0)`,
     );
 
     // Assign assembly instances via Tekla properties (ASSEMBLY_POS)
@@ -341,6 +344,9 @@ async function scanObjects() {
       // Keep component objects only if they have their own meaningful assemblyPos
       // (i.e., they are Tekla main parts with assembly information)
       if (obj.assemblyPos && obj.assemblyPos !== "(Không xác định)") return true;
+      // Bolts/connections sometimes only export assemblyName/assembly, not assemblyPos.
+      if (obj.assemblyName && obj.assemblyName !== "(Không xác định)") return true;
+      if (obj.assembly && obj.assembly !== "(Không xác định)") return true;
       
       // Remove all other component objects
       return false;
@@ -688,6 +694,8 @@ async function enrichAssemblyFromHierarchy() {
       const parentClass = (parentInfo.class || "").toLowerCase();
       const isGroupingParent = (
         parentClass.includes("assembly") ||
+        parentClass.includes("ifcelementassembly") ||
+        parentClass.includes("elementassembly") ||
         parentClass.includes("ifcbeam") ||
         parentClass.includes("ifccolumn") ||
         parentClass.includes("ifcplate") ||
@@ -697,7 +705,9 @@ async function enrichAssemblyFromHierarchy() {
         parentClass.includes("ifcbuildingelementproxy") ||
         parentClass === ""
       );
-      if (!isGroupingParent) {
+      // If the parent looks like an assembly/group node, use its name.
+      // (Previous logic was inverted and could prevent bolts/discrete accessories from being assigned.)
+      if (isGroupingParent) {
         obj.assemblyPos = parentInfo.name;
         if (!obj.assemblyName) obj.assemblyName = parentInfo.name;
         if (!obj.assembly) obj.assembly = parentInfo.name;
@@ -963,7 +973,15 @@ function parseObjectProperties(props, modelId) {
     }
   }
 
-
+  // If assemblyPos is missing but we have assemblyName/assembly,
+  // use them as assemblyPos so grouping by "assemblyPos" won't produce "(Không xác định)".
+  if (!result.assemblyPos || result.assemblyPos === "(Không xác định)") {
+    if (result.assemblyName && result.assemblyName !== "(Không xác định)") {
+      result.assemblyPos = result.assemblyName;
+    } else if (result.assembly && result.assembly !== "(Không xác định)") {
+      result.assemblyPos = result.assembly;
+    }
+  }
 
   // Fallback name
   if (!result.name) result.name = `Object ${props.id}`;
