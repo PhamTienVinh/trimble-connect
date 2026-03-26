@@ -281,16 +281,13 @@ async function scanObjects() {
       `[ObjectExplorer] Stage 1 filter: ${beforeFilter} → ${allObjects.length} objects (removed ${beforeFilter - allObjects.length} non-3D classes)`,
     );
 
-    // Filter Stage 2: exclude objects with zero dimensions (volume=0, weight=0, area=0)
+    // Filter Stage 2: exclude non-3D objects with zero weight (including Revit assembly objects with weight=0)
     const beforeStage2 = allObjects.length;
     allObjects = allObjects.filter((obj) => {
-      const hasVolume = obj.volume > 0;
-      const hasWeight = obj.weight > 0;
-      const hasArea = obj.area > 0;
-      return hasVolume || hasWeight || hasArea;
+      return obj.weight > 0;
     });
     console.log(
-      `[ObjectExplorer] Stage 2 filter: ${beforeStage2} → ${allObjects.length} objects (removed ${beforeStage2 - allObjects.length} objects with zero dimensions)`,
+      `[ObjectExplorer] Stage 2 filter: ${beforeStage2} → ${allObjects.length} objects (removed ${beforeStage2 - allObjects.length} non-3D objects with weight=0)`,
     );
 
     // Assign assembly instances via Tekla properties (ASSEMBLY_POS)
