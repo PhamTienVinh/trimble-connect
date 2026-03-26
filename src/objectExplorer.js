@@ -1368,6 +1368,12 @@ function updateTreeAndNotify() {
 // ── Collapse / Expand All Groups ──
 function collapseAll() {
   document.querySelectorAll(".tree-group").forEach((g) => g.classList.add("collapsed"));
+  // Scroll to top when collapsing all
+  const container = document.getElementById("object-tree");
+  if (container) {
+    container.scrollTop = 0;
+    console.log("[ObjectExplorer] Collapsed all groups and scrolled to top");
+  }
 }
 
 function expandAll() {
@@ -1651,18 +1657,22 @@ function handleViewerSelectionChanged(data) {
     notifySelectionChanged();
     applyHighlightColors();
 
-    // Auto-scroll to the first selected item in the tree
+    // Auto-scroll to the last selected item in the tree (most recent selection)
     if (matchedUids.size > 0) {
       // Use requestAnimationFrame to ensure DOM is updated before scrolling
       requestAnimationFrame(() => {
         const container = document.getElementById("object-tree");
-        const firstUid = matchedUids.values().next().value;
+        
+        // Get the last (most recent) selected UID instead of first
+        // Convert Set to Array and get the last element
+        const uidsArray = Array.from(matchedUids);
+        const targetUid = uidsArray[uidsArray.length - 1];
         
         // Find the element by iterating (avoids CSS.escape issues with colons in UIDs)
         const allTreeItems = document.querySelectorAll(".tree-item");
         let targetEl = null;
         for (const el of allTreeItems) {
-          if (el.dataset.uid === firstUid) {
+          if (el.dataset.uid === targetUid) {
             targetEl = el;
             break;
           }
@@ -1690,9 +1700,9 @@ function handleViewerSelectionChanged(data) {
           if (!isItemVisible) {
             // Scroll to center the item in view with smooth animation
             targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
-            console.log(`[ObjectExplorer] Auto-scrolled to object: ${firstUid}`);
+            console.log(`[ObjectExplorer] Auto-scrolled to last selected object: ${targetUid}`);
           } else {
-            console.log(`[ObjectExplorer] Object already visible: ${firstUid}`);
+            console.log(`[ObjectExplorer] Last selected object already visible: ${targetUid}`);
           }
         }
       });
