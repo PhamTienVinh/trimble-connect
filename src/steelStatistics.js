@@ -181,12 +181,11 @@ function exportExcel(selectedOnly) {
 
 // ── Helpers ──
 function is3DObjectWithDimensions(obj) {
-  // Exclude objects with all dimensions = 0
-  // Must have at least one of: volume > 0, weight > 0, area > 0
-  const hasVolume = obj.volume > 0;
+  // Exclude objects with weight = 0 AND area = 0
+  // Must have at least one of: weight > 0, area > 0
   const hasWeight = obj.weight > 0;
   const hasArea = obj.area > 0;
-  return hasVolume || hasWeight || hasArea;
+  return hasWeight || hasArea;
 }
 
 function getGroupKey(obj, groupBy) {
