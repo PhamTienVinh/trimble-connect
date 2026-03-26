@@ -1567,12 +1567,11 @@ function getObjectLabel(obj) {
 // Simple approach: parse IDs, match against allObjects, update panel UI + stats.
 function handleViewerSelectionChanged(data) {
   if (!allObjects || allObjects.length === 0) return;
-  // Skip if selection was initiated from the panel — we already handled everything
-  if (selectionFromPanel) return;
 
   try {
     // Step 1: Extract all object IDs from event data
     const incomingUids = new Set();
+    const incomingUidList = [];
 
     // Handle multiple data formats from TC API
     let entries = null;
@@ -1592,7 +1591,9 @@ function handleViewerSelectionChanged(data) {
         const ids =
           entry.objectRuntimeIds || entry.entityIds || entry.ids || [];
         for (const id of ids) {
-          incomingUids.add(`${modelId}:${id}`);
+          const uid = `${modelId}:${id}`;
+          incomingUidList.push(uid);
+          incomingUids.add(uid);
         }
       }
     }
@@ -1613,6 +1614,11 @@ function handleViewerSelectionChanged(data) {
     // Step 4: Match incoming IDs against our allObjects
     const knownUids = new Set(allObjects.map((o) => `${o.modelId}:${o.id}`));
     const matchedUids = new Set();
+    // For multi-selection, scroll to the last matched uid in the incoming event order.
+    let targetUid = null;
+    for (const uid of incomingUidList) {
+      if (knownUids.has(uid)) targetUid = uid;
+    }
     const unmatchedCount = { count: 0 };
 
     for (const uid of incomingUids) {
@@ -1678,26 +1684,45 @@ function handleViewerSelectionChanged(data) {
 
         const allTreeItems = document.querySelectorAll(".tree-item");
         let targetEl = null;
-        let targetUid = null;
 
-        for (const el of allTreeItems) {
-          const uid = el.dataset.uid;
-          if (matchedUids.has(uid)) {
-            // Keep updating so the final match is the bottom-most selected item in DOM order.
-            targetEl = el;
-            targetUid = uid;
+        if (targetUid) {
+          for (const el of allTreeItems) {
+            if (el.dataset.uid === targetUid) {
+              targetEl = el;
+              break;
+            }
           }
         }
 
-        if (targetEl) {
+        // Fallback: if the target uid isn't currently rendered (filters/collapse),
+        // scroll to the bottom-most selected item currently present in DOM.
+        if (!targetEl) {
+          for (const el of allTreeItems) {
+            const uid = el.dataset.uid;
+            if (matchedUids.has(uid)) {
+              targetEl = el;
+              targetUid = uid;
+            }
+          }
+        }
+
+        if (targetEl && targetUid) {
           // Auto-expand the parent group if it's collapsed (so the element can be scrolled to).
           const parentGroup = targetEl.closest(".tree-group");
+          let didExpand = false;
           if (parentGroup && parentGroup.classList.contains("collapsed")) {
             parentGroup.classList.remove("collapsed");
+            didExpand = true;
           }
 
-          targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
-          console.log(`[ObjectExplorer] Scrolled to selected item: ${targetUid}`);
+          const doScroll = () => {
+            targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+            console.log(`[ObjectExplorer] Scrolled to selected item: ${targetUid}`);
+          };
+
+          // If we just expanded, wait one more frame for layout to settle.
+          if (didExpand) requestAnimationFrame(doScroll);
+          else doScroll();
         }
       });
     }
