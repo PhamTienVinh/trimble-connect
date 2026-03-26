@@ -271,6 +271,8 @@ async function scanObjects() {
       "ifcvirtualelement",
       // Distribution systems (MEP abstract)
       "ifcdistributionsystem", "ifcsystem",
+      // Assembly objects (Revit/IFC) - often have no physical weight
+      "ifcelementassembly", "ifcelementassemblytype",
     ]);
     const beforeFilter = allObjects.length;
     allObjects = allObjects.filter((obj) => {
