@@ -181,8 +181,12 @@ function exportExcel(selectedOnly) {
 
 // ── Helpers ──
 function is3DObjectWithDimensions(obj) {
-  // Exclude non-3D objects: those with weight = 0 (including Revit assembly objects)
-  return obj.weight > 0;
+  // Exclude objects with all dimensions = 0
+  // Must have at least one of: volume > 0, weight > 0, area > 0
+  const hasVolume = obj.volume > 0;
+  const hasWeight = obj.weight > 0;
+  const hasArea = obj.area > 0;
+  return hasVolume || hasWeight || hasArea;
 }
 
 function getGroupKey(obj, groupBy) {
