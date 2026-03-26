@@ -1655,7 +1655,9 @@ function handleViewerSelectionChanged(data) {
     if (matchedUids.size > 0) {
       // Use requestAnimationFrame to ensure DOM is updated before scrolling
       requestAnimationFrame(() => {
+        const container = document.getElementById("object-tree");
         const firstUid = matchedUids.values().next().value;
+        
         // Find the element by iterating (avoids CSS.escape issues with colons in UIDs)
         const allTreeItems = document.querySelectorAll(".tree-item");
         let targetEl = null;
@@ -1665,15 +1667,33 @@ function handleViewerSelectionChanged(data) {
             break;
           }
         }
-        if (targetEl) {
-          // Auto-expand the parent group if it's collapsed
+        
+        if (targetEl && container) {
+          // Step 1: Auto-expand the parent group if it's collapsed
           const parentGroup = targetEl.closest(".tree-group");
           if (parentGroup && parentGroup.classList.contains("collapsed")) {
             parentGroup.classList.remove("collapsed");
+            console.log(`[ObjectExplorer] Auto-expanded parent group`);
           }
-          // Instant scroll to the selected item (nhảy ngay)
-          targetEl.scrollIntoView({ behavior: "auto", block: "center" });
-          console.log(`[ObjectExplorer] Auto-scrolled to object: ${firstUid}`);
+          
+          // Step 2: Ensure the item is in viewport by scrolling
+          // Use smooth scroll behavior for better UX
+          const itemRect = targetEl.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          
+          // Calculate if item is visible
+          const isItemVisible = (
+            itemRect.top >= containerRect.top &&
+            itemRect.bottom <= containerRect.bottom
+          );
+          
+          if (!isItemVisible) {
+            // Scroll to center the item in view with smooth animation
+            targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+            console.log(`[ObjectExplorer] Auto-scrolled to object: ${firstUid}`);
+          } else {
+            console.log(`[ObjectExplorer] Object already visible: ${firstUid}`);
+          }
         }
       });
     }
