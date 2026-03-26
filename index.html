@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TC Object Explorer</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2" />
+          <line x1="12" y1="22" x2="12" y2="15.5" />
+          <polyline points="22 8.5 12 15.5 2 8.5" />
+        </svg>
+        <h1>TC Object Explorer</h1>
+      </div>
+      <div class="connection-status" id="connectionStatus">
+        <span class="status-dot disconnected"></span>
+        <span class="status-text">Disconnected</span>
+      </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="search" id="tabSearch">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <span>Tìm kiếm</span>
+      </button>
+      <button class="tab-btn" data-tab="statistics" id="tabStats">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+        <span>Thống kê</span>
+      </button>
+    </nav>
+
+    <!-- Tab: Search & Filter -->
+    <div class="tab-content active" id="panelSearch">
+      <!-- Search Bar -->
+      <div class="search-section">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input type="text" id="searchInput" placeholder="Tìm theo tên, assembly, group, material..." autocomplete="off" />
+          <button class="clear-btn" id="clearSearch" title="Xóa tìm kiếm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div class="search-filters">
+          <label class="filter-chip active" id="filterName">
+            <input type="checkbox" checked /> Tên
+          </label>
+          <label class="filter-chip active" id="filterAssembly">
+            <input type="checkbox" checked /> Assembly
+          </label>
+          <label class="filter-chip" id="filterType">
+            <input type="checkbox" /> Loại
+          </label>
+          <label class="filter-chip" id="filterGroup">
+            <input type="checkbox" /> Group
+          </label>
+          <label class="filter-chip" id="filterMaterial">
+            <input type="checkbox" /> Vật liệu
+          </label>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="results-section">
+        <div class="results-header">
+          <div class="results-header-info">
+            <span class="total-badge" id="totalBadge" title="Tổng cấu kiện trong model">Tổng: <strong id="totalObjectCount">0</strong></span>
+            <span class="separator">│</span>
+            <span id="resultCount">0 đối tượng</span>
+          </div>
+          <div class="results-actions">
+            <button class="action-btn" id="selectAllBtn" title="Chọn tất cả">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9 11 12 14 22 4" />
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              </svg>
+            </button>
+            <button class="action-btn" id="isolateBtn" title="Isolate đối tượng đã chọn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" />
+              </svg>
+            </button>
+            <button class="action-btn" id="resetViewBtn" title="Reset view">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="results-list" id="resultsList">
+          <div class="loading-inline" id="objectsLoading">
+            <div class="spinner-small"></div>
+            <p>Đang tải danh sách cấu kiện...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Statistics -->
+    <div class="tab-content" id="panelStats">
+      <div class="stats-header">
+        <h2>Thống kê khối lượng</h2>
+        <div class="stats-actions">
+          <button class="btn-primary" id="refreshStatsBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+            </svg>
+            Tải lại
+          </button>
+          <button class="btn-export" id="exportExcelBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Xuất Excel
+          </button>
+        </div>
+      </div>
+
+      <!-- Stats Toolbar -->
+      <div class="stats-toolbar">
+        <div class="toolbar-group">
+          <label class="toolbar-label">Nhóm theo:</label>
+          <select id="groupBySelect" class="toolbar-select">
+            <option value="none">Không nhóm</option>
+            <option value="name">Tên cấu kiện</option>
+            <option value="assembly">Assembly</option>
+            <option value="type">Loại</option>
+            <option value="group">Group</option>
+            <option value="material">Vật liệu</option>
+          </select>
+        </div>
+        <div class="toolbar-group">
+          <label class="scope-toggle" id="scopeToggle">
+            <input type="checkbox" id="scopeCheckbox" />
+            <span class="toggle-slider"></span>
+            <span class="toggle-label" id="scopeLabel">Toàn bộ dự án</span>
+          </label>
+        </div>
+        <div class="toolbar-group">
+          <label class="scope-toggle" id="modeToggle">
+            <input type="checkbox" id="modeCheckbox" />
+            <span class="toggle-slider"></span>
+            <span class="toggle-label" id="modeLabel">Chỉ cấu kiện thép</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="stats-summary">
+        <div class="stat-card">
+          <div class="stat-icon volume">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value" id="totalVolume">--</span>
+            <span class="stat-label">Tổng thể tích (m³)</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon weight">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" /><path d="M8 12l4 4 4-4" /><line x1="12" y1="8" x2="12" y2="16" />
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value" id="totalWeight">--</span>
+            <span class="stat-label">Tổng khối lượng thép (kg)</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon count">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />
+            </svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value" id="totalCount">--</span>
+            <span class="stat-label">Tổng cấu kiện thép</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Steel density config -->
+      <div class="density-config">
+        <label>Khối lượng riêng thép (kg/m³):</label>
+        <input type="number" id="steelDensity" value="7850" min="1000" max="20000" step="50" />
+      </div>
+
+      <!-- Stats Table -->
+      <div class="stats-table-wrapper">
+        <table class="stats-table" id="statsTable">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="name">Tên <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-sort="assembly">Assembly <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-sort="type">Loại</th>
+              <th class="sortable" data-sort="group">Group <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-sort="volume">Thể tích (m³) <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-sort="weight">Khối lượng (kg) <span class="sort-icon">↕</span></th>
+            </tr>
+          </thead>
+          <tbody id="statsTableBody">
+            <tr class="empty-row">
+              <td colspan="6">Nhấn "Tải lại" để quét dữ liệu model</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Loading overlay -->
+      <div class="loading-overlay hidden" id="loadingOverlay">
+        <div class="spinner"></div>
+        <p id="loadingText">Đang quét dữ liệu model...</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

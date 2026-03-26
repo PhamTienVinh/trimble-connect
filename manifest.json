@@ -1,0 +1,7 @@
+{
+  "title": "TC Object Explorer",
+  "description": "Search, filter and highlight 3D objects by name/assembly. Export volume & steel weight statistics to Excel.",
+  "version": "1.0.0",
+  "icon": "https://phamtienvinh.github.io/TC-Object-Explorer/icon.png",
+  "url": "https://phamtienvinh.github.io/TC-Object-Explorer/index.html"
+}
