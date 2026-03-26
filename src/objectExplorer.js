@@ -525,9 +525,35 @@ async function buildAssemblyHierarchyMap(models) {
   for (const model of models) {
     const modelId = model.id || model;
     try {
-      // Get the full hierarchy tree (depth=10 to get deep nesting)
-      const rootNodes = await viewerRef.getHierarchyChildren(modelId, [0], 10, true);
-      if (!rootNodes || rootNodes.length === 0) continue;
+      // getHierarchyChildren(modelId, entityIds, hierarchyType, recursive)
+      // NOTE: The 3rd argument is HierarchyType (not "depth").
+      // If we pass a wrong HierarchyType, assembly membership mapping becomes incomplete,
+      // causing many objects to fall back to "(Không xác định)".
+      const HierarchyType = {
+        Unknown: 0,
+        SpatialHierarchy: 1,
+        SpatialContainment: 2,
+        Containment: 3,
+        ElementAssembly: 4,
+        Group: 5,
+        System: 6,
+        Zone: 7,
+        VoidsElement: 8,
+        FillsElement: 9,
+        ConnectsPortToElement: 10,
+        ConnectsPorts: 11,
+        ServicesBuildings: 12,
+        Positions: 13,
+      };
+
+      // 1) Build general parent->child relationships from spatial hierarchy
+      const spatialRootNodes = await viewerRef.getHierarchyChildren(
+        modelId,
+        [0],
+        HierarchyType.SpatialHierarchy,
+        true,
+      );
+      if (!spatialRootNodes || spatialRootNodes.length === 0) continue;
 
       // Debug: log the first few hierarchy nodes to understand structure
       if (!window._hierDebugDone) {
@@ -535,21 +561,20 @@ async function buildAssemblyHierarchyMap(models) {
         function logTree(nodes, depth = 0) {
           if (depth > 3) return; // limit depth for logging
           for (const n of nodes.slice(0, 5)) {
-            console.log(`[HIERARCHY] ${"  ".repeat(depth)}${n.class || "?"} | name="${n.name || ""}" | id=${n.id} | children=${n.children ? n.children.length : 0}`);
+            console.log(
+              `[HIERARCHY][spatial] ${"  ".repeat(depth)}${n.class || "?"} | name="${n.name || ""}" | id=${n.id} | children=${n.children ? n.children.length : 0}`,
+            );
             if (n.children && n.children.length > 0) {
               logTree(n.children, depth + 1);
             }
           }
         }
-        logTree(rootNodes);
+        logTree(spatialRootNodes);
       }
 
-      // Recursively walk the tree
-      function walkTree(nodes, parentNode) {
+      // Walk spatial tree to fill hierarchyParentMap for all nodes
+      function walkSpatialTree(nodes, parentNode) {
         for (const node of nodes) {
-          const nodeClass = (node.class || "").toLowerCase();
-
-          // Track parent-child relationship for ALL nodes
           if (parentNode) {
             hierarchyParentMap.set(`${modelId}:${node.id}`, {
               id: parentNode.id,
@@ -558,6 +583,29 @@ async function buildAssemblyHierarchyMap(models) {
               modelId: modelId,
             });
           }
+
+          if (node.children && node.children.length > 0) {
+            walkSpatialTree(node.children, node);
+          }
+        }
+      }
+
+      walkSpatialTree(spatialRootNodes, null);
+
+      // 2) Build assembly membership from element-assembly hierarchy
+      const assemblyRootNodes = await viewerRef.getHierarchyChildren(
+        modelId,
+        [0],
+        HierarchyType.ElementAssembly,
+        true,
+      );
+
+      if (!assemblyRootNodes || assemblyRootNodes.length === 0) continue;
+
+      // Walk assembly tree to fill assembly membership maps
+      function walkAssemblyTree(nodes) {
+        for (const node of nodes) {
+          const nodeClass = (node.class || "").toLowerCase();
 
           // Strategy 1: IfcElementAssembly → explicit assembly grouping
           if (nodeClass === "ifcelementassembly" || nodeClass.includes("elementassembly")) {
@@ -591,14 +639,13 @@ async function buildAssemblyHierarchyMap(models) {
             assemblyMembershipMap.set(`${modelId}:${node.id}`, assemblyKey);
           }
 
-          // Continue walking into children
           if (node.children && node.children.length > 0) {
-            walkTree(node.children, node);
+            walkAssemblyTree(node.children);
           }
         }
       }
 
-      walkTree(rootNodes, null);
+      walkAssemblyTree(assemblyRootNodes);
     } catch (e) {
       console.warn(`[ObjectExplorer] buildAssemblyHierarchyMap failed for ${modelId}:`, e);
     }
