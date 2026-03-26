@@ -1,494 +1,215 @@
 /**
- * steelStatistics.js - Feature 2: Volume & Steel Weight Statistics + Excel Export
- * Uses real IFC property data (volume, weight) from parsed PropertySets.
- * Supports grouping by name/assembly/type/group/material, scope toggle,
- * all-object vs steel-only mode, collapsible groups.
+ * steelStatistics.js — Volume, Weight & Area Statistics with Grouping
+ *
+ * Computes per-object and grouped statistics for steel and all objects.
+ * Integrates with objectExplorer for data and with excelExport for export.
  */
 
-import { getIsConnected, showToast } from "./main.js";
-import { getAllObjects, getSelectedIds } from "./objectExplorer.js";
+import { getAllObjects, getSelectedObjects, getSelectedIds } from "./objectExplorer.js";
 import { exportToExcel } from "./excelExport.js";
 
-let statsData = [];
-let groupedData = new Map();
-let currentSort = { field: "name", asc: true };
-let currentGroupBy = "none";
-let useSelectedOnly = false;
-let steelOnlyMode = true; // true = steel only, false = all objects
-let expandedGroups = new Set();
-const DEFAULT_DENSITY = 7850; // kg/m³
+// ── Constants ──
+const STEEL_DENSITY = 7850; // kg/m³
 
-// ========================
-// Steel detection heuristics
-// ========================
+// ── State ──
+let apiRef = null;
+let viewerRef = null;
+let currentData = []; // cached stats data
 
-const STEEL_MATERIAL_KEYWORDS = [
-  "steel", "thép", "s355", "s235", "a36", "ss400", "metal",
-  "q345", "q235", "sm490", "a572", "a992", "hy80", "cor-ten",
-  "stainless", "galvanized", "zinc",
-];
+// ── Init ──
+export function initSteelStatistics(api, viewer) {
+  apiRef = api;
+  viewerRef = viewer;
 
-const STEEL_CLASS_KEYWORDS = [
-  "ifcbeam", "ifccolumn", "ifcplate", "ifcmember",
-  "ifcfastener", "ifcmechanicalfastener", "ifcrailing",
-  "ifcstairflight", "ifcramp", "ifcdiscreteaccessory",
-  "ifcbuildingelementproxy",
-];
-
-const STEEL_TYPE_KEYWORDS = [
-  "beam", "column", "brace", "plate", "purlin", "rafter",
-  "truss", "stiffener", "bolt", "anchor", "girder", "joist",
-  "channel", "angle", "tube", "pipe", "h-beam", "i-beam",
-  "w-beam", "hss", "shs", "rhs", "chs",
-];
-
-function isSteelObject(obj) {
-  const mat = (obj.material || "").toLowerCase();
-  const type = (obj.type || "").toLowerCase();
-  const name = (obj.name || "").toLowerCase();
-  const cls = (obj.class || "").toLowerCase();
-
-  // Check material field
-  if (STEEL_MATERIAL_KEYWORDS.some((kw) => mat.includes(kw))) return true;
-
-  // Check IFC class
-  if (STEEL_CLASS_KEYWORDS.some((kw) => cls.includes(kw))) return true;
-
-  // Heuristic: if material is empty, check type/name
-  if (!mat || mat === "unknown" || mat === "") {
-    if (STEEL_TYPE_KEYWORDS.some((kw) => type.includes(kw) || name.includes(kw))) return true;
-  }
-
-  return false;
-}
-
-// ========================
-// Compute Statistics
-// ========================
-
-function computeStats() {
-  const allObjects = getAllObjects();
-  const selectedIds = getSelectedIds();
-  const density = parseFloat(document.getElementById("steelDensity").value) || DEFAULT_DENSITY;
-
-  // Determine source: all or selected only
-  let sourceObjects = allObjects;
-  if (useSelectedOnly && selectedIds.size > 0) {
-    sourceObjects = allObjects.filter((obj) => selectedIds.has(obj.id));
-  }
-
-  // Apply steel filter if in steel-only mode
-  let filteredObjects = sourceObjects;
-  if (steelOnlyMode) {
-    filteredObjects = sourceObjects.filter(isSteelObject);
-  }
-
-  statsData = filteredObjects.map((obj) => {
-    const volume = obj.volume || 0;
-    // Use real IFC weight if available, otherwise compute from volume × density
-    const weight = obj.weight > 0 ? obj.weight : volume * density;
-
-    return {
-      ...obj,
-      volume,
-      weight,
-    };
+  // Listen for data from objectExplorer
+  window.addEventListener("objects-scanned", (e) => {
+    updateStatistics();
   });
 
-  computeGroupedData();
-  return statsData;
-}
+  // UI bindings
+  document.getElementById("stats-group-by").addEventListener("change", updateStatistics);
+  document.getElementById("stats-all-toggle").addEventListener("change", updateStatistics);
+  document.getElementById("btn-export-all").addEventListener("click", () => exportExcel(false));
+  document.getElementById("btn-export-selected").addEventListener("click", () => exportExcel(true));
 
-function computeGroupedData() {
-  groupedData = new Map();
-  if (currentGroupBy === "none") return;
-
-  statsData.forEach((obj) => {
-    const key = getGroupKey(obj, currentGroupBy);
-    if (!groupedData.has(key)) {
-      groupedData.set(key, { items: [], totalVolume: 0, totalWeight: 0, count: 0 });
+  // Listen for real-time selection changes
+  window.addEventListener("selection-changed", (e) => {
+    const detail = e.detail || {};
+    // Auto-switch to "selected only" when objects are selected from 3D viewer
+    const toggle = document.getElementById("stats-all-toggle");
+    if (detail.count > 0) {
+      toggle.checked = false;
+    } else {
+      toggle.checked = true;
     }
-    const group = groupedData.get(key);
-    group.items.push(obj);
-    group.totalVolume += obj.volume;
-    group.totalWeight += obj.weight;
-    group.count++;
+    updateStatistics();
   });
 }
 
-function getGroupKey(obj, field) {
-  switch (field) {
-    case "name": return obj.name || "Không có tên";
-    case "assembly": return obj.assembly || "Không có Assembly";
-    case "type": return obj.type || obj.class || "Không phân loại";
-    case "group": return obj.group || "Không có Group";
-    case "material": return obj.material || "Không rõ vật liệu";
-    default: return "Khác";
-  }
-}
+// ── Update Statistics ──
+function updateStatistics() {
+  const showAll = document.getElementById("stats-all-toggle").checked;
+  const groupBy = document.getElementById("stats-group-by").value;
 
-// ========================
-// Update Summary Cards
-// ========================
-
-function updateSummaryCards() {
-  const totalVolume = statsData.reduce((sum, obj) => sum + obj.volume, 0);
-  const totalWeight = statsData.reduce((sum, obj) => sum + obj.weight, 0);
-  const totalCount = statsData.length;
-
-  document.getElementById("totalVolume").textContent = formatNumber(totalVolume, 4);
-  document.getElementById("totalWeight").textContent = formatNumber(totalWeight, 1);
-  document.getElementById("totalCount").textContent = totalCount.toString();
-
-  // Update labels based on mode
-  const weightLabel = document.querySelector("#totalWeight + .stat-label, .stat-label");
-  const volumeLabel = document.querySelectorAll(".stat-label");
-
-  animateValue("totalVolume", totalVolume, 4);
-  animateValue("totalWeight", totalWeight, 1);
-}
-
-function animateValue(elementId, targetValue, decimals) {
-  const el = document.getElementById(elementId);
-  const duration = 600;
-  const startTime = performance.now();
-
-  function update(currentTime) {
-    const elapsed = currentTime - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    const currentValue = targetValue * eased;
-    el.textContent = formatNumber(currentValue, decimals);
-    if (progress < 1) requestAnimationFrame(update);
-  }
-
-  requestAnimationFrame(update);
-}
-
-// ========================
-// Render Stats Table
-// ========================
-
-function renderStatsTable() {
-  const tbody = document.getElementById("statsTableBody");
-
-  if (statsData.length === 0) {
-    const modeText = steelOnlyMode ? " thép" : "";
-    tbody.innerHTML = `
-      <tr class="empty-row">
-        <td colspan="6">Không tìm thấy cấu kiện${modeText} nào${useSelectedOnly ? " trong đối tượng đã chọn" : " trong model"}</td>
-      </tr>
-    `;
-    return;
-  }
-
-  if (currentGroupBy !== "none" && groupedData.size > 0) {
-    renderGroupedTable(tbody);
+  // When "Toàn bộ dự án" is unchecked, show selected objects only
+  const selIds = getSelectedIds();
+  let objects;
+  if (showAll) {
+    objects = getAllObjects();
   } else {
-    renderFlatTable(tbody);
+    objects = getSelectedObjects(); // returns [] if nothing selected
   }
-}
-
-function renderFlatTable(tbody) {
-  const sorted = [...statsData].sort((a, b) => {
-    let valA = a[currentSort.field];
-    let valB = b[currentSort.field];
-    if (typeof valA === "string") {
-      valA = valA.toLowerCase();
-      valB = (valB || "").toLowerCase();
-      return currentSort.asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-    }
-    return currentSort.asc ? valA - valB : valB - valA;
-  });
-
-  tbody.innerHTML = sorted
-    .map(
-      (obj) => `
-    <tr data-id="${obj.id}">
-      <td>${escapeHtml(obj.name)}</td>
-      <td>${escapeHtml(obj.assembly || "—")}</td>
-      <td>${escapeHtml(obj.type || obj.class || "—")}</td>
-      <td>${escapeHtml(obj.group || "—")}</td>
-      <td class="number-cell">${formatNumber(obj.volume, 4)}</td>
-      <td class="number-cell">${formatNumber(obj.weight, 1)}</td>
-    </tr>
-  `
-    )
-    .join("");
-}
-
-function renderGroupedTable(tbody) {
-  let html = "";
-
-  const sortedGroups = [...groupedData.entries()].sort((a, b) => {
-    if (currentSort.field === "volume") {
-      return currentSort.asc
-        ? a[1].totalVolume - b[1].totalVolume
-        : b[1].totalVolume - a[1].totalVolume;
-    }
-    if (currentSort.field === "weight") {
-      return currentSort.asc
-        ? a[1].totalWeight - b[1].totalWeight
-        : b[1].totalWeight - a[1].totalWeight;
-    }
-    return currentSort.asc ? a[0].localeCompare(b[0]) : b[0].localeCompare(a[0]);
-  });
-
-  for (const [groupName, group] of sortedGroups) {
-    const isExpanded = expandedGroups.has(groupName);
-    const chevron = isExpanded ? "▼" : "▶";
-
-    html += `
-      <tr class="group-header-row" data-group="${escapeHtml(groupName)}">
-        <td colspan="4">
-          <span class="group-toggle">${chevron}</span>
-          <strong>${escapeHtml(groupName)}</strong>
-          <span class="group-count">${group.count} cấu kiện</span>
-        </td>
-        <td class="number-cell group-total">${formatNumber(group.totalVolume, 4)}</td>
-        <td class="number-cell group-total">${formatNumber(group.totalWeight, 1)}</td>
-      </tr>
-    `;
-
-    if (isExpanded) {
-      const sortedItems = [...group.items].sort((a, b) => {
-        let valA = a[currentSort.field];
-        let valB = b[currentSort.field];
-        if (typeof valA === "string") {
-          valA = valA.toLowerCase();
-          valB = (valB || "").toLowerCase();
-          return currentSort.asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
-        }
-        return currentSort.asc ? valA - valB : valB - valA;
-      });
-
-      for (const obj of sortedItems) {
-        html += `
-          <tr class="group-child-row" data-id="${obj.id}">
-            <td class="indent-cell">${escapeHtml(obj.name)}</td>
-            <td>${escapeHtml(obj.assembly || "—")}</td>
-            <td>${escapeHtml(obj.type || obj.class || "—")}</td>
-            <td>${escapeHtml(obj.group || "—")}</td>
-            <td class="number-cell">${formatNumber(obj.volume, 4)}</td>
-            <td class="number-cell">${formatNumber(obj.weight, 1)}</td>
-          </tr>
-        `;
-      }
-    }
-  }
-
-  tbody.innerHTML = html;
-
-  tbody.querySelectorAll(".group-header-row").forEach((row) => {
-    row.addEventListener("click", () => {
-      const groupName = row.dataset.group;
-      if (expandedGroups.has(groupName)) {
-        expandedGroups.delete(groupName);
-      } else {
-        expandedGroups.add(groupName);
-      }
-      renderStatsTable();
-    });
-  });
-}
-
-function getGroupByLabel(field) {
-  const labels = {
-    name: "Tên cấu kiện",
-    assembly: "Assembly",
-    type: "Loại",
-    group: "Group",
-    material: "Vật liệu",
-  };
-  return labels[field] || field;
-}
-
-// ========================
-// Sort
-// ========================
-
-function setupSorting() {
-  document.querySelectorAll(".stats-table th.sortable").forEach((th) => {
-    th.addEventListener("click", () => {
-      const field = th.dataset.sort;
-      if (currentSort.field === field) {
-        currentSort.asc = !currentSort.asc;
-      } else {
-        currentSort.field = field;
-        currentSort.asc = true;
-      }
-
-      document.querySelectorAll(".sort-icon").forEach((icon) => {
-        icon.textContent = "↕";
-        icon.style.opacity = "0.4";
-      });
-
-      const icon = th.querySelector(".sort-icon");
-      if (icon) {
-        icon.textContent = currentSort.asc ? "↑" : "↓";
-        icon.style.opacity = "1";
-      }
-
-      renderStatsTable();
-    });
-  });
-}
-
-// ========================
-// Load Stats
-// ========================
-
-async function loadStatistics() {
-  const overlay = document.getElementById("loadingOverlay");
-  const loadingText = document.getElementById("loadingText");
-
-  overlay.classList.remove("hidden");
-  loadingText.textContent = "Đang quét dữ liệu IFC model...";
-  await new Promise((r) => setTimeout(r, 500));
-
-  const modeText = steelOnlyMode ? "cấu kiện thép" : "tất cả cấu kiện";
-  loadingText.textContent = `Đang phân tích ${modeText}...`;
-  await new Promise((r) => setTimeout(r, 300));
-
-  computeStats();
-
-  loadingText.textContent = "Đang tính toán thể tích & khối lượng...";
-  await new Promise((r) => setTimeout(r, 200));
-
-  updateSummaryCards();
-  renderStatsTable();
-
-  overlay.classList.add("hidden");
-  const scopeText = useSelectedOnly ? " (đối tượng đã chọn)" : "";
-  const modeLabel = steelOnlyMode ? " thép" : "";
-  showToast(`Tìm thấy ${statsData.length} cấu kiện${modeLabel}${scopeText}`, "success");
-}
-
-// ========================
-// Export Excel
-// ========================
-
-function handleExportExcel() {
-  if (statsData.length === 0) {
-    showToast("Chưa có dữ liệu để xuất. Nhấn 'Tải lại' trước.", "error");
+  if (!objects || objects.length === 0) {
+    clearStats();
     return;
   }
 
-  const density = parseFloat(document.getElementById("steelDensity").value) || DEFAULT_DENSITY;
+  // Calculate totals
+  let totalVolume = 0;
+  let totalWeight = 0;
+  let totalArea = 0;
 
-  const success = exportToExcel(statsData, {
-    density,
-    totalVolume: statsData.reduce((s, o) => s + o.volume, 0),
-    totalWeight: statsData.reduce((s, o) => s + o.weight, 0),
-    projectName: "Trimble Connect Project",
-    exportDate: new Date().toLocaleDateString("vi-VN"),
-    groupByField: currentGroupBy,
-    groupedData: currentGroupBy !== "none" ? groupedData : null,
-    steelOnly: steelOnlyMode,
+  const enriched = objects.map((obj) => {
+    let vol = obj.volume || 0;
+    let wt = obj.weight || 0;
+    let area = obj.area || 0;
+
+    // If weight is 0 but volume exists, calculate from density
+    if (wt === 0 && vol > 0) {
+      wt = vol * STEEL_DENSITY;
+    }
+
+    totalVolume += vol;
+    totalWeight += wt;
+    totalArea += area;
+
+    return { ...obj, volume: vol, weight: wt, area };
   });
 
-  if (success) {
-    showToast("Đã xuất file Excel thành công!", "success");
+  currentData = enriched;
+
+  // Update summary cards
+  document.getElementById("stat-total-objects").textContent = formatNumber(objects.length);
+  document.getElementById("stat-total-volume").textContent = formatVolume(totalVolume);
+  document.getElementById("stat-total-weight").textContent = formatWeight(totalWeight);
+  document.getElementById("stat-total-area").textContent = formatArea(totalArea);
+
+  // Group data
+  const groups = {};
+  for (const obj of enriched) {
+    const key = getGroupKey(obj, groupBy) || "(Không xác định)";
+    if (!groups[key]) {
+      groups[key] = { name: key, count: 0, volume: 0, weight: 0, area: 0 };
+    }
+    groups[key].count++;
+    groups[key].volume += obj.volume;
+    groups[key].weight += obj.weight;
+    groups[key].area += obj.area;
+  }
+
+  const sortedGroups = Object.values(groups).sort((a, b) => b.weight - a.weight);
+
+  document.getElementById("stat-total-groups").textContent = formatNumber(sortedGroups.length);
+
+  // Render table
+  renderStatsTable(sortedGroups, totalVolume, totalWeight, totalArea);
+
+  // Hide placeholder
+  document.getElementById("stats-placeholder").style.display = "none";
+}
+
+// ── Render Table ──
+function renderStatsTable(groups, totalVolume, totalWeight, totalArea) {
+  const tbody = document.getElementById("stats-table-body");
+  const tfoot = document.getElementById("stats-table-footer");
+
+  let bodyHtml = "";
+  for (const g of groups) {
+    bodyHtml += `<tr>`;
+    bodyHtml += `<td>${escHtml(g.name)}</td>`;
+    bodyHtml += `<td>${formatNumber(g.count)}</td>`;
+    bodyHtml += `<td>${formatVolume(g.volume)}</td>`;
+    bodyHtml += `<td>${formatArea(g.area)}</td>`;
+    bodyHtml += `<td>${formatWeight(g.weight)}</td>`;
+    bodyHtml += `</tr>`;
+  }
+  tbody.innerHTML = bodyHtml;
+
+  tfoot.innerHTML = `
+    <tr>
+      <td>TỔNG CỘNG</td>
+      <td>${formatNumber(groups.reduce((s, g) => s + g.count, 0))}</td>
+      <td>${formatVolume(totalVolume)}</td>
+      <td>${formatArea(totalArea)}</td>
+      <td>${formatWeight(totalWeight)}</td>
+    </tr>
+  `;
+}
+
+// ── Export Excel ──
+function exportExcel(selectedOnly) {
+  const groupBy = document.getElementById("stats-group-by").value;
+  const data = selectedOnly ? getSelectedObjects() : getAllObjects();
+
+  if (!data || data.length === 0) {
+    console.warn("[Statistics] No data to export");
+    return;
+  }
+
+  // Prepare export data
+  const enrichedData = data.map((obj) => ({
+    ...obj,
+    weight: obj.weight || (obj.volume > 0 ? obj.volume * STEEL_DENSITY : 0),
+  }));
+
+  exportToExcel(enrichedData, groupBy, selectedOnly);
+}
+
+// ── Helpers ──
+function getGroupKey(obj, groupBy) {
+  switch (groupBy) {
+    case "assemblyName": return obj.assemblyName || obj.assembly || "(Không xác định)";
+    case "assemblyPos": return obj.assemblyPos || "(Không xác định)";
+    case "assemblyPosCode": return obj.assemblyPosCode || "(Không xác định)";
+    case "name": return obj.name;
+    case "group": return obj.group;
+    case "objectType": return obj.type || obj.ifcClass || "(Không xác định)";
+    case "material": return obj.material;
+    default: return obj.assemblyDisplayName || obj.assembly;
   }
 }
 
-// ========================
-// Density, GroupBy, Scope, Mode
-// ========================
-
-function setupDensityInput() {
-  const input = document.getElementById("steelDensity");
-  input.addEventListener("change", () => {
-    if (statsData.length > 0) {
-      computeStats();
-      updateSummaryCards();
-      renderStatsTable();
-      showToast(`Đã cập nhật khối lượng riêng: ${input.value} kg/m³`);
-    }
-  });
+function clearStats() {
+  document.getElementById("stat-total-objects").textContent = "0";
+  document.getElementById("stat-total-volume").textContent = "0 m³";
+  document.getElementById("stat-total-weight").textContent = "0 kg";
+  document.getElementById("stat-total-area").textContent = "0 m²";
+  document.getElementById("stat-total-groups").textContent = "0";
+  document.getElementById("stats-table-body").innerHTML = "";
+  document.getElementById("stats-table-footer").innerHTML = "";
+  document.getElementById("stats-placeholder").style.display = "flex";
 }
 
-function setupGroupBy() {
-  const select = document.getElementById("groupBySelect");
-  select.addEventListener("change", () => {
-    currentGroupBy = select.value;
-    expandedGroups.clear();
-    if (statsData.length > 0) {
-      computeGroupedData();
-      renderStatsTable();
-      showToast(
-        currentGroupBy === "none"
-          ? "Hiển thị không nhóm"
-          : `Nhóm theo: ${getGroupByLabel(currentGroupBy)}`
-      );
-    }
-  });
+function formatNumber(n) {
+  return n.toLocaleString("vi-VN");
 }
 
-function setupScopeToggle() {
-  const checkbox = document.getElementById("scopeCheckbox");
-  const label = document.getElementById("scopeLabel");
-
-  checkbox.addEventListener("change", () => {
-    useSelectedOnly = checkbox.checked;
-    label.textContent = useSelectedOnly ? "Đối tượng đã chọn" : "Toàn bộ dự án";
-
-    if (useSelectedOnly) {
-      const selectedIds = getSelectedIds();
-      if (selectedIds.size === 0) {
-        showToast("Chưa chọn đối tượng nào ở tab Tìm kiếm", "error");
-        checkbox.checked = false;
-        useSelectedOnly = false;
-        label.textContent = "Toàn bộ dự án";
-        return;
-      }
-    }
-
-    loadStatistics();
-  });
+function formatVolume(v) {
+  return v.toFixed(6) + " m³";
 }
 
-function setupModeToggle() {
-  const checkbox = document.getElementById("modeCheckbox");
-  const label = document.getElementById("modeLabel");
-
-  if (!checkbox || !label) return;
-
-  checkbox.addEventListener("change", () => {
-    steelOnlyMode = !checkbox.checked;
-    label.textContent = steelOnlyMode ? "Chỉ cấu kiện thép" : "Tất cả cấu kiện";
-    loadStatistics();
-  });
+function formatArea(a) {
+  return a.toFixed(4) + " m²";
 }
 
-// ========================
-// Helpers
-// ========================
 
-function formatNumber(value, decimals = 2) {
-  return value.toLocaleString("vi-VN", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+function formatWeight(w) {
+  if (w >= 1000) return (w / 1000).toFixed(2) + " tấn";
+  return w.toFixed(2) + " kg";
 }
 
-function escapeHtml(text) {
+function escHtml(str) {
   const div = document.createElement("div");
-  div.textContent = text;
+  div.textContent = str;
   return div.innerHTML;
-}
-
-// ========================
-// Module Init
-// ========================
-
-export function initSteelStatistics() {
-  setupSorting();
-  setupDensityInput();
-  setupGroupBy();
-  setupScopeToggle();
-  setupModeToggle();
-
-  document.getElementById("refreshStatsBtn").addEventListener("click", loadStatistics);
-  document.getElementById("exportExcelBtn").addEventListener("click", handleExportExcel);
 }
