@@ -1,7 +1,7 @@
 {
   "name": "tc-object-explorer",
   "version": "1.0.0",
-  "description": "Trimble Connect 3D Extension - Object Explorer & Steel Statistics",
+  "description": "Trimble Connect 3D Extension - DDC Statistics",
   "type": "module",
   "scripts": {
     "dev": "vite",
