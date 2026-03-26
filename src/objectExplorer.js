@@ -309,6 +309,48 @@ async function scanObjects() {
     // Build display names for assembly groups
     buildAssemblyDisplayNames();
 
+    // Mark assembly parent nodes and exclude component objects
+    // Strategy: Assembly objects from IFC hierarchy should be visible.
+    // Component objects (parts inside assembly) that are NOT assembly themselves should be hidden
+    // unless they have their own assemblyPos (Tekla main parts)
+    for (const obj of allObjects) {
+      const objectKey = `${obj.modelId}:${obj.id}`;
+      
+      // Mark if this is an assembly parent node
+      if (assemblyChildrenMap.has(objectKey)) {
+        obj.isAssemblyParent = true;
+      }
+      
+      // Mark if this object is a component of an assembly
+      if (assemblyMembershipMap.has(objectKey)) {
+        obj.isAssemblyComponent = true;
+      }
+    }
+
+    // Filter Stage 3: Remove component objects (parts inside assemblies) from the object list
+    // but keep assembly parent nodes and standalone objects with their own assemblyPos
+    const beforeComponentFilter = allObjects.length;
+    allObjects = allObjects.filter((obj) => {
+      // Keep assembly parent nodes (IfcElementAssembly)
+      if (obj.isAssemblyParent) return true;
+      
+      // Keep objects that are NOT components of an assembly
+      if (!obj.isAssemblyComponent) return true;
+      
+      // Keep component objects only if they have their own meaningful assemblyPos
+      // (i.e., they are Tekla main parts with assembly information)
+      if (obj.assemblyPos && obj.assemblyPos !== "(Không xác định)") return true;
+      
+      // Remove all other component objects
+      return false;
+    });
+    
+    if (beforeComponentFilter !== allObjects.length) {
+      console.log(
+        `[ObjectExplorer] Stage 3 filter: ${beforeComponentFilter} → ${allObjects.length} objects (removed ${beforeComponentFilter - allObjects.length} component objects nested in assemblies)`,
+      );
+    }
+
     filteredObjects = [...allObjects];
 
     selectedIds.clear();
@@ -614,6 +656,15 @@ async function enrichAssemblyFromHierarchy() {
         enrichedFromParent++;
       }
     }
+
+    // Strategy 3: For IfcElementAssembly objects without assemblyPos, use object name
+    // This helps fill in "(Không xác định)" for assembly nodes
+    const ifcClass = (obj.ifcClass || "").toLowerCase();
+    if (!obj.assemblyPos && (ifcClass === "ifcelementassembly" || ifcClass.includes("elementassembly"))) {
+      if (obj.name && obj.name.trim()) {
+        obj.assemblyPos = obj.name;
+      }
+    }
   }
 
   const total = enrichedFromAssembly + enrichedFromParent;
@@ -658,6 +709,8 @@ function parseObjectProperties(props, modelId) {
     profile: "",
     ifcClass: props.class || "",
     isTekla: false,
+    isAssemblyParent: false,     // Marked as IfcElementAssembly or assembly parent node
+    isAssemblyComponent: false,  // Marked as component/child of an assembly
     rawProperties: [], // [{pset, name, value}] for debug/export
   };
 
