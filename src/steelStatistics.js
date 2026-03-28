@@ -181,18 +181,21 @@ function exportExcel(selectedOnly) {
 
 // ── Helpers ──
 function is3DObjectWithDimensions(obj) {
-  // Exclude objects with weight = 0 AND area = 0
-  // Must have at least one of: weight > 0, area > 0, volume > 0
   const hasWeight = obj.weight > 0;
   const hasArea = obj.area > 0;
   const hasVolume = obj.volume > 0;
   
   // Include Tekla Bolt components even if they lack standard dimensions
-  // They should be counted in statistics
   const isBolt = obj.isTeklaBolt || false;
   
-  // Objects accepted: have weight, area, volume, OR are bolts/fasteners
-  return hasWeight || hasArea || hasVolume || isBolt;
+  // Include Tekla-origin objects
+  const isTekla = obj.isTekla || false;
+  
+  // Include objects with a real name (not auto-generated)
+  const hasRealName = obj.name && !/^Object \d+$/.test(obj.name);
+  
+  // Objects accepted: have physical data, are bolts/fasteners, are Tekla, or have real names
+  return hasWeight || hasArea || hasVolume || isBolt || (isTekla && hasRealName);
 }
 
 function getGroupKey(obj, groupBy) {
@@ -204,6 +207,9 @@ function getGroupKey(obj, groupBy) {
     case "group": return obj.group;
     case "objectType": return obj.type || obj.ifcClass || "(Không xác định)";
     case "material": return obj.material;
+    case "profile": return obj.profile || "(Không xác định)";
+    case "referenceName": return obj.referenceName || "(Không xác định)";
+    case "ifcClass": return obj.ifcClass || "(Không xác định)";
     default: return obj.assemblyDisplayName || obj.assembly;
   }
 }

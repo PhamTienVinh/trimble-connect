@@ -76,10 +76,12 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     [`Ngày xuất: ${dateStr} | ${selectedOnly ? "Đã chọn" : "Toàn bộ"} | ${data.length} đối tượng`],
     [],
     [
-      "STT", "Tên", "Profile", "IFC Class", "Object Type",
+      "STT", "Tên", "Profile", "Reference", "IFC Class", "Object Type",
       "Assembly Pos", "Assembly Name", "Assembly Code",
       "Group", "Vật liệu",
       "Thể tích (m³)", "Diện tích (m²)", "Khối lượng (kg)",
+      "Bolt Standard", "Bolt Size", "Bolt Length", "Bolt Grade",
+      "Bolt Count", "Nut Type", "Nut Count", "Washer Type", "Washer Count",
     ],
   ];
 
@@ -128,6 +130,7 @@ export function exportToExcel(data, groupBy, selectedOnly) {
       stt,
       obj.name || "",
       obj.profile || "",
+      obj.referenceName || "",
       obj.ifcClass || "",
       obj.type || "",
       obj.assemblyPos || "",
@@ -138,27 +141,40 @@ export function exportToExcel(data, groupBy, selectedOnly) {
       r(obj.volume || 0, 6),
       r(obj.area || 0, 4),
       r(obj.weight || 0, 2),
+      obj.boltStandard || obj.boltFullName || "",
+      obj.boltSize || "",
+      obj.boltLength || "",
+      obj.boltGrade || "",
+      obj.boltCount || "",
+      obj.nutType || "",
+      obj.nutCount || "",
+      obj.washerType || "",
+      obj.washerCount || "",
     ]);
   }
 
   detailRows.push([]);
   detailRows.push([
-    "", "TỔNG CỘNG", "", "", "", "", "", "", "", "",
+    "", "TỔNG CỘNG", "", "", "", "", "", "", "", "", "",
     r(totalVolume, 6), r(totalArea, 4), r(totalWeight, 2),
+    "", "", "", "", "", "", "", "", "",
   ]);
 
   const wsDetail = XLSX.utils.aoa_to_sheet([...detailHeader, ...detailRows]);
   wsDetail["!cols"] = [
-    { wch: 6 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 22 },
+    { wch: 6 }, { wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 },
     { wch: 18 }, { wch: 22 }, { wch: 18 },
     { wch: 18 }, { wch: 15 },
     { wch: 16 }, { wch: 16 }, { wch: 16 },
+    { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+    { wch: 10 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 10 },
   ];
 
   // Merge: title row + all group header rows
-  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 12 } }];
+  const colCount = 22; // total columns
+  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: colCount } }];
   for (const rowIdx of mergeRows) {
-    merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 12 } });
+    merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: colCount } });
   }
   wsDetail["!merges"] = merges;
   XLSX.utils.book_append_sheet(wb, wsDetail, "Chi tiết");
@@ -169,6 +185,9 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     { key: "assemblyName", label: "Assembly Name", sheetName: "Theo Assembly Name" },
     { key: "assemblyPosCode", label: "Assembly Code", sheetName: "Theo Assembly Code" },
     { key: "objectType", label: "Object Type", sheetName: "Theo Object Type" },
+    { key: "profile", label: "Profile", sheetName: "Theo Profile" },
+    { key: "referenceName", label: "Reference Name", sheetName: "Theo Reference" },
+    { key: "ifcClass", label: "IFC Class", sheetName: "Theo IFC Class" },
     { key: "name", label: "Tên", sheetName: "Theo Tên" },
     { key: "group", label: "Group", sheetName: "Theo Group" },
     { key: "material", label: "Vật liệu", sheetName: "Theo Vật liệu" },
@@ -280,6 +299,9 @@ function getGroupKey(obj, groupBy) {
     case "group": return obj.group;
     case "objectType": return obj.type || obj.ifcClass || "(Không xác định)";
     case "material": return obj.material;
+    case "profile": return obj.profile || "(Không xác định)";
+    case "referenceName": return obj.referenceName || "(Không xác định)";
+    case "ifcClass": return obj.ifcClass || "(Không xác định)";
     default: return obj.assemblyDisplayName || obj.assembly;
   }
 }
@@ -294,6 +316,9 @@ function getGroupLabel(groupBy) {
     case "group": return "Group";
     case "objectType": return "Object Type";
     case "material": return "Vật liệu";
+    case "profile": return "Profile Name";
+    case "referenceName": return "Reference Name";
+    case "ifcClass": return "IFC Class";
     default: return groupBy;
   }
 }
