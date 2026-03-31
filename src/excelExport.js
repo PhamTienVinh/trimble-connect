@@ -49,7 +49,7 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     [`Nhóm theo: ${getGroupLabel(groupBy)}`],
     [`Tổng số đối tượng: ${data.length}`],
     [],
-    [getGroupLabel(groupBy), "Số lượng", "Thể tích (m³)", "Diện tích (m²)", "Khối lượng (kg)"],
+    [getGroupLabel(groupBy), "Số lượng", "Thể tích (m³)", "DT bề mặt (m²)", "Khối lượng (kg)"],
   ];
 
   let totalVolume = 0, totalWeight = 0, totalArea = 0;
@@ -79,7 +79,7 @@ export function exportToExcel(data, groupBy, selectedOnly) {
       "STT", "Tên", "Profile", "Reference", "IFC Class", "Object Type",
       "Assembly Pos", "Assembly Name", "Assembly Code",
       "Group", "Vật liệu",
-      "Thể tích (m³)", "Diện tích (m²)", "Khối lượng (kg)",
+      "Thể tích (m³)", "DT bề mặt (m²)", "Khối lượng (kg)",
       "Bolt Standard", "Bolt Size", "Bolt Length", "Bolt Grade",
       "Bolt Count", "Nut Type", "Nut Count", "Washer Type", "Washer Count",
     ],
@@ -267,7 +267,7 @@ function createGroupSheet(data, groupBy, label) {
   const rows = [
     [`THỐNG KÊ THEO ${label.toUpperCase()}`],
     [],
-    [label, "Số lượng", "Thể tích (m³)", "Diện tích (m²)", "Khối lượng (kg)"],
+    [label, "Số lượng", "Thể tích (m³)", "DT bề mặt (m²)", "Khối lượng (kg)"],
   ];
 
   let totalVol = 0, totalWt = 0, totalArea = 0;

@@ -1407,20 +1407,40 @@ function parseObjectProperties(props, modelId) {
         if (!isNaN(w) && w > 0 && w > result.weight) result.weight = w;
       }
 
-      // Surface Area (m²)
+      // Surface Area (m²) — only match actual surface area properties,
+      // NOT cross-section area, reinforcement area, etc.
       const normalizedArea = propName.replace(/[\s_.\-]/g, "").replace(/[()]/g, "");
+      const isCrossSectionArea = normalizedArea.includes("crosssection") ||
+        normalizedArea.includes("reinforcement") ||
+        normalizedArea.includes("rebar");
       if (
-        propType === 1 ||
-        propName === "area" ||
-        propName === "diện tích" ||
-        propName === "surfacearea" ||
-        propName === "surface area" ||
-        propName === "netsurfacearea" ||
-        propName === "grosssurfacearea" ||
-        propName === "totalsurfacearea" ||
-        propName === "netarea" ||
-        propName === "grossarea"
-        || normalizedArea.includes("area")
+        !isCrossSectionArea && (
+          propName === "area" ||
+          propName === "diện tích" ||
+          propName === "diện tích bề mặt" ||
+          propName === "surfacearea" ||
+          propName === "surface area" ||
+          propName === "netsurfacearea" ||
+          propName === "net surface area" ||
+          propName === "grosssurfacearea" ||
+          propName === "gross surface area" ||
+          propName === "totalsurfacearea" ||
+          propName === "total surface area" ||
+          propName === "outersurfacearea" ||
+          propName === "outer surface area" ||
+          propName === "netarea" ||
+          propName === "grossarea" ||
+          propName === "totalarea" ||
+          normalizedArea === "area" ||
+          normalizedArea === "surfacearea" ||
+          normalizedArea === "netsurfacearea" ||
+          normalizedArea === "grosssurfacearea" ||
+          normalizedArea === "totalsurfacearea" ||
+          normalizedArea === "outersurfacearea" ||
+          normalizedArea === "netarea" ||
+          normalizedArea === "grossarea" ||
+          normalizedArea === "totalarea"
+        )
       ) {
         const a = parseQuantityNumber(propValue);
         if (!isNaN(a) && a > result.area) result.area = a;
