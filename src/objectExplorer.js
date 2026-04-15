@@ -803,13 +803,16 @@ function classifyAssemblyProperty(rawPropName) {
   }
 
   // ── ASSEMBLY_MARK detection ──
+  // Also recognizes "assembly/cast unit mark" (Tekla cast unit naming convention)
   if (
     norm === "assemblymark" ||
     norm === "assemblemark" ||
     norm === "asmmark" ||
     norm === "mainmark" ||
     norm === "mainpartmark" ||
-    norm === "assemblypartmark"
+    norm === "assemblypartmark" ||
+    norm === "castunitmark" ||
+    norm === "assemblycastunitmark"
   ) {
     return "mark";
   }
@@ -825,6 +828,7 @@ function classifyAssemblyProperty(rawPropName) {
   }
 
   // ── ASSEMBLY_POSITION_CODE detection ──
+  // Also recognizes "assembly/cast unit position code" and common typo "ASSEMBLY_POSTION_CODE"
   if (
     norm === "assemblypositioncode" ||
     norm === "assemblyposcode" ||
@@ -833,7 +837,11 @@ function classifyAssemblyProperty(rawPropName) {
     norm === "positioncode" ||
     norm === "asmposcode" ||
     norm === "asmpositioncode" ||
-    norm === "assemblyposprefix"
+    norm === "assemblyposprefix" ||
+    norm === "assemblypostioncode" ||     // common typo: POSTION → POSITION
+    norm === "castunitpositioncode" ||    // cast unit naming variant
+    norm === "castunitposcode" ||         // cast unit short variant
+    norm === "assemblycastunitpositioncode"
   ) {
     return "code";
   }
@@ -856,6 +864,17 @@ function classifyAssemblyProperty(rawPropName) {
   if (/^main[\s_.-]?part[\s_.-]?pos(?:ition)?$/i.test(cleanName)) return "pos";
   if (/^ass?e?m(?:bly)?[\s_.-]?pos(?:ition)?[\s_.-]?code$/i.test(cleanName)) return "code";
   if (/^pos(?:ition)?[\s_.-]?code$/i.test(cleanName)) return "code";
+
+  // Cast unit patterns (Tekla concrete cast unit naming)
+  if (/^cast[\s_.-]?unit[\s_.-]?mark$/i.test(cleanName)) return "mark";
+  if (/^cast[\s_.-]?unit[\s_.-]?pos(?:ition)?[\s_.-]?code$/i.test(cleanName)) return "code";
+  if (/^cast[\s_.-]?unit[\s_.-]?pos(?:ition)?$/i.test(cleanName)) return "pos";
+  if (/^cast[\s_.-]?unit[\s_.-]?name$/i.test(cleanName)) return "name";
+  // Handle "assembly/cast unit" prefix forms (after slash-strip)
+  if (/^(?:ass?e?m(?:bly)?[\s_./\\-]?)?cast[\s_.-]?unit[\s_.-]?mark$/i.test(cleanName)) return "mark";
+  if (/^(?:ass?e?m(?:bly)?[\s_./\\-]?)?cast[\s_.-]?unit[\s_.-]?pos(?:it?ion)?[\s_.-]?code$/i.test(cleanName)) return "code";
+  // Typo fallback: POSTION (missing I) in any pattern
+  if (/^ass?e?m(?:bly)?[\s_.-]?post?ion[\s_.-]?code$/i.test(cleanName)) return "code";
 
   return null;
 }
