@@ -3708,16 +3708,10 @@ function buildTooltip(obj) {
   if (obj.area > 0) parts.push(`A: ${obj.area.toFixed(4)} m²`);
   if (obj.weight > 0) {
     let weightStr = `W: ${obj.weight >= 1000 ? (obj.weight / 1000).toFixed(2) + " tấn" : obj.weight.toFixed(2) + " kg"}`;
-    if (obj.weightSource === "calculated" && obj.density) {
-      weightStr += ` (= V × ${obj.density} kg/m³ [${obj.densityLabel}])`;
-    } else if (obj.weightSource === "ifc") {
+    if (obj.weightSource === "ifc") {
       weightStr += ` (từ IFC)`;
     }
     parts.push(weightStr);
-  }
-  // Always show density info
-  if (obj.density) {
-    parts.push(`KLR: ${obj.density.toLocaleString("vi-VN")} kg/m³ (${obj.densityLabel})`);
   }
   if (obj.length > 0) parts.push(`L: ${obj.length.toFixed(3)} m`);
   
@@ -4042,7 +4036,7 @@ function updateSummary() {
   const fmtWeight = (w) => w >= 1000 ? (w / 1000).toFixed(2) + " tấn" : w.toFixed(2) + " kg";
   // Display total objects count + project totals
   document.getElementById("total-objects-count").textContent =
-    `${filteredObjects.length} objects | V: ${fmtVol(projectVolume)} | W: ${fmtWeight(projectWeight)} | A: ${fmtArea(projectArea)} | KLR: 7850 kg/m³`;
+    `${filteredObjects.length} objects | V: ${fmtVol(projectVolume)} | W: ${fmtWeight(projectWeight)} | A: ${fmtArea(projectArea)}`;
 
   document.getElementById("selected-objects-count").textContent =
     `${selectedIds.size} đã chọn`;
@@ -4064,7 +4058,7 @@ function updateSummary() {
       }
     }
 
-    const statsText = `V: ${fmtVol(totalVolume)} | W: ${fmtWeight(totalWeight)} | A: ${fmtArea(totalArea)} | KLR: 7850 kg/m³`;
+    const statsText = `V: ${fmtVol(totalVolume)} | W: ${fmtWeight(totalWeight)} | A: ${fmtArea(totalArea)}`;
 
     if (selStatsEl) {
       selStatsEl.textContent = statsText;
