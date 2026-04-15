@@ -2215,10 +2215,18 @@ function parseObjectProperties(props, modelId) {
         if (asmClass === "pos" && !result.assemblyPos) {
           result.assemblyPos = asmVal;
           console.log(`[ASM] Object ${props.id}: assemblyPos = "${asmVal}" (from "${rawPropName}")`);
-        } else if (asmClass === "mark" && !result.assemblyPos) {
-          // ASSEMBLY_MARK is used as assemblyPos fallback (unique per assembly)
-          result.assemblyPos = asmVal;
-          console.log(`[ASM] Object ${props.id}: assemblyPos(mark) = "${asmVal}" (from "${rawPropName}")`);
+        } else if (asmClass === "mark") {
+          // ASSEMBLY_MARK / cast unit mark → sets BOTH assemblyPos AND assemblyName
+          // Mark is the assembly's identifying number (e.g. "B1")
+          // It serves as assemblyPos fallback AND assemblyName if those are empty
+          if (!result.assemblyPos) {
+            result.assemblyPos = asmVal;
+            console.log(`[ASM] Object ${props.id}: assemblyPos(mark) = "${asmVal}" (from "${rawPropName}")`);
+          }
+          if (!result.assemblyName) {
+            result.assemblyName = asmVal;
+            console.log(`[ASM] Object ${props.id}: assemblyName(mark) = "${asmVal}" (from "${rawPropName}")`);
+          }
         } else if (asmClass === "name" && !result.assemblyName) {
           result.assemblyName = asmVal;
         } else if (asmClass === "code" && !result.assemblyPosCode) {
@@ -2479,15 +2487,28 @@ function parseObjectProperties(props, modelId) {
     }
   }
 
-  // ── IMPORTANT: Keep each assembly field INDEPENDENT ──
-  // Do NOT cross-fill assemblyPos with assemblyName or vice versa.
-  // Each represents a different Tekla concept:
+  // ── Cross-fill assembly fields for complete grouping ──
+  // Each field represents a different Tekla concept:
   //   - assemblyPos:     ASSEMBLY_POS     (unique instance identifier, e.g. "B1/1")
   //   - assemblyName:    ASSEMBLY_NAME    (type name, e.g. "BEAM_ASSEMBLY")
   //   - assemblyPosCode: ASSEMBLY_POSITION_CODE (prefix/code, e.g. "B")
   //   - assembly:        Generic assembly fallback
-  // They should remain separate so filtering works correctly.
-  // If assemblyPos is empty, it stays empty — don't fill it with assemblyName.
+  // Cross-fill ensures all 3 filter groups (Name, Pos, Code) have data when possible:
+  //   - If assemblyName is empty but assemblyPos exists → use assemblyPos as assemblyName
+  //   - If assemblyPos is empty but assemblyName exists → use assemblyName as assemblyPos
+  //   - assembly serves as ultimate fallback for both
+  if (!result.assemblyName && result.assemblyPos) {
+    result.assemblyName = result.assemblyPos;
+  }
+  if (!result.assemblyPos && result.assemblyName) {
+    result.assemblyPos = result.assemblyName;
+  }
+  if (!result.assemblyName && result.assembly) {
+    result.assemblyName = result.assembly;
+  }
+  if (!result.assemblyPos && result.assembly) {
+    result.assemblyPos = result.assembly;
+  }
 
   // Fallback name
   if (!result.name) result.name = `Object ${props.id}`;
@@ -2635,8 +2656,8 @@ function buildThreeLevelGroups(objects, level1Key, level2Key, level3Key) {
 
 function getAssemblyValueForKey(obj, key) {
   switch (key) {
-    case "assemblyName": return obj.assemblyName || obj.assembly || "";
-    case "assemblyPos": return obj.assemblyPos || "";
+    case "assemblyName": return obj.assemblyName || obj.assemblyPos || obj.assembly || "";
+    case "assemblyPos": return obj.assemblyPos || obj.assemblyName || obj.assembly || "";
     case "assemblyPosCode": return obj.assemblyPosCode || "";
     default: return "";
   }
