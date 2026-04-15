@@ -250,20 +250,73 @@ export function exportToExcel(data, groupBy, selectedOnly) {
   console.log(`[ExcelExport] Exported ${data.length} records to ${filename}`);
 }
 
-// ── Helper: Create a grouped summary sheet ──
 function createGroupSheet(data, groupBy, label) {
   const groups = {};
+  const groupChildren = {}; // Store children per group for assembly sheets
   for (const obj of data) {
     const key = getGroupKey(obj, groupBy) || "(Không xác định)";
     if (!groups[key]) {
       groups[key] = { count: 0, volume: 0, weight: 0, area: 0 };
+      groupChildren[key] = [];
     }
     groups[key].count++;
     groups[key].volume += obj.volume || 0;
     groups[key].weight += obj.weight || 0;
     groups[key].area += obj.area || 0;
+    groupChildren[key].push(obj);
   }
 
+  // For assembly-type groupings, show children detail
+  const isAssemblyGroup = ["assemblyPos", "assemblyName", "assemblyPosCode"].includes(groupBy);
+
+  if (isAssemblyGroup) {
+    // Detailed assembly view: show children under each assembly group
+    const rows = [
+      [`THỐNG KÊ THEO ${label.toUpperCase()} — CHI TIẾT CHILDREN`],
+      [],
+      [label, "Tên", "Profile", "IFC Class", "Thể tích (m³)", "DT bề mặt (m²)", "Khối lượng (kg)"],
+    ];
+
+    let totalVol = 0, totalWt = 0, totalArea = 0;
+    const sortedKeys = Object.keys(groups).sort();
+
+    for (const key of sortedKeys) {
+      const g = groups[key];
+      totalVol += g.volume;
+      totalWt += g.weight;
+      totalArea += g.area;
+
+      // Assembly group header row
+      rows.push([
+        `▶ ${key} (${g.count} items)`, "", "", "",
+        r(g.volume, 6), r(g.area, 4), r(g.weight, 2),
+      ]);
+
+      // Children rows sorted by name
+      const children = groupChildren[key].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      for (const child of children) {
+        rows.push([
+          "",
+          child.name || "",
+          child.profile || "",
+          child.ifcClass || "",
+          r(child.volume || 0, 6),
+          r(child.area || 0, 4),
+          r(child.weight || 0, 2),
+        ]);
+      }
+      rows.push([]); // separator
+    }
+
+    rows.push(["TỔNG CỘNG", `${data.length} objects`, "", "", r(totalVol, 6), r(totalArea, 4), r(totalWt, 2)]);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 35 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
+    ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }];
+    return ws;
+  }
+
+  // Standard summary view for non-assembly groupings
   const rows = [
     [`THỐNG KÊ THEO ${label.toUpperCase()}`],
     [],
