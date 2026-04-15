@@ -2521,38 +2521,10 @@ function parseObjectProperties(props, modelId) {
   if (!result.name) result.name = `Object ${props.id}`;
 
   // Calculate weight from volume if not provided
-  // Use material-appropriate density:
-  // - Steel: 7850 kg/m³
-  // - Concrete: 2400 kg/m³
-  // - Wood: 600 kg/m³
-  // - Aluminum: 2700 kg/m³
-  // - Default: 7850 kg/m³ (steel assumed for structural elements)
+  // Fixed density for all objects: 7850 kg/m³
   {
-    const matLower = (result.material || "").toLowerCase();
-    const clsLower = (result.ifcClass || "").toLowerCase();
-    let density = 7850; // default steel
-    let densityLabel = "Thép";
-    if (
-      matLower.includes("concrete") || matLower.includes("bê tông") || matLower.includes("beton") ||
-      clsLower === "ifcfooting" || clsLower === "ifcpile" ||
-      clsLower === "ifcslab" || clsLower === "ifcwall" ||
-      clsLower === "ifcwallstandardcase" ||
-      clsLower === "ifcstair" || clsLower === "ifcstairflight" ||
-      clsLower === "ifcramp" || clsLower === "ifcrampflight"
-    ) {
-      if (!matLower.includes("steel") && !matLower.includes("thép")) {
-        density = 2400; // concrete
-        densityLabel = "Bê tông";
-      }
-    }
-    if (matLower.includes("wood") || matLower.includes("gỗ") || matLower.includes("timber")) {
-      density = 600; // wood
-      densityLabel = "Gỗ";
-    }
-    if (matLower.includes("aluminum") || matLower.includes("aluminium") || matLower.includes("nhôm")) {
-      density = 2700; // aluminum
-      densityLabel = "Nhôm";
-    }
+    const density = 7850;
+    const densityLabel = "Thép";
     // Store density info on every object for transparency
     result.density = density;
     result.densityLabel = densityLabel;
@@ -4068,11 +4040,9 @@ function updateSummary() {
   const fmtVol = (v) => v.toFixed(6) + " m³";
   const fmtArea = (a) => a.toFixed(4) + " m²";
   const fmtWeight = (w) => w >= 1000 ? (w / 1000).toFixed(2) + " tấn" : w.toFixed(2) + " kg";
-  const projectDensitySummary = buildDensitySummaryText(summarizeDensityByMaterial(filteredObjects), 3);
-
   // Display total objects count + project totals
   document.getElementById("total-objects-count").textContent =
-    `${filteredObjects.length} objects | V: ${fmtVol(projectVolume)} | W: ${fmtWeight(projectWeight)} | A: ${fmtArea(projectArea)}${projectDensitySummary ? ` | KLR: ${projectDensitySummary}` : ""}`;
+    `${filteredObjects.length} objects | V: ${fmtVol(projectVolume)} | W: ${fmtWeight(projectWeight)} | A: ${fmtArea(projectArea)} | KLR: 7850 kg/m³`;
 
   document.getElementById("selected-objects-count").textContent =
     `${selectedIds.size} đã chọn`;
@@ -4084,8 +4054,6 @@ function updateSummary() {
   if (selectedIds.size > 0) {
     let totalVolume = 0, totalWeight = 0, totalArea = 0;
     let matchCount = 0;
-    const selectedObjects = [];
-
     for (const obj of allObjects) {
       const uid = `${obj.modelId}:${obj.id}`;
       if (selectedIds.has(uid)) {
@@ -4093,12 +4061,10 @@ function updateSummary() {
         totalWeight += obj.weight || 0;
         totalArea += obj.area || 0;
         matchCount++;
-        selectedObjects.push(obj);
       }
     }
 
-    const selectedDensitySummary = buildDensitySummaryText(summarizeDensityByMaterial(selectedObjects), 2);
-    const statsText = `V: ${fmtVol(totalVolume)} | W: ${fmtWeight(totalWeight)} | A: ${fmtArea(totalArea)}${selectedDensitySummary ? ` | KLR chọn: ${selectedDensitySummary}` : ""}`;
+    const statsText = `V: ${fmtVol(totalVolume)} | W: ${fmtWeight(totalWeight)} | A: ${fmtArea(totalArea)} | KLR: 7850 kg/m³`;
 
     if (selStatsEl) {
       selStatsEl.textContent = statsText;
@@ -4115,41 +4081,6 @@ function updateSummary() {
 
   // Update assembly info bar for selected object(s)
   updateAssemblyInfoBar();
-}
-
-function summarizeDensityByMaterial(objects) {
-  const buckets = new Map();
-  for (const obj of objects || []) {
-    const density = Number(obj.density || 0);
-    const label = obj.densityLabel || "Khác";
-    if (!density || density <= 0) continue;
-    const key = `${label}|${density}`;
-    if (!buckets.has(key)) {
-      buckets.set(key, { label, density, count: 0, volume: 0, weight: 0 });
-    }
-    const entry = buckets.get(key);
-    entry.count += 1;
-    entry.volume += obj.volume || 0;
-    entry.weight += obj.weight || 0;
-  }
-  return Array.from(buckets.values()).sort((a, b) => b.weight - a.weight);
-}
-
-function buildDensitySummaryText(summaryRows, maxRows = 3) {
-  if (!summaryRows || summaryRows.length === 0) return "";
-  const sliced = summaryRows.slice(0, maxRows);
-  const texts = sliced.map((row) => {
-    const densityText = Number(row.density).toLocaleString("vi-VN");
-    const volumeText = row.volume.toLocaleString("vi-VN", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
-    const weightText = row.weight >= 1000
-      ? `${(row.weight / 1000).toFixed(2)} t`
-      : `${row.weight.toFixed(2)} kg`;
-    return `${row.label} ${densityText} (${row.count} obj, V=${volumeText} m³, W=${weightText})`;
-  });
-  if (summaryRows.length > maxRows) {
-    texts.push(`+${summaryRows.length - maxRows} loại khác`);
-  }
-  return texts.join("; ");
 }
 
 // ── Assembly Info Bar — shows container info for the selected child ──

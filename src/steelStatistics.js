@@ -82,30 +82,9 @@ function updateStatistics() {
     let wt = obj.weight || 0;
     let area = obj.area || 0;
 
-    // If weight is 0 but volume exists, calculate from material-appropriate density
+    // If weight is 0 but volume exists, calculate with fixed density 7850 kg/m³
     if (wt === 0 && vol > 0) {
-      const matLower = (obj.material || "").toLowerCase();
-      const clsLower = (obj.ifcClass || "").toLowerCase();
-      let density = STEEL_DENSITY; // default steel
-      if (
-        matLower.includes("concrete") || matLower.includes("bê tông") || matLower.includes("beton") ||
-        clsLower === "ifcfooting" || clsLower === "ifcpile" ||
-        clsLower === "ifcslab" || clsLower === "ifcwall" ||
-        clsLower === "ifcwallstandardcase" ||
-        clsLower === "ifcstair" || clsLower === "ifcstairflight" ||
-        clsLower === "ifcramp" || clsLower === "ifcrampflight"
-      ) {
-        if (!matLower.includes("steel") && !matLower.includes("thép")) {
-          density = 2400; // concrete
-        }
-      }
-      if (matLower.includes("wood") || matLower.includes("gỗ") || matLower.includes("timber")) {
-        density = 600; // wood
-      }
-      if (matLower.includes("aluminum") || matLower.includes("aluminium") || matLower.includes("nhôm")) {
-        density = 2700; // aluminum
-      }
-      wt = vol * density;
+      wt = vol * STEEL_DENSITY;
     }
 
     totalVolume += vol;
@@ -118,7 +97,6 @@ function updateStatistics() {
       weight: wt,
       area,
       density: obj.density || STEEL_DENSITY,
-      densityLabel: obj.densityLabel || "Thép",
       weightSource: obj.weightSource || (wt > 0 && obj.weight === 0 ? "calculated" : (wt > 0 ? "ifc" : "")),
     };
   });
@@ -142,37 +120,14 @@ function updateStatistics() {
         volume: 0,
         weight: 0,
         area: 0,
-        densities: new Set(),
         weightSources: new Set(),
-        densityBuckets: new Map(),
       };
     }
     groups[key].count++;
     groups[key].volume += obj.volume;
     groups[key].weight += obj.weight;
     groups[key].area += obj.area;
-    if (obj.density) groups[key].densities.add(`${obj.densityLabel}|${obj.density}`);
     if (obj.weightSource) groups[key].weightSources.add(obj.weightSource);
-    if (obj.density) {
-      const bucketKey = `${obj.densityLabel}|${obj.density}`;
-      if (!groups[key].densityBuckets.has(bucketKey)) {
-        groups[key].densityBuckets.set(bucketKey, {
-          label: obj.densityLabel || "Khác",
-          density: obj.density || 0,
-          count: 0,
-          volume: 0,
-          weight: 0,
-          fromIfc: 0,
-          fromCalculated: 0,
-        });
-      }
-      const bucket = groups[key].densityBuckets.get(bucketKey);
-      bucket.count += 1;
-      bucket.volume += obj.volume || 0;
-      bucket.weight += obj.weight || 0;
-      if (obj.weightSource === "ifc") bucket.fromIfc += 1;
-      if (obj.weightSource === "calculated") bucket.fromCalculated += 1;
-    }
   }
 
   const sortedGroups = Object.values(groups).sort((a, b) => b.weight - a.weight);
@@ -191,15 +146,12 @@ function renderStatsTable(groups, totalVolume, totalWeight, totalArea) {
 
   let bodyHtml = "";
   for (const g of groups) {
-    // Build density display string
-    const densityInfo = formatDensityInfo(g);
     bodyHtml += `<tr>`;
     bodyHtml += `<td>${escHtml(g.name)}</td>`;
     bodyHtml += `<td>${formatNumber(g.count)}</td>`;
     bodyHtml += `<td>${formatVolume(g.volume)}</td>`;
     bodyHtml += `<td>${formatArea(g.area)}</td>`;
     bodyHtml += `<td>${formatWeight(g.weight)}</td>`;
-    bodyHtml += `<td class="density-cell">${densityInfo}</td>`;
     bodyHtml += `</tr>`;
   }
   tbody.innerHTML = bodyHtml;
@@ -211,7 +163,6 @@ function renderStatsTable(groups, totalVolume, totalWeight, totalArea) {
       <td>${formatVolume(totalVolume)}</td>
       <td>${formatArea(totalArea)}</td>
       <td>${formatWeight(totalWeight)}</td>
-      <td>—</td>
     </tr>
   `;
 }
@@ -310,49 +261,6 @@ function formatArea(a) {
 function formatWeight(w) {
   if (w >= 1000) return (w / 1000).toFixed(2) + " tấn";
   return w.toFixed(2) + " kg";
-}
-
-function formatWeightKg(w) {
-  return `${w.toLocaleString("vi-VN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`;
-}
-
-/**
- * Format density info for a group.
- * Shows: "Thép (7.850 kg/m³) — V×ρ" or "Bê tông (2.400 kg/m³) — IFC" etc.
- * If group has mixed densities, shows all.
- */
-function formatDensityInfo(group) {
-  if (!group.densities || group.densities.size === 0) return "—";
-
-  const detailLines = [];
-  if (group.densityBuckets && group.densityBuckets.size > 0) {
-    const buckets = Array.from(group.densityBuckets.values()).sort((a, b) => b.weight - a.weight);
-    for (const bucket of buckets) {
-      const densityText = `${bucket.label} (${Number(bucket.density).toLocaleString("vi-VN")} kg/m³)`;
-      const volumeText = bucket.volume.toLocaleString("vi-VN", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-      const weightFormula = bucket.volume > 0
-        ? `W = ${volumeText} m³ × ${Number(bucket.density).toLocaleString("vi-VN")} = ${formatWeightKg(bucket.volume * bucket.density)}`
-        : `W = ${formatWeightKg(bucket.weight)} (từ IFC)`;
-      const sourceText = bucket.fromIfc > 0 && bucket.fromCalculated > 0
-        ? "IFC + V×ρ"
-        : bucket.fromIfc > 0
-          ? "IFC"
-          : "V×ρ";
-      detailLines.push(
-        `<div class="density-line"><strong>${densityText}</strong> · ${weightFormula} · ${bucket.count} obj · ${sourceText}</div>`,
-      );
-    }
-  }
-
-  if (detailLines.length > 0) {
-    return detailLines.join("");
-  }
-  const fallback = Array.from(group.densities).map((entry) => {
-    const [label, densityStr] = entry.split("|");
-    const density = Number(densityStr);
-    return `${label} (${density.toLocaleString("vi-VN")} kg/m³)`;
-  });
-  return fallback.join(", ");
 }
 
 function escHtml(str) {
