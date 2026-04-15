@@ -456,10 +456,38 @@ async function scanObjects() {
       objectLookup.set(`${obj.modelId}:${obj.id}`, obj);
     }
 
-    // Step 2: Propagate assembly info from containers to ALL children
-    // This ensures children inherit assemblyPos/assemblyName/assemblyPosCode
-    // even if enrichAssemblyFromHierarchy() missed some
+    // Step 2: Propagate assembly info from IfcElementAssembly containers to ALL children
+    // Uses 3 sources to maximize coverage:
+    //   Source A: assemblyChildrenMap (from ElementAssembly hierarchy API)
+    //   Source B: hierarchyParentMap (from spatial hierarchy — child→parent)
+    //   Source C: assemblyMembershipMap (from walkAssemblyTree — child→assemblyKey)
     let childrenEnriched = 0;
+
+    // Helper: propagate assembly info from container to child
+    function propagateAssemblyInfo(containerObj, childObj) {
+      const containerAssemblyPos = containerObj.assemblyPos || containerObj.assemblyName || containerObj.name || "";
+      const containerAssemblyName = containerObj.assemblyName || containerObj.name || "";
+      const containerAssemblyPosCode = containerObj.assemblyPosCode || "";
+      if (!containerAssemblyPos) return false;
+
+      let enriched = false;
+      if (!childObj.assemblyPos || childObj.assemblyPos === "(Không xác định)") {
+        childObj.assemblyPos = containerAssemblyPos;
+        enriched = true;
+      }
+      if (!childObj.assemblyName || childObj.assemblyName === "(Không xác định)") {
+        childObj.assemblyName = containerAssemblyName;
+      }
+      if (!childObj.assemblyPosCode && containerAssemblyPosCode) {
+        childObj.assemblyPosCode = containerAssemblyPosCode;
+      }
+      if (!childObj.assembly) {
+        childObj.assembly = containerAssemblyName;
+      }
+      return enriched;
+    }
+
+    // Source A: assemblyChildrenMap (most direct — parent IfcElementAssembly → children)
     for (const obj of allObjects) {
       const cls = (obj.ifcClass || "").toLowerCase();
       if (cls !== "ifcelementassembly" && !cls.includes("elementassembly")) continue;
@@ -468,37 +496,74 @@ async function scanObjects() {
       const childIds = assemblyChildrenMap.get(containerKey);
       if (!childIds || childIds.size === 0) continue;
 
-      // Determine the best assembly identifier from the container
-      const containerAssemblyPos = obj.assemblyPos || obj.assemblyName || obj.name || "";
-      const containerAssemblyName = obj.assemblyName || obj.name || "";
-      const containerAssemblyPosCode = obj.assemblyPosCode || "";
-
-      if (!containerAssemblyPos) continue;
-
-      // Push assembly info down to every child
       for (const childId of childIds) {
         const childObj = objectLookup.get(`${obj.modelId}:${childId}`);
-        if (!childObj) continue;
-
-        // Only set if child doesn't already have assembly info
-        if (!childObj.assemblyPos || childObj.assemblyPos === "(Không xác định)") {
-          childObj.assemblyPos = containerAssemblyPos;
+        if (childObj && propagateAssemblyInfo(obj, childObj)) {
           childrenEnriched++;
-        }
-        if (!childObj.assemblyName || childObj.assemblyName === "(Không xác định)") {
-          childObj.assemblyName = containerAssemblyName;
-        }
-        if (!childObj.assemblyPosCode && containerAssemblyPosCode) {
-          childObj.assemblyPosCode = containerAssemblyPosCode;
-        }
-        if (!childObj.assembly) {
-          childObj.assembly = containerAssemblyName;
         }
       }
     }
-    if (childrenEnriched > 0) {
-      console.log(`[ObjectExplorer] ✓ Propagated assembly info from containers to ${childrenEnriched} children`);
+
+    // Source B: hierarchyParentMap (spatial tree — for children missed by Source A)
+    for (const [childKey, parentInfo] of hierarchyParentMap) {
+      const parentCls = (parentInfo.class || "").toLowerCase();
+      if (parentCls !== "ifcelementassembly" && !parentCls.includes("elementassembly")) continue;
+
+      const childObj = objectLookup.get(childKey);
+      if (!childObj) continue;
+
+      // Find the parent container object to get its assembly properties
+      const parentObj = objectLookup.get(`${parentInfo.modelId}:${parentInfo.id}`);
+      if (parentObj) {
+        if (propagateAssemblyInfo(parentObj, childObj)) {
+          childrenEnriched++;
+        }
+      } else {
+        // Parent was already removed or not in allObjects — use nodeInfo
+        const nodeInfo = assemblyNodeInfoMap.get(`${parentInfo.modelId}:${parentInfo.id}`);
+        if (nodeInfo && nodeInfo.name) {
+          if (!childObj.assemblyPos || childObj.assemblyPos === "(Không xác định)") {
+            childObj.assemblyPos = nodeInfo.name;
+            childrenEnriched++;
+          }
+          if (!childObj.assemblyName) childObj.assemblyName = nodeInfo.name;
+          if (!childObj.assembly) childObj.assembly = nodeInfo.name;
+        }
+      }
     }
+
+    // Source C: assemblyMembershipMap (explicit membership — for any remaining children)
+    for (const obj of allObjects) {
+      if (obj.assemblyPos && obj.assemblyPos !== "(Không xác định)") continue; // already has info
+
+      const objectKey = `${obj.modelId}:${obj.id}`;
+      const assemblyKey = assemblyMembershipMap.get(objectKey);
+      if (!assemblyKey) continue;
+
+      // Try to find the container in allObjects
+      const containerObj = objectLookup.get(assemblyKey);
+      if (containerObj) {
+        if (propagateAssemblyInfo(containerObj, obj)) {
+          childrenEnriched++;
+        }
+      } else {
+        // Container already removed — use assemblyNodeInfoMap
+        const nodeInfo = assemblyNodeInfoMap.get(assemblyKey);
+        if (nodeInfo && nodeInfo.name) {
+          obj.assemblyPos = nodeInfo.name;
+          if (!obj.assemblyName) obj.assemblyName = nodeInfo.name;
+          if (!obj.assembly) obj.assembly = nodeInfo.name;
+          childrenEnriched++;
+        }
+      }
+    }
+
+    if (childrenEnriched > 0) {
+      console.log(`[ObjectExplorer] ✓ Propagated assembly info to ${childrenEnriched} children (3 sources: childrenMap + parentMap + membershipMap)`);
+    }
+
+    // Re-assign assembly instances after propagation to update assemblyInstanceId
+    assignAssemblyInstances();
 
     // Step 3: Remove ALL IfcElementAssembly containers
     const beforeAssemblyDedup = allObjects.length;
