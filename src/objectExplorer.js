@@ -2343,94 +2343,171 @@ async function selectAssembly() {
   if (!viewerRef) return;
 
   try {
-    // Step 1: Get current selection from the viewer
-    const viewerSel = await viewerRef.getSelection();
-    console.log("[SelectAssembly] Viewer selection:", JSON.stringify(viewerSel).substring(0, 500));
+    // Step 1: Get the currently selected object (from panel or viewer)
+    let selectedObj = null;
 
-    let selModelId = "";
-    let selObjectIds = [];
-
-    // Parse viewer selection format
-    if (viewerSel && viewerSel.modelObjectIds) {
-      for (const entry of viewerSel.modelObjectIds) {
-        if (entry.modelId && (entry.objectRuntimeIds || entry.entityIds || entry.ids)) {
-          selModelId = entry.modelId;
-          selObjectIds = entry.objectRuntimeIds || entry.entityIds || entry.ids || [];
-          break;
-        }
-      }
-    } else if (Array.isArray(viewerSel)) {
-      for (const entry of viewerSel) {
-        if (entry && entry.modelId) {
-          selModelId = entry.modelId;
-          selObjectIds = entry.objectRuntimeIds || entry.entityIds || entry.ids || [];
-          break;
-        }
-      }
-    }
-
-    // Fallback: use panel selectedIds if viewer selection is empty
-    if (selObjectIds.length === 0 && selectedIds.size > 0) {
+    // Try panel selection first
+    if (selectedIds.size > 0) {
       const firstUid = selectedIds.values().next().value;
-      const idx = firstUid.indexOf(":");
-      if (idx > 0) {
-        selModelId = firstUid.substring(0, idx);
-        selObjectIds = [parseInt(firstUid.substring(idx + 1))];
+      selectedObj = allObjects.find(o => `${o.modelId}:${o.id}` === firstUid);
+    }
+
+    // Try viewer selection if panel has nothing
+    if (!selectedObj) {
+      const viewerSel = await viewerRef.getSelection();
+      let selModelId = "";
+      let selObjectIds = [];
+
+      if (viewerSel && viewerSel.modelObjectIds) {
+        for (const entry of viewerSel.modelObjectIds) {
+          if (entry.modelId && (entry.objectRuntimeIds || entry.entityIds || entry.ids)) {
+            selModelId = entry.modelId;
+            selObjectIds = entry.objectRuntimeIds || entry.entityIds || entry.ids || [];
+            break;
+          }
+        }
+      } else if (Array.isArray(viewerSel)) {
+        for (const entry of viewerSel) {
+          if (entry && entry.modelId) {
+            selModelId = entry.modelId;
+            selObjectIds = entry.objectRuntimeIds || entry.entityIds || entry.ids || [];
+            break;
+          }
+        }
+      }
+
+      if (selModelId && selObjectIds.length > 0) {
+        const objectKey = `${selModelId}:${selObjectIds[0]}`;
+        selectedObj = allObjects.find(o => `${o.modelId}:${o.id}` === objectKey);
       }
     }
-
-    if (!selModelId || selObjectIds.length === 0) {
-      console.log("[SelectAssembly] No object selected in viewer or panel");
-      return;
-    }
-
-    const objectId = selObjectIds[0];
-    const objectKey = `${selModelId}:${objectId}`;
-    console.log(`[SelectAssembly] Looking for objectKey=${objectKey} in ${allObjects.length} objects`);
-
-    // Step 2: Find this object in allObjects
-    const selectedObj = allObjects.find(o => `${o.modelId}:${o.id}` === objectKey);
 
     if (!selectedObj) {
-      console.log(`[SelectAssembly] Object ${objectKey} NOT found in allObjects`);
-      // Debug: log first 5 objects to compare ID formats
-      console.log("[SelectAssembly] Sample allObjects keys:", allObjects.slice(0, 5).map(o => `${o.modelId}:${o.id}`));
+      console.log("[SelectAssembly] No object selected in panel or viewer");
       return;
     }
 
-    console.log(`[SelectAssembly] Found object: name="${selectedObj.name}", assemblyPos="${selectedObj.assemblyPos}", assemblyName="${selectedObj.assemblyName}", assemblyInstanceId="${selectedObj.assemblyInstanceId}"`);
+    console.log(
+      `[SelectAssembly] Selected child: "${selectedObj.name}" (${selectedObj.ifcClass})` +
+      ` | assemblyPos="${selectedObj.assemblyPos || ""}"` +
+      ` | assemblyName="${selectedObj.assemblyName || ""}"` +
+      ` | assemblyPosCode="${selectedObj.assemblyPosCode || ""}"`
+    );
 
-    // Step 3: Determine the assembly identifier to match
-    const assemblyId = selectedObj.assemblyInstanceId;
-    if (!assemblyId) {
-      console.log("[SelectAssembly] Object has no assembly identifier (assemblyPos, assemblyName, or assembly are all empty)");
-      return;
-    }
+    // Step 2: Identify which assembly this child belongs to
+    // Use multiple strategies in priority order
+    let matchField = "";  // which field was used to match
+    let matchValue = "";  // the value that was matched
+    let assemblyMembers = [];
 
-    // Step 4: Select ALL objects with the same assemblyInstanceId
-    selectedIds.clear();
-    let count = 0;
-    for (const obj of allObjects) {
-      if (obj.assemblyInstanceId === assemblyId) {
-        selectedIds.add(`${obj.modelId}:${obj.id}`);
-        count++;
+    // Strategy 1: assemblyInstanceId (most accurate — combines modelId + assemblyPos)
+    if (selectedObj.assemblyInstanceId) {
+      assemblyMembers = allObjects.filter(o => o.assemblyInstanceId === selectedObj.assemblyInstanceId);
+      if (assemblyMembers.length > 1) {
+        matchField = "assemblyInstanceId";
+        matchValue = selectedObj.assemblyInstanceId;
       }
     }
-    console.log(`[SelectAssembly] Selected ${count} objects with assemblyInstanceId="${assemblyId}"`);
 
-    if (count === 0) {
-      console.log("[SelectAssembly] No matching objects found");
+    // Strategy 2: assemblyPos (Tekla ASSEMBLY_POS — unique per physical assembly)
+    if (assemblyMembers.length <= 1 && selectedObj.assemblyPos) {
+      assemblyMembers = allObjects.filter(o =>
+        o.modelId === selectedObj.modelId && o.assemblyPos === selectedObj.assemblyPos
+      );
+      if (assemblyMembers.length > 1) {
+        matchField = "assemblyPos";
+        matchValue = selectedObj.assemblyPos;
+      }
+    }
+
+    // Strategy 3: assemblyName (Tekla ASSEMBLY_NAME — shared by same type assemblies)
+    if (assemblyMembers.length <= 1 && selectedObj.assemblyName) {
+      assemblyMembers = allObjects.filter(o =>
+        o.modelId === selectedObj.modelId && o.assemblyName === selectedObj.assemblyName
+      );
+      if (assemblyMembers.length > 1) {
+        matchField = "assemblyName";
+        matchValue = selectedObj.assemblyName;
+      }
+    }
+
+    // Strategy 4: IFC hierarchy (assemblyMembershipMap)
+    if (assemblyMembers.length <= 1) {
+      const objectKey = `${selectedObj.modelId}:${selectedObj.id}`;
+      const parentAssemblyKey = assemblyMembershipMap.get(objectKey);
+      if (parentAssemblyKey) {
+        const childIds = assemblyChildrenMap.get(parentAssemblyKey);
+        if (childIds && childIds.size > 0) {
+          assemblyMembers = allObjects.filter(o => {
+            const key = `${o.modelId}:${o.id}`;
+            return childIds.has(o.id) && o.modelId === selectedObj.modelId;
+          });
+          if (assemblyMembers.length > 0) {
+            matchField = "ifcHierarchy";
+            matchValue = parentAssemblyKey;
+          }
+        }
+      }
+    }
+
+    // Strategy 5: assembly (fallback property)
+    if (assemblyMembers.length <= 1 && selectedObj.assembly) {
+      assemblyMembers = allObjects.filter(o =>
+        o.modelId === selectedObj.modelId && o.assembly === selectedObj.assembly
+      );
+      if (assemblyMembers.length > 1) {
+        matchField = "assembly";
+        matchValue = selectedObj.assembly;
+      }
+    }
+
+    if (assemblyMembers.length <= 1) {
+      console.log("[SelectAssembly] No assembly found — object is standalone or has no group");
       return;
     }
 
-    // Step 5: Update tree UI
+    // Step 3: Select all members of this assembly
+    selectedIds.clear();
+    for (const obj of assemblyMembers) {
+      selectedIds.add(`${obj.modelId}:${obj.id}`);
+    }
+
+    // Calculate assembly totals
+    let asmWeight = 0, asmVolume = 0, asmArea = 0;
+    for (const obj of assemblyMembers) {
+      asmWeight += obj.weight || 0;
+      asmVolume += obj.volume || 0;
+      asmArea += obj.area || 0;
+    }
+
+    console.log(
+      `[SelectAssembly] ✓ Found assembly via ${matchField}="${matchValue}"` +
+      ` → ${assemblyMembers.length} children` +
+      ` | W=${asmWeight.toFixed(2)}kg V=${asmVolume.toFixed(6)}m³ A=${asmArea.toFixed(4)}m²`
+    );
+
+    // Step 4: Update tree UI — select items and auto-expand their group
     document.querySelectorAll(".tree-item").forEach((el) => {
       const uid = el.dataset.uid;
       const isSelected = selectedIds.has(uid);
       el.classList.toggle("selected", isSelected);
       const cb = el.querySelector(".tree-item-checkbox");
       if (cb) cb.checked = isSelected;
+
+      // Auto-expand group containing selected items
+      if (isSelected) {
+        const group = el.closest(".tree-group");
+        if (group && group.classList.contains("collapsed")) {
+          group.classList.remove("collapsed");
+        }
+      }
     });
+
+    // Scroll to first selected item
+    const firstSelected = document.querySelector(".tree-item.selected");
+    if (firstSelected) {
+      firstSelected.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
 
     updateGroupCheckboxStates();
     updateSummary();
@@ -2683,15 +2760,24 @@ function buildTooltip(obj) {
   if (obj.referenceName) parts.push(`Reference: ${obj.referenceName}`);
   if (obj.type) parts.push(`Type: ${obj.type}`);
   if (obj.ifcClass) parts.push(`IFC Class: ${obj.ifcClass}`);
-  if (obj.assembly) parts.push(`Assembly: ${obj.assembly}`);
-  if (obj.assemblyPos) parts.push(`Assembly Pos: ${obj.assemblyPos}`);
-  if (obj.assemblyPosCode) parts.push(`Assembly Pos Code: ${obj.assemblyPosCode}`);
+
+  // Assembly container info — show which assembly this child belongs to
+  if (obj.assemblyPos) parts.push(`🏗️ Assembly Pos: ${obj.assemblyPos}`);
+  if (obj.assemblyName && obj.assemblyName !== obj.assemblyPos) {
+    parts.push(`Assembly Name: ${obj.assemblyName}`);
+  }
+  if (obj.assemblyPosCode && obj.assemblyPosCode !== obj.assemblyPos) {
+    parts.push(`Assembly Code: ${obj.assemblyPosCode}`);
+  }
+
   if (obj.material) parts.push(`Vật liệu: ${obj.material}`);
   
-  // Physical properties
+  // Physical properties — same format as Statistics tab
   if (obj.volume > 0) parts.push(`V: ${obj.volume.toFixed(6)} m³`);
   if (obj.area > 0) parts.push(`A: ${obj.area.toFixed(4)} m²`);
-  if (obj.weight > 0) parts.push(`W: ${obj.weight.toFixed(2)} kg`);
+  if (obj.weight > 0) {
+    parts.push(`W: ${obj.weight >= 1000 ? (obj.weight / 1000).toFixed(2) + " tấn" : obj.weight.toFixed(2) + " kg"}`);
+  }
   if (obj.length > 0) parts.push(`L: ${obj.length.toFixed(3)} m`);
   
   // ── Tekla Bolt Properties (comprehensive) ──
