@@ -254,6 +254,368 @@ export function getAssemblyStatistics() {
 }
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ENHANCED ASSEMBLY CONTAINER ANALYSIS FUNCTIONS
+ * ═══════════════════════════════════════════════════════════════════════════
+ * These functions provide comprehensive assembly hierarchy analysis:
+ * - Identify which assembly container a child belongs to
+ * - Analyze assembly containment relationships
+ * - Build assembly group hierarchies (ASSEMBLY_NAME → ASSEMBLY_POS → ASSEMBLY_POSITION_CODE)
+ * - Trace children to their assembly containers
+ */
+
+/**
+ * Get enhanced assembly information for a child object
+ * Identifies if object is a direct child of IfcElementAssembly container
+ * and provides complete assembly hierarchy chain
+ * @param {Object} obj - The object to analyze
+ * @returns {Object|null} Enhanced assembly info or null
+ * {
+ *   containerType: "IfcElementAssembly" | "inherited" | "none",
+ *   directParentId: number,  // If IfcElementAssembly parent
+ *   directParentKey: string, // "modelId:id"
+ *   parentInfo: {...},       // Assembly container info
+ *   assemblyChain: [         // Full hierarchy chain
+ *     { level: "container", name: "...", assemblyPos: "...", ... },
+ *     { level: "group", name: "...", ... }
+ *   ],
+ *   siblingCount: number,    // How many other children in same container
+ *   hierachicalPath: string  // Human-readable path
+ * }
+ */
+export function getEnhancedAssemblyInfo(obj) {
+  if (!obj) return null;
+
+  const objectKey = `${obj.modelId}:${obj.id}`;
+  const result = {
+    object: { id: obj.id, name: obj.name, ifcClass: obj.ifcClass, modelId: obj.modelId },
+    containerType: "none",
+    directParentId: null,
+    directParentKey: null,
+    parentInfo: null,
+    assemblyChain: [],
+    siblingCount: 0,
+    hierarchicalPath: "",
+  };
+
+  // Check Strategy 1: Direct IfcElementAssembly parent (assemblyMembershipMap)
+  const assemblyKey = assemblyMembershipMap.get(objectKey);
+  if (assemblyKey) {
+    result.containerType = "IfcElementAssembly";
+    result.directParentKey = assemblyKey;
+
+    const [modelId, idStr] = assemblyKey.split(":");
+    result.directParentId = parseInt(idStr);
+
+    // Get container node info
+    const nodeInfo = assemblyNodeInfoMap.get(assemblyKey);
+    if (nodeInfo) {
+      result.parentInfo = {
+        id: nodeInfo.id,
+        modelId: nodeInfo.modelId,
+        name: nodeInfo.name,
+        ifcClass: nodeInfo.class,
+        assemblyPos: nodeInfo.assemblyPos,
+        assemblyName: nodeInfo.assemblyName,
+        assemblyPosCode: nodeInfo.assemblyPosCode,
+      };
+
+      // Build assembly chain
+      result.assemblyChain.push({
+        level: "container",
+        type: "IfcElementAssembly",
+        id: nodeInfo.id,
+        name: nodeInfo.name,
+        assemblyPos: nodeInfo.assemblyPos,
+        assemblyName: nodeInfo.assemblyName,
+        assemblyPosCode: nodeInfo.assemblyPosCode,
+      });
+
+      // Count siblings
+      const childIds = assemblyChildrenMap.get(assemblyKey) || new Set();
+      result.siblingCount = Math.max(0, childIds.size - 1);
+    }
+  }
+
+  // Check Strategy 2: Inherited assembly properties
+  if (!result.parentInfo && obj.assemblyPos) {
+    result.containerType = "inherited";
+    result.assemblyChain.push({
+      level: "inherited",
+      type: "Tekla Assembly",
+      assemblyPos: obj.assemblyPos,
+      assemblyName: obj.assemblyName,
+      assemblyPosCode: obj.assemblyPosCode,
+    });
+  }
+
+  // Build hierarchical path
+  if (result.parentInfo) {
+    const parts = [
+      result.parentInfo.assemblyPos || result.parentInfo.name,
+      obj.assemblyName || "",
+      obj.assemblyPosCode || "",
+    ].filter(p => p);
+    result.hierarchicalPath = parts.join(" → ");
+  } else if (obj.assemblyPos) {
+    result.hierarchicalPath = `${obj.assemblyPos}${obj.assemblyName ? " (" + obj.assemblyName + ")" : ""}`;
+  }
+
+  return result;
+}
+
+/**
+ * Build comprehensive assembly hierarchy analysis
+ * Groups all objects by their assembly containers and creates statistics
+ * @returns {Object} Assembly hierarchy analysis
+ */
+export function buildAssemblyHierarchyAnalysis() {
+  const analysis = {
+    timestamp: new Date().toISOString(),
+    totalObjects: allObjects.length,
+    summary: {
+      totalContainers: 0,
+      objectsInContainers: 0,
+      objectsWithInheritedAssembly: 0,
+      objectsWithoutAssembly: 0,
+    },
+    containers: [], // [{id, name, pos, childCount, children: []}]
+    byAssemblyPos: {}, // "POS" → {objects: [...], stats: {...}}
+    byAssemblyName: {}, // "NAME" → {objects: [...], stats: {...}}
+    byAssemblyCode: {}, // "CODE" → {objects: [...], stats: {...}}
+  };
+
+  // Analyze each IfcElementAssembly container
+  for (const [containerKey, nodeInfo] of assemblyNodeInfoMap) {
+    const children = getAssemblyChildren(nodeInfo.modelId, nodeInfo.id);
+    
+    analysis.containers.push({
+      key: containerKey,
+      id: nodeInfo.id,
+      modelId: nodeInfo.modelId,
+      name: nodeInfo.name,
+      ifcClass: nodeInfo.class,
+      assemblyPos: nodeInfo.assemblyPos,
+      assemblyName: nodeInfo.assemblyName,
+      assemblyPosCode: nodeInfo.assemblyPosCode,
+      childCount: children.length,
+      children: children.map(c => ({
+        id: c.id,
+        name: c.name,
+        ifcClass: c.ifcClass,
+        assemblyPos: c.assemblyPos,
+        assemblyName: c.assemblyName,
+        assemblyPosCode: c.assemblyPosCode,
+      })),
+      totalWeight: children.reduce((sum, c) => sum + (c.weight || 0), 0),
+      totalVolume: children.reduce((sum, c) => sum + (c.volume || 0), 0),
+      totalArea: children.reduce((sum, c) => sum + (c.area || 0), 0),
+    });
+
+    analysis.summary.totalContainers++;
+    analysis.summary.objectsInContainers += children.length;
+  }
+
+  // Analyze inheritance by ASSEMBLY_POS
+  for (const obj of allObjects) {
+    if (obj.assemblyPos) {
+      if (!analysis.byAssemblyPos[obj.assemblyPos]) {
+        analysis.byAssemblyPos[obj.assemblyPos] = { objects: [], stats: {} };
+      }
+      analysis.byAssemblyPos[obj.assemblyPos].objects.push({
+        id: obj.id,
+        modelId: obj.modelId,
+        name: obj.name,
+        ifcClass: obj.ifcClass,
+      });
+    }
+
+    if (obj.assemblyName) {
+      if (!analysis.byAssemblyName[obj.assemblyName]) {
+        analysis.byAssemblyName[obj.assemblyName] = { objects: [], stats: {} };
+      }
+      analysis.byAssemblyName[obj.assemblyName].objects.push({
+        id: obj.id,
+        modelId: obj.modelId,
+        name: obj.name,
+        ifcClass: obj.ifcClass,
+      });
+    }
+
+    if (obj.assemblyPosCode) {
+      if (!analysis.byAssemblyCode[obj.assemblyPosCode]) {
+        analysis.byAssemblyCode[obj.assemblyPosCode] = { objects: [], stats: {} };
+      }
+      analysis.byAssemblyCode[obj.assemblyPosCode].objects.push({
+        id: obj.id,
+        modelId: obj.modelId,
+        name: obj.name,
+        ifcClass: obj.ifcClass,
+      });
+    }
+  }
+
+  // Count inherited vs no assembly
+  for (const obj of allObjects) {
+    const inContainer = assemblyMembershipMap.has(`${obj.modelId}:${obj.id}`);
+    if (!inContainer) {
+      if (obj.assemblyPos || obj.assemblyName || obj.assemblyPosCode) {
+        analysis.summary.objectsWithInheritedAssembly++;
+      } else {
+        analysis.summary.objectsWithoutAssembly++;
+      }
+    }
+  }
+
+  // Calculate stats for each group
+  for (const [pos, group] of Object.entries(analysis.byAssemblyPos)) {
+    group.stats = {
+      count: group.objects.length,
+      weight: group.objects.reduce((sum, o) => {
+        const obj = allObjects.find(a => a.id === o.id && a.modelId === o.modelId);
+        return sum + (obj?.weight || 0);
+      }, 0),
+      volume: group.objects.reduce((sum, o) => {
+        const obj = allObjects.find(a => a.id === o.id && a.modelId === o.modelId);
+        return sum + (obj?.volume || 0);
+      }, 0),
+    };
+  }
+
+  return analysis;
+}
+
+/**
+ * Get all children that belong to a specific assembly group
+ * Searches by ASSEMBLY_POS, ASSEMBLY_NAME, or ASSEMBLY_POSITION_CODE
+ * @param {string} field - "pos" | "name" | "code" - which field to search
+ * @param {string} value - The assembly value to search for
+ * @returns {Array} All objects with matching assembly value
+ */
+export function getObjectsByAssemblyValue(field, value) {
+  if (!field || !value) return [];
+
+  const fieldMap = {
+    "pos": "assemblyPos",
+    "name": "assemblyName",
+    "code": "assemblyPosCode",
+  };
+
+  const fieldKey = fieldMap[field];
+  if (!fieldKey) return [];
+
+  return allObjects.filter(obj => obj[fieldKey] === value);
+}
+
+/**
+ * Find all unique assembly values (for building filter options)
+ * @param {string} field - "pos" | "name" | "code"
+ * @returns {Array} Sorted array of unique values
+ */
+export function getUniqueAssemblyValues(field) {
+  const fieldMap = {
+    "pos": "assemblyPos",
+    "name": "assemblyName",
+    "code": "assemblyPosCode",
+  };
+
+  const fieldKey = fieldMap[field];
+  if (!fieldKey) return [];
+
+  const values = new Set();
+  for (const obj of allObjects) {
+    const val = obj[fieldKey];
+    if (val && val.trim() && val !== "(Không xác định)") {
+      values.add(val);
+    }
+  }
+
+  return Array.from(values).sort();
+}
+
+/**
+ * Trace child object to its assembly container
+ * Returns the complete path from child → assembly pos → assembly name → assembly code
+ * @param {Object} obj - The child object
+ * @returns {Object} Trace information
+ */
+export function traceObjectToAssemblyContainer(obj) {
+  if (!obj) return null;
+
+  const trace = {
+    object: {
+      id: obj.id,
+      modelId: obj.modelId,
+      name: obj.name,
+      ifcClass: obj.ifcClass,
+    },
+    assemblyProperties: {
+      assemblyPos: obj.assemblyPos || "(chưa xác định)",
+      assemblyName: obj.assemblyName || "(chưa xác định)",
+      assemblyPosCode: obj.assemblyPosCode || "(chưa xác định)",
+    },
+    ifcElementAssemblyParent: null,
+    groupedWith: [], // siblings in same container
+    relatedByPos: [], // other objects with same ASSEMBLY_POS
+    relatedByName: [], // other objects with same ASSEMBLY_NAME
+    relatedByCode: [], // other objects with same ASSEMBLY_POSITION_CODE
+  };
+
+  const objectKey = `${obj.modelId}:${obj.id}`;
+
+  // Find IfcElementAssembly parent
+  const assemblyKey = assemblyMembershipMap.get(objectKey);
+  if (assemblyKey) {
+    const nodeInfo = assemblyNodeInfoMap.get(assemblyKey);
+    if (nodeInfo) {
+      trace.ifcElementAssemblyParent = {
+        id: nodeInfo.id,
+        name: nodeInfo.name,
+        ifcClass: nodeInfo.class,
+        assemblyPos: nodeInfo.assemblyPos,
+        assemblyName: nodeInfo.assemblyName,
+        assemblyPosCode: nodeInfo.assemblyPosCode,
+      };
+
+      // Get siblings
+      const siblings = getAssemblyChildren(obj.modelId, nodeInfo.id);
+      trace.groupedWith = siblings
+        .filter(s => s.id !== obj.id)
+        .slice(0, 10)
+        .map(s => ({
+          id: s.id,
+          name: s.name,
+          ifcClass: s.ifcClass,
+        }));
+    }
+  }
+
+  // Find related by assembly properties
+  if (obj.assemblyPos) {
+    trace.relatedByPos = getObjectsByAssemblyValue("pos", obj.assemblyPos)
+      .filter(o => o.id !== obj.id)
+      .slice(0, 5)
+      .map(o => ({ id: o.id, name: o.name, ifcClass: o.ifcClass }));
+  }
+
+  if (obj.assemblyName) {
+    trace.relatedByName = getObjectsByAssemblyValue("name", obj.assemblyName)
+      .filter(o => o.id !== obj.id)
+      .slice(0, 5)
+      .map(o => ({ id: o.id, name: o.name, ifcClass: o.ifcClass }));
+  }
+
+  if (obj.assemblyPosCode) {
+    trace.relatedByCode = getObjectsByAssemblyValue("code", obj.assemblyPosCode)
+      .filter(o => o.id !== obj.id)
+      .slice(0, 5)
+      .map(o => ({ id: o.id, name: o.name, ifcClass: o.ifcClass }));
+  }
+
+  return trace;
+}
+
+/**
  * Debug: Log relationship info for a specific object
  * Shows which assembly container it belongs to and what assembly properties it has
  * @param {Object} obj - The object to inspect
@@ -266,6 +628,7 @@ export function logObjectAssemblyRelationship(obj) {
   
   const container = getAssemblyContainerForObject(obj);
   const status = getObjectAssemblyStatus(obj);
+  const enhanced = getEnhancedAssemblyInfo(obj);
   
   console.log(`\n╔════════════════════════════════════════════════════════════╗`);
   console.log(`║ ASSEMBLY RELATIONSHIP DEBUG: "${obj.name}" (${obj.ifcClass}) ║`);
@@ -277,27 +640,39 @@ export function logObjectAssemblyRelationship(obj) {
   console.log(`║   ASSEMBLY_POSITION_CODE: "${obj.assemblyPosCode || "(empty)"}"`);
   console.log(`╠════════════════════════════════════════════════════════════╣`);
   
-  if (container) {
-    console.log(`║ PARENT CONTAINER: IfcElementAssembly`);
-    console.log(`║   Container ID: ${container.id}`);
-    console.log(`║   Container Name (IFC): "${container.name}"`);
-    console.log(`║   Container ASSEMBLY_POS: "${container.assemblyPos}"`);
-    console.log(`║   Container ASSEMBLY_NAME: "${container.assemblyName}"`);
-    console.log(`║   Container ASSEMBLY_CODE: "${container.assemblyPosCode}"`);
-    console.log(`╠════════════════════════════════════════════════════════════╣`);
-    
-    // Get sibling objects in same container
-    const siblings = getAssemblyChildren(obj.modelId, container.id);
-    console.log(`║ SIBLINGS IN SAME CONTAINER: ${siblings.length} objects`);
-    for (const sibling of siblings.slice(0, 5)) {
-      console.log(`║   - "${sibling.name}" (${sibling.ifcClass})`);
-    }
-    if (siblings.length > 5) {
-      console.log(`║   ... and ${siblings.length - 5} more`);
+  if (enhanced && enhanced.containerType !== "none") {
+    console.log(`║ CONTAINER TYPE: ${enhanced.containerType}`);
+    if (enhanced.parentInfo) {
+      console.log(`║ PARENT CONTAINER: IfcElementAssembly`);
+      console.log(`║   Container ID: ${enhanced.parentInfo.id}`);
+      console.log(`║   Container Name (IFC): "${enhanced.parentInfo.name}"`);
+      console.log(`║   Container ASSEMBLY_POS: "${enhanced.parentInfo.assemblyPos}"`);
+      console.log(`║   Container ASSEMBLY_NAME: "${enhanced.parentInfo.assemblyName}"`);
+      console.log(`║   Container ASSEMBLY_CODE: "${enhanced.parentInfo.assemblyPosCode}"`);
+      console.log(`║   Siblings in container: ${enhanced.siblingCount}`);
+      console.log(`╠════════════════════════════════════════════════════════════╣`);
+      
+      // Get sibling objects in same container
+      if (enhanced.directParentId) {
+        const siblings = getAssemblyChildren(obj.modelId, enhanced.directParentId);
+        console.log(`║ SIBLINGS IN SAME CONTAINER: ${siblings.length} objects`);
+        for (const sibling of siblings.slice(0, 5)) {
+          console.log(`║   - "${sibling.name}" (${sibling.ifcClass})`);
+        }
+        if (siblings.length > 5) {
+          console.log(`║   ... and ${siblings.length - 5} more`);
+        }
+      }
+    } else {
+      console.log(`║ Assembly (inherited): not part of direct IfcElementAssembly`);
     }
   } else {
     console.log(`║ ⚠️ NOT PART OF ANY IFCELEMENTASSEMBLY CONTAINER`);
     console.log(`║ This object has its own assembly properties but no parent container.`);
+  }
+  
+  console.log(`╚════════════════════════════════════════════════════════════╝\n`);
+}
   }
   
   console.log(`╚════════════════════════════════════════════════════════════╝\n`);
@@ -1350,6 +1725,196 @@ window._debugContainerChildren = function(modelId, containerId) {
     console.log(`  W=${child.weight}kg V=${child.volume}m³ A=${child.area}m²`);
     console.log();
   }
+};
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ENHANCED ASSEMBLY DEBUG & ANALYSIS FUNCTIONS
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * Debug: Get enhanced assembly info for selected object(s)
+ * Shows complete assembly hierarchy chain and container relationships
+ * Call from console: window._debugEnhancedAssemblyInfo()
+ */
+window._debugEnhancedAssemblyInfo = function() {
+  if (selectedIds.size === 0) {
+    console.log("[Assembly Debug] No objects selected. Select object(s) first.");
+    return;
+  }
+
+  for (const uid of selectedIds) {
+    const obj = allObjects.find(o => `${o.modelId}:${o.id}` === uid);
+    if (!obj) continue;
+
+    const enhanced = getEnhancedAssemblyInfo(obj);
+    
+    console.log(`\n╔════════════════════════════════════════════════════════════╗`);
+    console.log(`║ ENHANCED ASSEMBLY INFO: "${obj.name}"                     ║`);
+    console.log(`╠════════════════════════════════════════════════════════════╣`);
+    console.log(`║ Object: ID=${obj.id} | IFC=${obj.ifcClass}`);
+    console.log(`║ Container Type: ${enhanced.containerType}`);
+    
+    if (enhanced.parentInfo) {
+      console.log(`║ Parent IfcElementAssembly: ID=${enhanced.parentInfo.id} | "${enhanced.parentInfo.name}"`);
+      console.log(`║   POS: "${enhanced.parentInfo.assemblyPos}"`);
+      console.log(`║   NAME: "${enhanced.parentInfo.assemblyName}"`);
+      console.log(`║   CODE: "${enhanced.parentInfo.assemblyPosCode}"`);
+      console.log(`║ Siblings: ${enhanced.siblingCount}`);
+    }
+    
+    if (enhanced.hierarchicalPath) {
+      console.log(`║ Path: ${enhanced.hierarchicalPath}`);
+    }
+    
+    console.log(`╚════════════════════════════════════════════════════════════╝\n`);
+  }
+};
+
+/**
+ * Debug: Trace object to assembly container
+ * Shows complete path from child to assembly container
+ * Call from console: window._debugTraceToContainer()
+ */
+window._debugTraceToContainer = function() {
+  if (selectedIds.size === 0) {
+    console.log("[Assembly Debug] No objects selected. Select object(s) first.");
+    return;
+  }
+
+  for (const uid of selectedIds) {
+    const obj = allObjects.find(o => `${o.modelId}:${o.id}` === uid);
+    if (!obj) continue;
+
+    const trace = traceObjectToAssemblyContainer(obj);
+    
+    console.log(`\n╔════════════════════════════════════════════════════════════╗`);
+    console.log(`║ TRACE TO ASSEMBLY CONTAINER: "${obj.name}"               ║`);
+    console.log(`╠════════════════════════════════════════════════════════════╣`);
+    console.log(`║ Object Properties:`);
+    console.log(`║   ID: ${trace.object.id} | Model: ${trace.object.modelId}`);
+    console.log(`║   IFC Class: ${trace.object.ifcClass}`);
+    console.log(`╠════════════════════════════════════════════════════════════╣`);
+    console.log(`║ Assembly Properties:`);
+    console.log(`║   ASSEMBLY_POS: "${trace.assemblyProperties.assemblyPos}"`);
+    console.log(`║   ASSEMBLY_NAME: "${trace.assemblyProperties.assemblyName}"`);
+    console.log(`║   ASSEMBLY_CODE: "${trace.assemblyProperties.assemblyPosCode}"`);
+    
+    if (trace.ifcElementAssemblyParent) {
+      console.log(`╠════════════════════════════════════════════════════════════╣`);
+      console.log(`║ Parent IfcElementAssembly Container:`);
+      console.log(`║   ID: ${trace.ifcElementAssemblyParent.id}`);
+      console.log(`║   Name: "${trace.ifcElementAssemblyParent.name}"`);
+      console.log(`║   POS: "${trace.ifcElementAssemblyParent.assemblyPos}"`);
+      console.log(`║   NAME: "${trace.ifcElementAssemblyParent.assemblyName}"`);
+      console.log(`║   CODE: "${trace.ifcElementAssemblyParent.assemblyPosCode}"`);
+      
+      if (trace.groupedWith.length > 0) {
+        console.log(`╠════════════════════════════════════════════════════════════╣`);
+        console.log(`║ Siblings in container (${trace.groupedWith.length}):`);
+        for (const sibling of trace.groupedWith) {
+          console.log(`║   - ${sibling.name} (${sibling.ifcClass})`);
+        }
+      }
+    }
+    
+    console.log(`╚════════════════════════════════════════════════════════════╝\n`);
+  }
+};
+
+/**
+ * Debug: Show assembly hierarchy analysis
+ * Complete statistical analysis of all assembly containers and groupings
+ * Call from console: window._debugAssemblyAnalysis()
+ */
+window._debugAssemblyAnalysis = function() {
+  const analysis = buildAssemblyHierarchyAnalysis();
+  
+  console.log(`\n╔════════════════════════════════════════════════════════════╗`);
+  console.log(`║ ASSEMBLY HIERARCHY ANALYSIS                              ║`);
+  console.log(`╠════════════════════════════════════════════════════════════╣`);
+  console.log(`║ Total Objects: ${analysis.totalObjects}`);
+  console.log(`║ Total IfcElementAssembly Containers: ${analysis.summary.totalContainers}`);
+  console.log(`║ Objects in Containers: ${analysis.summary.objectsInContainers}`);
+  console.log(`║ Objects with Inherited Assembly: ${analysis.summary.objectsWithInheritedAssembly}`);
+  console.log(`║ Objects without Assembly: ${analysis.summary.objectsWithoutAssembly}`);
+  console.log(`╠════════════════════════════════════════════════════════════╣`);
+  console.log(`║ IfcElementAssembly Containers: ${analysis.containers.length}`);
+  console.log(`╚════════════════════════════════════════════════════════════╝\n`);
+  
+  // Show container breakdown
+  if (analysis.containers.length > 0) {
+    console.log(`📦 CONTAINER BREAKDOWN:\n`);
+    for (const container of analysis.containers) {
+      console.log(`Container: "${container.name}" (ID: ${container.id})`);
+      console.log(`  POS: "${container.assemblyPos}"`);
+      console.log(`  NAME: "${container.assemblyName}"`);
+      console.log(`  CODE: "${container.assemblyPosCode}"`);
+      console.log(`  Children: ${container.childCount}`);
+      console.log(`  Total Weight: ${container.totalWeight.toFixed(2)}kg`);
+      console.log(`  Total Volume: ${container.totalVolume.toFixed(6)}m³`);
+      console.log();
+    }
+  }
+  
+  // Show ASSEMBLY_POS grouping
+  console.log(`📋 GROUPING BY ASSEMBLY_POS:\n`);
+  const posKeys = Object.keys(analysis.byAssemblyPos).sort();
+  for (const pos of posKeys.slice(0, 20)) {
+    const group = analysis.byAssemblyPos[pos];
+    console.log(`  "${pos}": ${group.stats.count} objects | Weight: ${group.stats.weight.toFixed(2)}kg | Volume: ${group.stats.volume.toFixed(6)}m³`);
+  }
+  if (posKeys.length > 20) {
+    console.log(`  ... and ${posKeys.length - 20} more groups`);
+  }
+  
+  console.log(`\n`);
+};
+
+/**
+ * Debug: Get children by assembly value
+ * Find all objects with specific ASSEMBLY_POS, ASSEMBLY_NAME, or ASSEMBLY_CODE
+ * Call from console: window._debugGetAssemblyChildren("pos", "B1")
+ */
+window._debugGetAssemblyChildren = function(field, value) {
+  const children = getObjectsByAssemblyValue(field, value);
+  
+  console.log(`\n╔════════════════════════════════════════════════════════════╗`);
+  console.log(`║ OBJECTS WITH ${field.toUpperCase()} = "${value}"              ║`);
+  console.log(`╠════════════════════════════════════════════════════════════╣`);
+  console.log(`║ Found: ${children.length} objects`);
+  console.log(`╚════════════════════════════════════════════════════════════╝\n`);
+  
+  for (const obj of children.slice(0, 50)) {
+    console.log(`"${obj.name}"`);
+    console.log(`  ID: ${obj.id} | IFC: ${obj.ifcClass}`);
+    console.log(`  POS: "${obj.assemblyPos}" | NAME: "${obj.assemblyName}" | CODE: "${obj.assemblyPosCode}"`);
+    console.log(`  Weight: ${obj.weight}kg | Volume: ${obj.volume}m³`);
+  }
+  
+  if (children.length > 50) {
+    console.log(`\n... and ${children.length - 50} more objects\n`);
+  }
+};
+
+/**
+ * Debug: List unique assembly values for filtering
+ * Call from console: window._debugListAssemblyValues("pos")
+ */
+window._debugListAssemblyValues = function(field) {
+  const values = getUniqueAssemblyValues(field);
+  
+  console.log(`\n╔════════════════════════════════════════════════════════════╗`);
+  console.log(`║ UNIQUE ${field.toUpperCase()} VALUES (${values.length} total)                   ║`);
+  console.log(`╚════════════════════════════════════════════════════════════╝\n`);
+  
+  for (const val of values) {
+    const count = getObjectsByAssemblyValue(field, val).length;
+    console.log(`  "${val}" - ${count} objects`);
+  }
+  
+  console.log();
 };
 
 // ── Assembly Instance Assignment by Tekla Properties ──
