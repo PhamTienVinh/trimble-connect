@@ -2991,8 +2991,23 @@ function buildModelMap() {
 }
 
 function updateSummary() {
+  // Calculate total project stats from ALL filtered objects
+  let projectVolume = 0, projectWeight = 0, projectArea = 0;
+  for (const obj of filteredObjects) {
+    projectVolume += obj.volume || 0;
+    projectWeight += obj.weight || 0;
+    projectArea += obj.area || 0;
+  }
+
+  // Format functions — same as steelStatistics.js
+  const fmtVol = (v) => v.toFixed(6) + " m³";
+  const fmtArea = (a) => a.toFixed(4) + " m²";
+  const fmtWeight = (w) => w >= 1000 ? (w / 1000).toFixed(2) + " tấn" : w.toFixed(2) + " kg";
+
+  // Display total objects count + project totals
   document.getElementById("total-objects-count").textContent =
-    `${filteredObjects.length} objects`;
+    `${filteredObjects.length} objects | V: ${fmtVol(projectVolume)} | W: ${fmtWeight(projectWeight)} | A: ${fmtArea(projectArea)}`;
+
   document.getElementById("selected-objects-count").textContent =
     `${selectedIds.size} đã chọn`;
 
@@ -3004,10 +3019,6 @@ function updateSummary() {
     let totalVolume = 0, totalWeight = 0, totalArea = 0;
     let matchCount = 0;
 
-    // Debug: log what selectedIds look like
-    const sampleIds = Array.from(selectedIds).slice(0, 3);
-    console.log("[UpdateSummary] Sample selectedIds:", sampleIds);
-
     for (const obj of allObjects) {
       const uid = `${obj.modelId}:${obj.id}`;
       if (selectedIds.has(uid)) {
@@ -3015,20 +3026,10 @@ function updateSummary() {
         totalWeight += obj.weight || 0;
         totalArea += obj.area || 0;
         matchCount++;
-        // Debug: log first 3 matched objects
-        if (matchCount <= 3) {
-          console.log(`[UpdateSummary] Matched: uid=${uid} vol=${obj.volume} wt=${obj.weight} area=${obj.area}`);
-        }
       }
     }
-    console.log(`[UpdateSummary] Matched ${matchCount}/${selectedIds.size} objects. V=${totalVolume} W=${totalWeight} A=${totalArea}`);
 
-    // Build stats text - always show all fields
-    const parts = [];
-    parts.push(`V: ${totalVolume.toFixed(4)} m³`);
-    parts.push(`W: ${totalWeight.toFixed(1)} kg`);
-    parts.push(`A: ${totalArea.toFixed(2)} m²`);
-    const statsText = parts.join(" | ");
+    const statsText = `V: ${fmtVol(totalVolume)} | W: ${fmtWeight(totalWeight)} | A: ${fmtArea(totalArea)}`;
 
     if (selStatsEl) {
       selStatsEl.textContent = statsText;
