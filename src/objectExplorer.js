@@ -4055,7 +4055,146 @@ function updateSummary() {
     if (statsDivider) statsDivider.style.display = "none";
   }
 
+  // Update assembly info bar for selected object(s)
+  updateAssemblyInfoBar();
 }
+
+// ── Assembly Info Bar — shows container info for the selected child ──
+// When selecting any child (beam, plate, etc.), this bar shows which
+// ASSEMBLY_NAME, ASSEMBLY_POS, ASSEMBLY_POSITION_CODE it belongs to,
+// plus stats for all siblings in the same assembly group.
+function updateAssemblyInfoBar() {
+  const infoBar = document.getElementById("assembly-info-bar");
+  if (!infoBar) return;
+
+  // Hide if nothing selected
+  if (selectedIds.size === 0) {
+    infoBar.style.display = "none";
+    return;
+  }
+
+  // Get the first selected object
+  const firstUid = selectedIds.values().next().value;
+  const selectedObj = allObjects.find(o => `${o.modelId}:${o.id}` === firstUid);
+  if (!selectedObj) {
+    infoBar.style.display = "none";
+    return;
+  }
+
+  // Determine assembly container info using multiple strategies
+  let asmName = selectedObj.assemblyName || "";
+  let asmPos = selectedObj.assemblyPos || "";
+  let asmCode = selectedObj.assemblyPosCode || "";
+
+  // Strategy 1: Try IFC hierarchy (assemblyMembershipMap → assemblyNodeInfoMap)
+  if (!asmName || !asmPos || !asmCode) {
+    const objectKey = `${selectedObj.modelId}:${selectedObj.id}`;
+    const parentAssemblyKey = assemblyMembershipMap.get(objectKey);
+    if (parentAssemblyKey) {
+      const nodeInfo = assemblyNodeInfoMap.get(parentAssemblyKey);
+      if (nodeInfo) {
+        if (!asmName && nodeInfo.assemblyName) asmName = nodeInfo.assemblyName;
+        if (!asmPos && nodeInfo.assemblyPos) asmPos = nodeInfo.assemblyPos;
+        if (!asmCode && nodeInfo.assemblyPosCode) asmCode = nodeInfo.assemblyPosCode;
+        // Fallback: use IFC entity name for assemblyName
+        if (!asmName && nodeInfo.name) asmName = nodeInfo.name;
+      }
+    }
+  }
+
+  // Strategy 2: Try hierarchyParentMap (spatial tree parent)
+  if (!asmName || !asmPos || !asmCode) {
+    const objectKey = `${selectedObj.modelId}:${selectedObj.id}`;
+    const parentInfo = hierarchyParentMap.get(objectKey);
+    if (parentInfo) {
+      const parentClass = (parentInfo.class || "").toLowerCase();
+      if (parentClass.includes("assembly") || parentClass.includes("elementassembly")) {
+        // Find parent object in our data
+        const parentObj = allObjects.find(o => o.modelId === parentInfo.modelId && o.id === parentInfo.id);
+        if (parentObj) {
+          if (!asmName && parentObj.assemblyName) asmName = parentObj.assemblyName;
+          if (!asmPos && parentObj.assemblyPos) asmPos = parentObj.assemblyPos;
+          if (!asmCode && parentObj.assemblyPosCode) asmCode = parentObj.assemblyPosCode;
+        }
+        if (!asmName && parentInfo.name) asmName = parentInfo.name;
+      }
+    }
+  }
+
+  // Strategy 3: Use assembly (generic fallback)
+  if (!asmName && selectedObj.assembly) {
+    asmName = selectedObj.assembly;
+  }
+
+  // If no assembly info at all, hide the bar
+  if (!asmName && !asmPos && !asmCode) {
+    infoBar.style.display = "none";
+    return;
+  }
+
+  // Show the bar
+  infoBar.style.display = "block";
+
+  // Update display values
+  const nameEl = document.getElementById("asm-info-name");
+  const posEl = document.getElementById("asm-info-pos");
+  const codeEl = document.getElementById("asm-info-code");
+
+  if (nameEl) nameEl.textContent = asmName || "—";
+  if (posEl) posEl.textContent = asmPos || "—";
+  if (codeEl) codeEl.textContent = asmCode || "—";
+
+  // Highlight which fields have values
+  if (nameEl) nameEl.classList.toggle("multi", !!asmName);
+  if (posEl) posEl.classList.toggle("multi", !!asmPos);
+  if (codeEl) codeEl.classList.toggle("multi", !!asmCode);
+
+  // Calculate sibling stats — find all objects in same assembly group
+  let siblings = [];
+  if (asmPos) {
+    // Most precise: match by assemblyPos within same model
+    siblings = allObjects.filter(o =>
+      o.modelId === selectedObj.modelId && o.assemblyPos === asmPos
+    );
+  } else if (selectedObj.assemblyInstanceId) {
+    siblings = allObjects.filter(o => o.assemblyInstanceId === selectedObj.assemblyInstanceId);
+  } else if (asmName) {
+    siblings = allObjects.filter(o =>
+      o.modelId === selectedObj.modelId && (o.assemblyName || o.assembly) === asmName
+    );
+  }
+
+  const statsEl = document.getElementById("asm-info-stats");
+  if (siblings.length > 0 && statsEl) {
+    let totalWeight = 0, totalVolume = 0, totalArea = 0;
+    for (const s of siblings) {
+      totalWeight += s.weight || 0;
+      totalVolume += s.volume || 0;
+      totalArea += s.area || 0;
+    }
+
+    const fmtWeight = (w) => w >= 1000 ? (w / 1000).toFixed(2) + " tấn" : w.toFixed(2) + " kg";
+
+    document.getElementById("asm-info-siblings").textContent = siblings.length;
+    document.getElementById("asm-info-weight").textContent = fmtWeight(totalWeight);
+    document.getElementById("asm-info-volume").textContent = totalVolume.toFixed(6) + " m³";
+    document.getElementById("asm-info-area").textContent = totalArea.toFixed(4) + " m²";
+    statsEl.style.display = "flex";
+  } else if (statsEl) {
+    statsEl.style.display = "none";
+  }
+
+  // Update title to show selected object name
+  const titleEl = infoBar.querySelector(".assembly-info-title");
+  if (titleEl) {
+    if (selectedIds.size === 1) {
+      titleEl.textContent = `Assembly của "${selectedObj.name}"`;
+    } else {
+      titleEl.textContent = `Assembly Container Info (${selectedIds.size} đã chọn)`;
+    }
+  }
+}
+
 
 function showLoading(show) {
   document.getElementById("loading-overlay").style.display = show

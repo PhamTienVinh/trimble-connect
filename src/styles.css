@@ -886,8 +886,8 @@ select:focus {
 }
 
 .assembly-info-row .asm-value.multi {
-  color: var(--warning);
-  font-size: 10px;
+  color: var(--accent);
+  font-size: 11px;
 }
 
 .assembly-info-stats {

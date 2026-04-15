@@ -7,8 +7,8 @@
   <title>DDC Statistics</title>
   <meta name="description" content="Trimble Connect Extension - DDC Statistics" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <script type="module" crossorigin src="./assets/index-DjMbRiRp.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-RCWojrvT.css">
+  <script type="module" crossorigin src="./assets/index-Bon_AUrz.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-Cl4g4BeS.css">
 </head>
 
 <body>
@@ -82,6 +82,47 @@
         <button id="btn-expand-all" class="action-btn secondary" title="Mở rộng tất cả nhóm">
           <span>⏬</span> Mở rộng
         </button>
+      </div>
+
+      <!-- Assembly Info Bar (shown when object is selected) -->
+      <div id="assembly-info-bar" class="assembly-info-bar" style="display:none;">
+        <div class="assembly-info-header" onclick="document.getElementById('assembly-info-bar').classList.toggle('collapsed')">
+          <span class="assembly-info-icon">🏗️</span>
+          <span class="assembly-info-title">Assembly Container Info</span>
+          <span class="assembly-info-collapse">▼</span>
+        </div>
+        <div class="assembly-info-content">
+          <div class="assembly-info-row">
+            <span class="asm-label">Assembly Name:</span>
+            <span class="asm-value" id="asm-info-name">—</span>
+          </div>
+          <div class="assembly-info-row">
+            <span class="asm-label">Assembly Pos:</span>
+            <span class="asm-value" id="asm-info-pos">—</span>
+          </div>
+          <div class="assembly-info-row">
+            <span class="asm-label">Assembly Code:</span>
+            <span class="asm-value" id="asm-info-code">—</span>
+          </div>
+          <div class="assembly-info-stats" id="asm-info-stats" style="display:none;">
+            <div class="asm-stat">
+              <span class="asm-stat-label">Siblings</span>
+              <span class="asm-stat-val" id="asm-info-siblings">0</span>
+            </div>
+            <div class="asm-stat">
+              <span class="asm-stat-label">Weight</span>
+              <span class="asm-stat-val" id="asm-info-weight">0 kg</span>
+            </div>
+            <div class="asm-stat">
+              <span class="asm-stat-label">Volume</span>
+              <span class="asm-stat-val" id="asm-info-volume">0 m³</span>
+            </div>
+            <div class="asm-stat">
+              <span class="asm-stat-label">Area</span>
+              <span class="asm-stat-val" id="asm-info-area">0 m²</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Stats Summary -->
