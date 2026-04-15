@@ -542,7 +542,7 @@ async function scanObjects() {
       }
     }
 
-    // Source B: hierarchyParentMap (spatial tree — for children missed by Source A)
+      // Source B: hierarchyParentMap (spatial tree — for children missed by Source A)
     for (const [childKey, parentInfo] of hierarchyParentMap) {
       const parentCls = (parentInfo.class || "").toLowerCase();
       if (parentCls !== "ifcelementassembly" && !parentCls.includes("elementassembly")) continue;
@@ -557,26 +557,20 @@ async function scanObjects() {
           childrenEnriched++;
         }
       } else {
-        // Parent was already removed or not in allObjects — use nodeInfo
-        // NOTE: nodeInfo.name is the IFC entity name, NOT a Tekla property.
-        // Only use it for assembly (generic) and assemblyName, NOT for assemblyPos
-        // because assemblyPos should be the value of the ASSEMBLY_POS property.
+        // Parent was already removed or not in allObjects — use ONLY explicit
+        // Tekla assembly properties captured in assemblyNodeInfoMap.
         const nodeInfo = assemblyNodeInfoMap.get(`${parentInfo.modelId}:${parentInfo.id}`);
-        if (nodeInfo && nodeInfo.name) {
-          // Use nodeInfo properties if they were enriched, otherwise use name as assemblyName only
+        if (nodeInfo) {
           if (nodeInfo.assemblyPos && (!childObj.assemblyPos || childObj.assemblyPos === "(Không xác định)")) {
             childObj.assemblyPos = nodeInfo.assemblyPos;
             childrenEnriched++;
           }
           if (nodeInfo.assemblyName && !childObj.assemblyName) {
             childObj.assemblyName = nodeInfo.assemblyName;
-          } else if (!childObj.assemblyName) {
-            childObj.assemblyName = nodeInfo.name;
           }
           if (nodeInfo.assemblyPosCode && !childObj.assemblyPosCode) {
             childObj.assemblyPosCode = nodeInfo.assemblyPosCode;
           }
-          if (!childObj.assembly) childObj.assembly = nodeInfo.name;
         }
       }
     }
@@ -596,23 +590,20 @@ async function scanObjects() {
           childrenEnriched++;
         }
       } else {
-        // Container already removed — use assemblyNodeInfoMap
-        // Only use actual assembly properties, not IFC entity name for assemblyPos
+        // Container already removed — use ONLY explicit Tekla properties
+        // from assemblyNodeInfoMap (no IFC name fallback).
         const nodeInfo = assemblyNodeInfoMap.get(assemblyKey);
-        if (nodeInfo && nodeInfo.name) {
+        if (nodeInfo) {
           if (nodeInfo.assemblyPos && (!obj.assemblyPos || obj.assemblyPos === "(Không xác định)")) {
             obj.assemblyPos = nodeInfo.assemblyPos;
             childrenEnriched++;
           }
           if (nodeInfo.assemblyName && !obj.assemblyName) {
             obj.assemblyName = nodeInfo.assemblyName;
-          } else if (!obj.assemblyName) {
-            obj.assemblyName = nodeInfo.name;
           }
           if (nodeInfo.assemblyPosCode && !obj.assemblyPosCode) {
             obj.assemblyPosCode = nodeInfo.assemblyPosCode;
           }
-          if (!obj.assembly) obj.assembly = nodeInfo.name;
         }
       }
     }
@@ -1441,29 +1432,31 @@ async function enrichAssemblyFromHierarchy() {
           if (assemblyObj && assemblyObj.assemblyPos && assemblyObj.assemblyPos.trim()) {
             obj.assemblyPos = assemblyObj.assemblyPos;
           }
-          // Priority 3: Fall back to IFC entity name
-          else if (nodeInfo.name && nodeInfo.name.trim()) {
-            obj.assemblyPos = nodeInfo.name;
-          }
         }
 
-        // Use enriched assemblyName (from container API) or fall back to IFC name
+        // Use enriched assemblyName (from container API or parsed container object)
         if (!obj.assemblyName) {
-          obj.assemblyName = nodeInfo.assemblyName || nodeInfo.name || "";
+          const assemblyObj = objectMap.get(assemblyKey);
+          if (nodeInfo.assemblyName && nodeInfo.assemblyName.trim()) {
+            obj.assemblyName = nodeInfo.assemblyName;
+          } else if (assemblyObj && assemblyObj.assemblyName && assemblyObj.assemblyName.trim()) {
+            obj.assemblyName = assemblyObj.assemblyName;
+          }
         }
         // Use enriched assemblyPosCode (from container API)
         if (!obj.assemblyPosCode && nodeInfo.assemblyPosCode) {
           obj.assemblyPosCode = nodeInfo.assemblyPosCode;
         }
-        if (!obj.assembly) obj.assembly = nodeInfo.name || "";
         obj.isTekla = true;
-        enrichedFromAssembly++;
-        continue;
+        if (obj.assemblyPos || obj.assemblyName || obj.assemblyPosCode) {
+          enrichedFromAssembly++;
+          continue;
+        }
       }
     }
 
-    // Strategy 2: Use direct parent node from hierarchy
-    // Only accept parent as assembly source if it's an assembly-type node (not building storey/site)
+    // Strategy 2: Use direct parent assembly node from hierarchy.
+    // Do NOT use structural parent names as synthetic assembly values.
     const parentInfo = hierarchyParentMap.get(objectKey);
     if (parentInfo && parentInfo.name && parentInfo.name.trim()) {
       const parentClass = (parentInfo.class || "").toLowerCase();
@@ -1484,22 +1477,13 @@ async function enrichAssemblyFromHierarchy() {
       );
       
       if (isAssemblyType) {
-        // Assembly parent — inherit its name
+        // Assembly parent — inherit explicit assembly properties only
         const parentObj = objectMap.get(`${obj.modelId}:${parentInfo.id}`);
         if (parentObj && parentObj.assemblyPos && parentObj.assemblyPos.trim()) {
           obj.assemblyPos = parentObj.assemblyPos;
-        } else {
-          obj.assemblyPos = parentInfo.name;
         }
-        if (!obj.assemblyName) obj.assemblyName = parentInfo.name;
-        if (!obj.assembly) obj.assembly = parentInfo.name;
-        enrichedFromParent++;
-        continue;
-      } else if (!isSpatialStructure) {
-        // Structural element parent (beam, plate, etc.) — use as assembly
-        obj.assemblyPos = parentInfo.name;
-        if (!obj.assemblyName) obj.assemblyName = parentInfo.name;
-        if (!obj.assembly) obj.assembly = parentInfo.name;
+        if (parentObj && !obj.assemblyName && parentObj.assemblyName) obj.assemblyName = parentObj.assemblyName;
+        if (parentObj && !obj.assemblyPosCode && parentObj.assemblyPosCode) obj.assemblyPosCode = parentObj.assemblyPosCode;
         enrichedFromParent++;
         continue;
       }
@@ -1515,18 +1499,8 @@ async function enrichAssemblyFromHierarchy() {
       }
     }
 
-    // Strategy 4: Use secondary assembly properties if available
-    if (!obj.assemblyPos) {
-      if (obj.assemblyName && obj.assemblyName.trim()) {
-        obj.assemblyPos = obj.assemblyName;
-        enrichedFromName++;
-        continue;
-      } else if (obj.assembly && obj.assembly.trim()) {
-        obj.assemblyPos = obj.assembly;
-        enrichedFromName++;
-        continue;
-      }
-    }
+    // Strategy 4 intentionally removed:
+    // No cross-fill from assemblyName/assembly to assemblyPos to avoid false groups.
 
     // Strategy 5: Last resort — bolt/fastener objects use their bolt name or type
     if (!obj.assemblyPos && obj.isTeklaBolt) {
@@ -1587,22 +1561,21 @@ function parseBoltDimension(value) {
 
 // ── Classify Part Roles ──
 // Assigns a partRole to each object based on Tekla hierarchy and IFC class:
-// - assemblyContainer: IfcElementAssembly parent (container node)
 // - mainPart: Tekla main part (MAIN_PART=yes or first/largest part in assembly)
 // - secondaryPart: other structural parts within assembly
 // - bolt: IfcMechanicalFastener, IfcBolt, etc.
 // - accessory: IfcDiscreteAccessory (plates, clips, etc.)
 // - standalone: objects not part of any assembly
 function classifyPartRoles() {
-  let classified = { assemblyContainer: 0, mainPart: 0, secondaryPart: 0, bolt: 0, accessory: 0, standalone: 0 };
+  let classified = { mainPart: 0, secondaryPart: 0, bolt: 0, accessory: 0, standalone: 0 };
 
   for (const obj of allObjects) {
     const cls = (obj.ifcClass || "").toLowerCase();
 
-    // 1. Assembly container nodes
+    // 1. Assembly hierarchy node (container concept is not exposed in Tekla filters)
     if (obj.isAssemblyParent && (cls === "ifcelementassembly" || cls.includes("elementassembly"))) {
-      obj.partRole = "assemblyContainer";
-      classified.assemblyContainer++;
+      obj.partRole = "standalone";
+      classified.standalone++;
       continue;
     }
 
@@ -1654,7 +1627,7 @@ function classifyPartRoles() {
   // Strategy: within each assembly group, the heaviest part is likely the main part
   const assemblyGroups = new Map(); // assemblyInstanceId → [objects]
   for (const obj of allObjects) {
-    if (!obj.assemblyInstanceId || obj.partRole === "assemblyContainer" || obj.partRole === "bolt" || obj.partRole === "accessory") continue;
+    if (!obj.assemblyInstanceId || obj.partRole === "bolt" || obj.partRole === "accessory") continue;
     if (!assemblyGroups.has(obj.assemblyInstanceId)) {
       assemblyGroups.set(obj.assemblyInstanceId, []);
     }
@@ -1682,8 +1655,7 @@ function classifyPartRoles() {
   }
 
   console.log(
-    `[ObjectExplorer] Part roles: ${classified.assemblyContainer} containers, ` +
-    `${classified.mainPart + autoMainParts} main parts (${autoMainParts} auto-detected), ` +
+    `[ObjectExplorer] Part roles: ${classified.mainPart + autoMainParts} main parts (${autoMainParts} auto-detected), ` +
     `${classified.secondaryPart - autoMainParts} secondary, ${classified.bolt} bolts, ` +
     `${classified.accessory} accessories, ${classified.standalone} standalone`
   );
@@ -2071,7 +2043,7 @@ function parseObjectProperties(props, modelId) {
     // ── Tekla Part Hierarchy ──
     partPos: "",          // PART_POS from Tekla (unique per part)
     isMainPart: false,    // MAIN_PART flag from Tekla
-    partRole: "",         // Classified role: mainPart, secondaryPart, bolt, accessory, assemblyContainer
+    partRole: "",         // Classified role: mainPart, secondaryPart, bolt, accessory, standalone
     phase: "",            // PHASE from Tekla
     hierarchyLevel: "",   // HIERARCHY_LEVEL from Tekla
     // ── Preserved original quantities (before assembly zeroing) ──
@@ -2498,28 +2470,11 @@ function parseObjectProperties(props, modelId) {
     }
   }
 
-  // ── Cross-fill assembly fields for complete grouping ──
-  // Each field represents a different Tekla concept:
-  //   - assemblyPos:     ASSEMBLY_POS     (unique instance identifier, e.g. "B1/1")
-  //   - assemblyName:    ASSEMBLY_NAME    (type name, e.g. "BEAM_ASSEMBLY")
-  //   - assemblyPosCode: ASSEMBLY_POSITION_CODE (prefix/code, e.g. "B")
-  //   - assembly:        Generic assembly fallback
-  // Cross-fill ensures all 3 filter groups (Name, Pos, Code) have data when possible:
-  //   - If assemblyName is empty but assemblyPos exists → use assemblyPos as assemblyName
-  //   - If assemblyPos is empty but assemblyName exists → use assemblyName as assemblyPos
-  //   - assembly serves as ultimate fallback for both
-  if (!result.assemblyName && result.assemblyPos) {
-    result.assemblyName = result.assemblyPos;
-  }
-  if (!result.assemblyPos && result.assemblyName) {
-    result.assemblyPos = result.assemblyName;
-  }
-  if (!result.assemblyName && result.assembly) {
-    result.assemblyName = result.assembly;
-  }
-  if (!result.assemblyPos && result.assembly) {
-    result.assemblyPos = result.assembly;
-  }
+  // Keep Tekla assembly fields strict:
+  // - assemblyPos      <- ASSEMBLY_POS / ASSEMBLY_MARK only
+  // - assemblyName     <- ASSEMBLY_NAME only
+  // - assemblyPosCode  <- ASSEMBLY_POSITION_CODE only
+  // Avoid cross-filling between these fields to prevent false grouping.
 
   // Fallback name
   if (!result.name) result.name = `Object ${props.id}`;
@@ -2655,8 +2610,8 @@ function buildThreeLevelGroups(objects, level1Key, level2Key, level3Key) {
 
 function getAssemblyValueForKey(obj, key) {
   switch (key) {
-    case "assemblyName": return obj.assemblyName || obj.assemblyPos || obj.assembly || "";
-    case "assemblyPos": return obj.assemblyPos || obj.assemblyName || obj.assembly || "";
+    case "assemblyName": return obj.assemblyName || "";
+    case "assemblyPos": return obj.assemblyPos || "";
     case "assemblyPosCode": return obj.assemblyPosCode || "";
     default: return "";
   }

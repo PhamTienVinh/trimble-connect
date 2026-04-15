@@ -215,7 +215,7 @@ function is3DObjectWithDimensions(obj) {
 
 function getGroupKey(obj, groupBy) {
   switch (groupBy) {
-    case "assemblyName": return obj.assemblyName || obj.assembly || "(Không xác định)";
+    case "assemblyName": return obj.assemblyName || "(Không xác định)";
     case "assemblyPos": return obj.assemblyPos || "(Không xác định)";
     case "assemblyPosCode": return obj.assemblyPosCode || "(Không xác định)";
     case "name": return obj.name;
