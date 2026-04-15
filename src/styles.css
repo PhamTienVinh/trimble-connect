@@ -975,6 +975,88 @@ select:focus {
   overflow: hidden;
 }
 
+/* ===== TREE SUB2-GROUP (3rd level — Assembly Pos under Name) ===== */
+.tree-sub2group {
+  border-left: 2px solid rgba(210, 153, 34, 0.4);
+  margin-left: 10px;
+}
+
+.tree-sub2group-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: var(--transition);
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--warning);
+  background: rgba(210, 153, 34, 0.04);
+}
+
+.tree-sub2group-header:hover {
+  background: rgba(210, 153, 34, 0.1);
+}
+
+.tree-sub2group-toggle {
+  font-size: 8px;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.tree-sub2group.collapsed .tree-sub2group-toggle {
+  transform: rotate(-90deg);
+}
+
+.tree-sub2group-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-sub2group-count {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-weight: 400;
+  background: var(--bg-tertiary);
+  padding: 0px 5px;
+  border-radius: 7px;
+}
+
+.tree-sub2group.collapsed .tree-sub2-items {
+  max-height: 0 !important;
+  overflow: hidden;
+  padding: 0;
+}
+
+.tree-sub2-items {
+  overflow: hidden;
+}
+
+/* Deeper indent for items inside sub2group */
+.tree-sub2-items .tree-item {
+  padding-left: 42px;
+}
+
+.tree-sub2-items .tree-item.selected {
+  padding-left: 40px;
+}
+
+/* Subgroup checkbox */
+.tree-subgroup-checkbox,
+.tree-sub2group-checkbox {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 /* Assembly badge on tree items */
 .tree-item-badge.asm-pos {
   background: rgba(210, 153, 34, 0.12);

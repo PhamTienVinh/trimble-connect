@@ -2201,20 +2201,39 @@ function clearSearch() {
 }
 
 // ── Check if groupBy mode should use multi-level assembly grouping ──
+// Returns config with 2 or 3 levels depending on groupBy mode.
 function getMultiLevelConfig(groupBy) {
   switch (groupBy) {
     case "assemblyPos":
-      // Level 1: Assembly Name, Level 2: Assembly Pos
-      return { level1: "assemblyName", level2: "assemblyPos", icon1: "🏗️", icon2: "📍" };
+      // 3 levels: Assembly Code > Assembly Name > Assembly Pos > children
+      return {
+        levels: 3,
+        level1: "assemblyPosCode", level2: "assemblyName", level3: "assemblyPos",
+        icon1: "🔖", icon2: "🏗️", icon3: "📍",
+        label1: "Assembly Code", label2: "Assembly Name", label3: "Assembly Pos"
+      };
     case "assemblyPosCode":
-      // Level 1: Assembly Code, Level 2: Assembly Pos
-      return { level1: "assemblyPosCode", level2: "assemblyPos", icon1: "🔖", icon2: "📍" };
+      // 3 levels: Assembly Code > Assembly Name > Assembly Pos > children
+      return {
+        levels: 3,
+        level1: "assemblyPosCode", level2: "assemblyName", level3: "assemblyPos",
+        icon1: "🔖", icon2: "🏗️", icon3: "📍",
+        label1: "Assembly Code", label2: "Assembly Name", label3: "Assembly Pos"
+      };
+    case "assemblyName":
+      // 2 levels: Assembly Name > Assembly Pos > children
+      return {
+        levels: 2,
+        level1: "assemblyName", level2: "assemblyPos",
+        icon1: "🏗️", icon2: "📍",
+        label1: "Assembly Name", label2: "Assembly Pos"
+      };
     default:
       return null;
   }
 }
 
-// ── Build multi-level group map ──
+// ── Build 2-level group map ──
 function buildMultiLevelGroups(objects, level1Key, level2Key) {
   const groups = {};
   for (const obj of objects) {
@@ -2223,6 +2242,21 @@ function buildMultiLevelGroups(objects, level1Key, level2Key) {
     if (!groups[l1]) groups[l1] = {};
     if (!groups[l1][l2]) groups[l1][l2] = [];
     groups[l1][l2].push(obj);
+  }
+  return groups;
+}
+
+// ── Build 3-level group map ──
+function buildThreeLevelGroups(objects, level1Key, level2Key, level3Key) {
+  const groups = {};
+  for (const obj of objects) {
+    const l1 = getAssemblyValueForKey(obj, level1Key) || "(Không xác định)";
+    const l2 = getAssemblyValueForKey(obj, level2Key) || "(Không xác định)";
+    const l3 = getAssemblyValueForKey(obj, level3Key) || "(Không xác định)";
+    if (!groups[l1]) groups[l1] = {};
+    if (!groups[l1][l2]) groups[l1][l2] = {};
+    if (!groups[l1][l2][l3]) groups[l1][l2][l3] = [];
+    groups[l1][l2][l3].push(obj);
   }
   return groups;
 }
@@ -2292,8 +2326,96 @@ function renderTree() {
 
   let html = "";
 
-  if (mlConfig) {
-    // ── Multi-level grouping (Assembly Name > Assembly Pos > children) ──
+  if (mlConfig && mlConfig.levels === 3) {
+    // ── 3-level grouping (Code > Name > Pos > children) ──
+    const mlGroups = buildThreeLevelGroups(filteredObjects, mlConfig.level1, mlConfig.level2, mlConfig.level3);
+    const sortedL1Keys = Object.keys(mlGroups).sort();
+
+    for (const l1Key of sortedL1Keys) {
+      const l2Groups = mlGroups[l1Key];
+      // Collect ALL items in this L1 group
+      const allL1Items = [];
+      for (const l2Subs of Object.values(l2Groups)) {
+        for (const l3Items of Object.values(l2Subs)) {
+          allL1Items.push(...l3Items);
+        }
+      }
+      const allL1Uids = allL1Items.map(o => `${o.modelId}:${o.id}`);
+      const allChecked = allL1Uids.every(uid => selectedIds.has(uid));
+      const someChecked = allL1Uids.some(uid => selectedIds.has(uid));
+
+      // Level 1 header
+      html += `<div class="tree-group" data-group="${escHtml(l1Key)}">`;
+      html += `<div class="tree-group-header">`;
+      html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm" />`;
+      html += `<span class="tree-toggle" onclick="this.closest('.tree-group').classList.toggle('collapsed')">▼</span>`;
+      html += `<span class="tree-group-name" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${mlConfig.icon1} ${escHtml(l1Key)}</span>`;
+      html += `<span class="tree-group-count" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${allL1Items.length}</span>`;
+      html += `</div>`;
+      html += `<div class="tree-items">`;
+
+      // Level 2 sub-groups
+      const sortedL2Keys = Object.keys(l2Groups).sort();
+      for (const l2Key of sortedL2Keys) {
+        const l3Groups = l2Groups[l2Key];
+        // Count all items in this L2 group
+        const allL2Items = [];
+        for (const l3Items of Object.values(l3Groups)) {
+          allL2Items.push(...l3Items);
+        }
+        const allL2Uids = allL2Items.map(o => `${o.modelId}:${o.id}`);
+        const l2AllChecked = allL2Uids.every(uid => selectedIds.has(uid));
+        const l2SomeChecked = allL2Uids.some(uid => selectedIds.has(uid));
+
+        html += `<div class="tree-subgroup" data-subgroup="${escHtml(l2Key)}">`;
+        html += `<div class="tree-subgroup-header">`;
+        html += `<input type="checkbox" class="tree-subgroup-checkbox" ${l2AllChecked ? "checked" : ""} ${!l2AllChecked && l2SomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm con" />`;
+        html += `<span class="tree-subgroup-toggle" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">▼</span>`;
+        html += `<span class="tree-subgroup-name" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">${mlConfig.icon2} ${escHtml(l2Key)}</span>`;
+        html += `<span class="tree-subgroup-count" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">${allL2Items.length}</span>`;
+        html += `</div>`;
+        html += `<div class="tree-subitems">`;
+
+        // Level 3 sub2-groups
+        const sortedL3Keys = Object.keys(l3Groups).sort();
+        const hasMultipleL3 = sortedL3Keys.length > 1 || (sortedL3Keys.length === 1 && sortedL3Keys[0] !== l2Key);
+
+        if (hasMultipleL3) {
+          for (const l3Key of sortedL3Keys) {
+            const items = l3Groups[l3Key];
+            const allL3Uids = items.map(o => `${o.modelId}:${o.id}`);
+            const l3AllChecked = allL3Uids.every(uid => selectedIds.has(uid));
+            const l3SomeChecked = allL3Uids.some(uid => selectedIds.has(uid));
+
+            html += `<div class="tree-sub2group" data-sub2group="${escHtml(l3Key)}">`;
+            html += `<div class="tree-sub2group-header">`;
+            html += `<input type="checkbox" class="tree-sub2group-checkbox" ${l3AllChecked ? "checked" : ""} ${!l3AllChecked && l3SomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn" />`;
+            html += `<span class="tree-sub2group-toggle" onclick="this.closest('.tree-sub2group').classList.toggle('collapsed')">▼</span>`;
+            html += `<span class="tree-sub2group-name" onclick="this.closest('.tree-sub2group').classList.toggle('collapsed')">${mlConfig.icon3} ${escHtml(l3Key)}</span>`;
+            html += `<span class="tree-sub2group-count" onclick="this.closest('.tree-sub2group').classList.toggle('collapsed')">${items.length}</span>`;
+            html += `</div>`;
+            html += `<div class="tree-sub2-items">`;
+            for (const obj of items) {
+              html += renderTreeItemHtml(obj, groupBy);
+            }
+            html += `</div></div>`;
+          }
+        } else {
+          // Single L3 — render items directly
+          for (const l3Key of sortedL3Keys) {
+            for (const obj of l3Groups[l3Key]) {
+              html += renderTreeItemHtml(obj, groupBy);
+            }
+          }
+        }
+
+        html += `</div></div>`; // close tree-subitems + tree-subgroup
+      }
+
+      html += `</div></div>`; // close tree-items + tree-group
+    }
+  } else if (mlConfig && mlConfig.levels === 2) {
+    // ── 2-level grouping (Name > Pos > children) ──
     const mlGroups = buildMultiLevelGroups(filteredObjects, mlConfig.level1, mlConfig.level2);
     const sortedL1Keys = Object.keys(mlGroups).sort();
 
@@ -2324,8 +2446,13 @@ function renderTree() {
       if (hasMultipleSubgroups) {
         for (const l2Key of sortedL2Keys) {
           const items = subGroups[l2Key];
+          const allL2Uids = items.map(o => `${o.modelId}:${o.id}`);
+          const l2AllChecked = allL2Uids.every(uid => selectedIds.has(uid));
+          const l2SomeChecked = allL2Uids.some(uid => selectedIds.has(uid));
+
           html += `<div class="tree-subgroup" data-subgroup="${escHtml(l2Key)}">`;
           html += `<div class="tree-subgroup-header">`;
+          html += `<input type="checkbox" class="tree-subgroup-checkbox" ${l2AllChecked ? "checked" : ""} ${!l2AllChecked && l2SomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm con" />`;
           html += `<span class="tree-subgroup-toggle" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">▼</span>`;
           html += `<span class="tree-subgroup-name" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">${mlConfig.icon2} ${escHtml(l2Key)}</span>`;
           html += `<span class="tree-subgroup-count" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">${items.length}</span>`;
@@ -2389,10 +2516,13 @@ function renderTree() {
 
   // Count groups for display
   const groupCount = container.querySelectorAll(".tree-group").length;
-  document.getElementById("groups-count").textContent = `${groupCount} nhóm`;
+  const subGroupCount = container.querySelectorAll(".tree-subgroup").length;
+  const sub2GroupCount = container.querySelectorAll(".tree-sub2group").length;
+  const totalGroups = groupCount + (subGroupCount > 0 ? subGroupCount : 0) + (sub2GroupCount > 0 ? sub2GroupCount : 0);
+  document.getElementById("groups-count").textContent = `${groupCount} nhóm${subGroupCount > 0 ? ` (${subGroupCount} sub` + (sub2GroupCount > 0 ? `, ${sub2GroupCount} pos` : "") + `)` : ""}`;
 
-  // Set indeterminate state for group checkboxes (can't set via HTML attribute)
-  container.querySelectorAll('.tree-group-checkbox[data-indeterminate="true"]').forEach((cb) => {
+  // Set indeterminate state for ALL level checkboxes (can't set via HTML attribute)
+  container.querySelectorAll('[data-indeterminate="true"]').forEach((cb) => {
     cb.indeterminate = true;
   });
 
@@ -2471,6 +2601,78 @@ function renderTree() {
       lastClickedGroupEl = groupEl;
       lastGroupClickAction = doSelect ? "select" : "deselect";
       selectionFromPanel = true;
+      updateSummary();
+      notifySelectionChanged();
+      applyHighlightColors();
+      syncSelectionToViewer();
+      treeContainer.scrollTop = savedScroll;
+    });
+  });
+
+  // Bind subgroup checkbox events (Level 2 — select/deselect all items in subgroup)
+  container.querySelectorAll(".tree-subgroup").forEach((subEl) => {
+    const subCb = subEl.querySelector(".tree-subgroup-checkbox");
+    if (!subCb) return;
+
+    subCb.addEventListener("click", (e) => {
+      e.stopPropagation(); // prevent toggle of parent
+      const treeContainer = document.getElementById("object-tree");
+      const savedScroll = treeContainer.scrollTop;
+      const doSelect = subCb.checked;
+
+      const items = subEl.querySelectorAll(".tree-item");
+      items.forEach((item) => {
+        const uid = item.dataset.uid;
+        if (doSelect) {
+          selectedIds.add(uid);
+          item.classList.add("selected");
+          item.querySelector(".tree-item-checkbox").checked = true;
+        } else {
+          selectedIds.delete(uid);
+          item.classList.remove("selected");
+          item.querySelector(".tree-item-checkbox").checked = false;
+        }
+      });
+
+      subCb.indeterminate = false;
+      selectionFromPanel = true;
+      updateGroupCheckboxStates();
+      updateSummary();
+      notifySelectionChanged();
+      applyHighlightColors();
+      syncSelectionToViewer();
+      treeContainer.scrollTop = savedScroll;
+    });
+  });
+
+  // Bind sub2group checkbox events (Level 3 — select/deselect all items in sub2group)
+  container.querySelectorAll(".tree-sub2group").forEach((sub2El) => {
+    const sub2Cb = sub2El.querySelector(".tree-sub2group-checkbox");
+    if (!sub2Cb) return;
+
+    sub2Cb.addEventListener("click", (e) => {
+      e.stopPropagation(); // prevent toggle of parent
+      const treeContainer = document.getElementById("object-tree");
+      const savedScroll = treeContainer.scrollTop;
+      const doSelect = sub2Cb.checked;
+
+      const items = sub2El.querySelectorAll(".tree-item");
+      items.forEach((item) => {
+        const uid = item.dataset.uid;
+        if (doSelect) {
+          selectedIds.add(uid);
+          item.classList.add("selected");
+          item.querySelector(".tree-item-checkbox").checked = true;
+        } else {
+          selectedIds.delete(uid);
+          item.classList.remove("selected");
+          item.querySelector(".tree-item-checkbox").checked = false;
+        }
+      });
+
+      sub2Cb.indeterminate = false;
+      selectionFromPanel = true;
+      updateGroupCheckboxStates();
       updateSummary();
       notifySelectionChanged();
       applyHighlightColors();
@@ -2567,7 +2769,37 @@ function renderTree() {
 }
 
 // ── Update group checkbox states after individual item changes ──
+// Works for all levels: tree-group, tree-subgroup, tree-sub2group
 function updateGroupCheckboxStates() {
+  // Update Level 3 (sub2group) first — bottom up
+  document.querySelectorAll(".tree-sub2group").forEach((el) => {
+    const cb = el.querySelector(".tree-sub2group-checkbox");
+    if (!cb) return;
+    const items = el.querySelectorAll(".tree-item");
+    const total = items.length;
+    let checked = 0;
+    items.forEach((item) => {
+      if (selectedIds.has(item.dataset.uid)) checked++;
+    });
+    cb.checked = checked === total;
+    cb.indeterminate = checked > 0 && checked < total;
+  });
+
+  // Update Level 2 (subgroup)
+  document.querySelectorAll(".tree-subgroup").forEach((el) => {
+    const cb = el.querySelector(".tree-subgroup-checkbox");
+    if (!cb) return;
+    const items = el.querySelectorAll(".tree-item");
+    const total = items.length;
+    let checked = 0;
+    items.forEach((item) => {
+      if (selectedIds.has(item.dataset.uid)) checked++;
+    });
+    cb.checked = checked === total;
+    cb.indeterminate = checked > 0 && checked < total;
+  });
+
+  // Update Level 1 (group) — top level
   document.querySelectorAll(".tree-group").forEach((groupEl) => {
     const groupCb = groupEl.querySelector(".tree-group-checkbox");
     if (!groupCb) return;
@@ -2762,11 +2994,19 @@ async function selectAssembly() {
       const cb = el.querySelector(".tree-item-checkbox");
       if (cb) cb.checked = isSelected;
 
-      // Auto-expand group containing selected items
+      // Auto-expand ALL parent containers of selected items
       if (isSelected) {
         const group = el.closest(".tree-group");
         if (group && group.classList.contains("collapsed")) {
           group.classList.remove("collapsed");
+        }
+        const subgroup = el.closest(".tree-subgroup");
+        if (subgroup && subgroup.classList.contains("collapsed")) {
+          subgroup.classList.remove("collapsed");
+        }
+        const sub2group = el.closest(".tree-sub2group");
+        if (sub2group && sub2group.classList.contains("collapsed")) {
+          sub2group.classList.remove("collapsed");
         }
       }
     });
@@ -2805,7 +3045,10 @@ function updateTreeAndNotify() {
 
 // ── Collapse / Expand All Groups ──
 function collapseAll() {
+  // Collapse ALL levels: group, subgroup, sub2group
   document.querySelectorAll(".tree-group").forEach((g) => g.classList.add("collapsed"));
+  document.querySelectorAll(".tree-subgroup").forEach((g) => g.classList.add("collapsed"));
+  document.querySelectorAll(".tree-sub2group").forEach((g) => g.classList.add("collapsed"));
   // Browser may clamp scrollTop to the new max position (often the bottom).
   // Force reset to top immediately after reflow.
   shouldScrollToTop = true;
@@ -2814,11 +3057,14 @@ function collapseAll() {
     if (treeContainer) treeContainer.scrollTop = 0;
     shouldScrollToTop = false;
   });
-  console.log("[ObjectExplorer] Collapse all triggered, will scroll to top");
+  console.log("[ObjectExplorer] Collapse all triggered (all levels), will scroll to top");
 }
 
 function expandAll() {
+  // Expand ALL levels: group, subgroup, sub2group
   document.querySelectorAll(".tree-group").forEach((g) => g.classList.remove("collapsed"));
+  document.querySelectorAll(".tree-subgroup").forEach((g) => g.classList.remove("collapsed"));
+  document.querySelectorAll(".tree-sub2group").forEach((g) => g.classList.remove("collapsed"));
 }
 
 function getGroupKey(obj, groupBy) {
@@ -3264,11 +3510,21 @@ function handleViewerSelectionChanged(data) {
         }
 
         if (targetEl && targetUid) {
-          // Auto-expand the parent group if it's collapsed (so the element can be scrolled to).
-          const parentGroup = targetEl.closest(".tree-group");
+          // Auto-expand ALL parent containers if collapsed (so the element can be scrolled to).
           let didExpand = false;
+          const parentGroup = targetEl.closest(".tree-group");
           if (parentGroup && parentGroup.classList.contains("collapsed")) {
             parentGroup.classList.remove("collapsed");
+            didExpand = true;
+          }
+          const parentSubgroup = targetEl.closest(".tree-subgroup");
+          if (parentSubgroup && parentSubgroup.classList.contains("collapsed")) {
+            parentSubgroup.classList.remove("collapsed");
+            didExpand = true;
+          }
+          const parentSub2group = targetEl.closest(".tree-sub2group");
+          if (parentSub2group && parentSub2group.classList.contains("collapsed")) {
+            parentSub2group.classList.remove("collapsed");
             didExpand = true;
           }
 
