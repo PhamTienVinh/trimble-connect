@@ -136,7 +136,16 @@ function updateStatistics() {
   for (const obj of enriched) {
     const key = getGroupKey(obj, groupBy) || "(Không xác định)";
     if (!groups[key]) {
-      groups[key] = { name: key, count: 0, volume: 0, weight: 0, area: 0, densities: new Set(), weightSources: new Set() };
+      groups[key] = {
+        name: key,
+        count: 0,
+        volume: 0,
+        weight: 0,
+        area: 0,
+        densities: new Set(),
+        weightSources: new Set(),
+        densityBuckets: new Map(),
+      };
     }
     groups[key].count++;
     groups[key].volume += obj.volume;
@@ -144,6 +153,26 @@ function updateStatistics() {
     groups[key].area += obj.area;
     if (obj.density) groups[key].densities.add(`${obj.densityLabel}|${obj.density}`);
     if (obj.weightSource) groups[key].weightSources.add(obj.weightSource);
+    if (obj.density) {
+      const bucketKey = `${obj.densityLabel}|${obj.density}`;
+      if (!groups[key].densityBuckets.has(bucketKey)) {
+        groups[key].densityBuckets.set(bucketKey, {
+          label: obj.densityLabel || "Khác",
+          density: obj.density || 0,
+          count: 0,
+          volume: 0,
+          weight: 0,
+          fromIfc: 0,
+          fromCalculated: 0,
+        });
+      }
+      const bucket = groups[key].densityBuckets.get(bucketKey);
+      bucket.count += 1;
+      bucket.volume += obj.volume || 0;
+      bucket.weight += obj.weight || 0;
+      if (obj.weightSource === "ifc") bucket.fromIfc += 1;
+      if (obj.weightSource === "calculated") bucket.fromCalculated += 1;
+    }
   }
 
   const sortedGroups = Object.values(groups).sort((a, b) => b.weight - a.weight);
@@ -283,6 +312,10 @@ function formatWeight(w) {
   return w.toFixed(2) + " kg";
 }
 
+function formatWeightKg(w) {
+  return `${w.toLocaleString("vi-VN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg`;
+}
+
 /**
  * Format density info for a group.
  * Shows: "Thép (7.850 kg/m³) — V×ρ" or "Bê tông (2.400 kg/m³) — IFC" etc.
@@ -291,28 +324,35 @@ function formatWeight(w) {
 function formatDensityInfo(group) {
   if (!group.densities || group.densities.size === 0) return "—";
 
-  const parts = [];
-  for (const entry of group.densities) {
-    const [label, densityStr] = entry.split("|");
-    const density = Number(densityStr);
-    parts.push(`${label} (${density.toLocaleString("vi-VN")} kg/m³)`);
-  }
-
-  // Weight source indicator
-  let sourceTag = "";
-  if (group.weightSources) {
-    const hasCal = group.weightSources.has("calculated");
-    const hasIfc = group.weightSources.has("ifc");
-    if (hasCal && hasIfc) {
-      sourceTag = ' <span class="ws-mixed" title="Hỗn hợp: một số từ IFC, một số tính từ V×ρ">hỗn hợp</span>';
-    } else if (hasCal) {
-      sourceTag = ' <span class="ws-calc" title="Khối lượng = Thể tích × Khối lượng riêng">V×ρ</span>';
-    } else if (hasIfc) {
-      sourceTag = ' <span class="ws-ifc" title="Khối lượng lấy từ thuộc tính IFC">IFC</span>';
+  const detailLines = [];
+  if (group.densityBuckets && group.densityBuckets.size > 0) {
+    const buckets = Array.from(group.densityBuckets.values()).sort((a, b) => b.weight - a.weight);
+    for (const bucket of buckets) {
+      const densityText = `${bucket.label} (${Number(bucket.density).toLocaleString("vi-VN")} kg/m³)`;
+      const volumeText = bucket.volume.toLocaleString("vi-VN", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+      const weightFormula = bucket.volume > 0
+        ? `W = ${volumeText} m³ × ${Number(bucket.density).toLocaleString("vi-VN")} = ${formatWeightKg(bucket.volume * bucket.density)}`
+        : `W = ${formatWeightKg(bucket.weight)} (từ IFC)`;
+      const sourceText = bucket.fromIfc > 0 && bucket.fromCalculated > 0
+        ? "IFC + V×ρ"
+        : bucket.fromIfc > 0
+          ? "IFC"
+          : "V×ρ";
+      detailLines.push(
+        `<div class="density-line"><strong>${densityText}</strong> · ${weightFormula} · ${bucket.count} obj · ${sourceText}</div>`,
+      );
     }
   }
 
-  return parts.join(", ") + sourceTag;
+  if (detailLines.length > 0) {
+    return detailLines.join("");
+  }
+  const fallback = Array.from(group.densities).map((entry) => {
+    const [label, densityStr] = entry.split("|");
+    const density = Number(densityStr);
+    return `${label} (${density.toLocaleString("vi-VN")} kg/m³)`;
+  });
+  return fallback.join(", ");
 }
 
 function escHtml(str) {
