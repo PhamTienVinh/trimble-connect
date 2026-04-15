@@ -82,9 +82,30 @@ function updateStatistics() {
     let wt = obj.weight || 0;
     let area = obj.area || 0;
 
-    // If weight is 0 but volume exists, calculate from density
+    // If weight is 0 but volume exists, calculate from material-appropriate density
     if (wt === 0 && vol > 0) {
-      wt = vol * STEEL_DENSITY;
+      const matLower = (obj.material || "").toLowerCase();
+      const clsLower = (obj.ifcClass || "").toLowerCase();
+      let density = STEEL_DENSITY; // default steel
+      if (
+        matLower.includes("concrete") || matLower.includes("bê tông") || matLower.includes("beton") ||
+        clsLower === "ifcfooting" || clsLower === "ifcpile" ||
+        clsLower === "ifcslab" || clsLower === "ifcwall" ||
+        clsLower === "ifcwallstandardcase" ||
+        clsLower === "ifcstair" || clsLower === "ifcstairflight" ||
+        clsLower === "ifcramp" || clsLower === "ifcrampflight"
+      ) {
+        if (!matLower.includes("steel") && !matLower.includes("thép")) {
+          density = 2400; // concrete
+        }
+      }
+      if (matLower.includes("wood") || matLower.includes("gỗ") || matLower.includes("timber")) {
+        density = 600; // wood
+      }
+      if (matLower.includes("aluminum") || matLower.includes("aluminium") || matLower.includes("nhôm")) {
+        density = 2700; // aluminum
+      }
+      wt = vol * density;
     }
 
     totalVolume += vol;

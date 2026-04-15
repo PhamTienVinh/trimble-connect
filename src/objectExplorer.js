@@ -285,8 +285,6 @@ async function scanObjects() {
       "ifctextliteral", "ifctextliteralwithextent",
       // Spatial zones
       "ifczone", "ifcspatialzone",
-      // Virtual / proxy non-geometry
-      "ifcvirtualelement",
       // Distribution systems (MEP abstract)
       "ifcdistributionsystem", "ifcsystem",
     ]);
@@ -302,12 +300,80 @@ async function scanObjects() {
     // Filter Stage 2: exclude objects with no physical data
     // BUT keep bolt/fastener/accessory objects and Tekla-detected objects even without quantities
     // to match Trimble Connect Data Table total count
+    // ── Comprehensive IFC 3D element classes that should ALWAYS be kept ──
     const ALWAYS_KEEP_CLASSES = new Set([
+      // Structural elements
+      "ifcbeam", "ifcbeamtype",
+      "ifccolumn", "ifccolumntype",
+      "ifcmember", "ifcmembertype",
+      "ifcplate", "ifcplatetype",
+      "ifcslab", "ifcslabtype",
+      "ifcwall", "ifcwalltype", "ifcwallstandardcase",
+      "ifcfooting", "ifcfootingtype",
+      "ifcpile", "ifcpiletype",
+      "ifcrailing", "ifcrailingtype",
+      "ifcramp", "ifcramptype", "ifcrampflight", "ifcrampflighttype",
+      "ifcroof", "ifcrooftype",
+      "ifcstair", "ifcstairtype", "ifcstairflight", "ifcstairflighttype",
+      "ifcchimney", "ifchimneytype",
+      // Architectural elements
+      "ifcdoor", "ifcdoortype", "ifcdoorstandardcase",
+      "ifcwindow", "ifcwindowtype", "ifcwindowstandardcase",
+      // Building element proxies & parts
+      "ifcbuildingelementproxy", "ifcbuildingelementproxytype",
+      "ifcbuildingelementpart", "ifcbuildingelementparttype",
+      // Bearings & connections
+      "ifcbearing", "ifcbearingtype",
+      "ifctendonanchor", "ifctendonanchortype",
+      "ifctendon", "ifctendontype",
+      "ifctendonconduit", "ifctendonconduittype",
+      // Virtual elements (user requested)
+      "ifcvirtualelement",
+      // Fasteners & bolts (comprehensive)
       "ifcmechanicalfastener", "ifcmechanicalfastenertype",
       "ifcdiscreteaccessory", "ifcdiscreteaccessorytype",
       "ifcfastener", "ifcfastenertype",
-      "ifcbuildingelementproxy",
-      "ifcelementassembly",
+      "ifcbolt", "ifcbolttype",
+      "ifcboltgroup", "ifcboltgrouptype",
+      "ifcboltassembly", "ifcboltassemblytype",
+      // Assembly
+      "ifcelementassembly", "ifcelementassemblytype",
+      // Reinforcement
+      "ifcreinforcingbar", "ifcreinforcingbartype",
+      "ifcreinforcingmesh", "ifcreinforcingmeshtype",
+      "ifcreinforcingelement", "ifcreinforcingelementtype",
+      // Covering & cladding
+      "ifccovering", "ifccoveringtype",
+      "ifccurtainwall", "ifccurtainwalltype",
+      // Other physical elements
+      "ifcbuildingelementcomponent",
+      "ifcshadingdevice", "ifcshadingdevicetype",
+      "ifcearthworkselement", "ifcearthworkselementtype",
+      "ifcgeographicelement", "ifcgeographicelementtype",
+      "ifctransportelement", "ifctransportelementtype",
+      "ifcfurnishingelement", "ifcfurnishingelementtype",
+      // MEP physical elements
+      "ifcflowsegment", "ifcflowsegmenttype",
+      "ifcflowfitting", "ifcflowfittingtype",
+      "ifcflowterminal", "ifcflowterminaltype",
+      "ifcflowcontroller", "ifcflowcontrollertype",
+      "ifcflowmovingdevice", "ifcflowmovingdevicetype",
+      "ifcflowstoragedevice", "ifcflowstoragedevicetype",
+      "ifcflowtreatmentdevice", "ifcflowtreatmentdevicetype",
+      "ifcenergyconversiondevice", "ifcenergyconversiondevicetype",
+      "ifcdistributionelement", "ifcdistributionelementtype",
+      "ifcdistributionflowelement", "ifcdistributionflowelementtype",
+      "ifcdistributioncontrolelement", "ifcdistributioncontrolelementtype",
+      // Pipes & ducts
+      "ifcpipesegment", "ifcpipesegmenttype",
+      "ifcpipefitting", "ifcpipefittingtype",
+      "ifcductsegment", "ifcductsegmenttype",
+      "ifcductfitting", "ifcductfittingtype",
+      // Civil infrastructure
+      "ifcbridge", "ifcbridgetype",
+      "ifcbridgepart", "ifcbridgeparttype",
+      "ifcroad", "ifcroadtype",
+      "ifcroadpart", "ifcroadparttype",
     ]);
     const beforeStage2 = allObjects.length;
     allObjects = allObjects.filter((obj) => {
@@ -901,6 +967,9 @@ function detectTeklaBoltProperties(props, modelId) {
     "ifcmechanicalfastener", "ifcmechanicalfastenertype",
     "ifcdiscreteaccessory", "ifcdiscreteaccessorytype",
     "ifcfastener", "ifcfastenertype",
+    "ifcbolt", "ifcbolttype",
+    "ifcboltgroup", "ifcboltgrouptype",
+    "ifcboltassembly", "ifcboltassemblytype",
   ];
   if (BOLT_IFC_CLASSES.some(cls => ifcClass.includes(cls))) {
     boltProps.isTeklaBolt = true;
@@ -1278,6 +1347,9 @@ function parseObjectProperties(props, modelId) {
     "ifcmechanicalfastener", "ifcmechanicalfastenertype",
     "ifcdiscreteaccessory", "ifcdiscreteaccessorytype",
     "ifcfastener", "ifcfastenertype",
+    "ifcbolt", "ifcbolttype",
+    "ifcboltgroup", "ifcboltgrouptype",
+    "ifcboltassembly", "ifcboltassemblytype",
   ];
   if (BOLT_IFC_CLASSES_PARSE.some(cls => ifcClassLower.includes(cls))) {
     result.isTeklaBolt = true;
@@ -1385,7 +1457,11 @@ function parseObjectProperties(props, modelId) {
         normalizedVolume === "grossvolume" ||
         normalizedVolume === "netvolume" ||
         normalizedVolume === "totalvolume" ||
-        normalizedVolume.includes("volume")
+        normalizedVolume.includes("volume") ||
+        // IFC BaseQuantities
+        propName === "nominalvolume" ||
+        propName === "nominal volume" ||
+        normalizedVolume === "nominalvolume"
       ) {
         const v = parseQuantityNumber(propValue);
         if (!isNaN(v) && v > result.volume) result.volume = v;
@@ -1400,8 +1476,16 @@ function parseObjectProperties(props, modelId) {
         propName === "grossweight" ||
         propName === "netweight" ||
         propName === "mass" ||
+        propName === "trọng lượng" ||
         normalizedWeight.includes("weight") ||
-        normalizedWeight.includes("mass")
+        normalizedWeight.includes("mass") ||
+        // IFC BaseQuantities
+        normalizedWeight === "nominalmass" ||
+        normalizedWeight === "nominalweight" ||
+        normalizedWeight === "grossmass" ||
+        normalizedWeight === "netmass" ||
+        normalizedWeight === "totalmass" ||
+        normalizedWeight === "totalweight"
       ) {
         const w = parseQuantityNumber(propValue);
         if (!isNaN(w) && w > 0 && w > result.weight) result.weight = w;
@@ -1439,7 +1523,21 @@ function parseObjectProperties(props, modelId) {
           normalizedArea === "outersurfacearea" ||
           normalizedArea === "netarea" ||
           normalizedArea === "grossarea" ||
-          normalizedArea === "totalarea"
+          normalizedArea === "totalarea" ||
+          // IFC BaseQuantities for various element types
+          normalizedArea === "nominalarea" ||
+          normalizedArea === "nominalsurfacearea" ||
+          normalizedArea === "footprintarea" ||
+          normalizedArea === "projectedarea" ||
+          normalizedArea === "lateralarea" ||
+          normalizedArea === "lateralsurfacearea" ||
+          // Specific element area quantities
+          normalizedArea === "netsidearea" ||
+          normalizedArea === "grosssidearea" ||
+          normalizedArea === "netfloorarea" ||
+          normalizedArea === "grossfloorarea" ||
+          normalizedArea === "netceilingarea" ||
+          normalizedArea === "grossceilingarea"
         )
       ) {
         const a = parseQuantityNumber(propValue);
@@ -1460,7 +1558,15 @@ function parseObjectProperties(props, modelId) {
         propName === "totallength" ||
         propName === "height" ||
         propName === "chiều cao" ||
-        normalizedLength.includes("length")
+        normalizedLength.includes("length") ||
+        // IFC BaseQuantities
+        normalizedLength === "nominallength" ||
+        normalizedLength === "nominalheight" ||
+        normalizedLength === "nominalwidth" ||
+        normalizedLength === "overallheight" ||
+        normalizedLength === "overallwidth" ||
+        normalizedLength === "depth" ||
+        normalizedLength === "nominaldepth"
       ) {
         const l = parseQuantityNumber(propValue);
         if (!isNaN(l) && l > result.length) result.length = l;
@@ -1542,9 +1648,34 @@ function parseObjectProperties(props, modelId) {
   // Fallback name
   if (!result.name) result.name = `Object ${props.id}`;
 
-  // Calculate weight from volume if not provided (steel density = 7850 kg/m³)
+  // Calculate weight from volume if not provided
+  // Use material-appropriate density:
+  // - Steel: 7850 kg/m³
+  // - Concrete: 2400 kg/m³
+  // - Default: 7850 kg/m³ (steel assumed for structural elements)
   if (result.weight === 0 && result.volume > 0) {
-    result.weight = result.volume * 7850;
+    const matLower = (result.material || "").toLowerCase();
+    const clsLower = (result.ifcClass || "").toLowerCase();
+    let density = 7850; // default steel
+    if (
+      matLower.includes("concrete") || matLower.includes("bê tông") || matLower.includes("beton") ||
+      clsLower === "ifcfooting" || clsLower === "ifcpile" ||
+      clsLower === "ifcslab" || clsLower === "ifcwall" ||
+      clsLower === "ifcwallstandardcase" ||
+      clsLower === "ifcstair" || clsLower === "ifcstairflight" ||
+      clsLower === "ifcramp" || clsLower === "ifcrampflight"
+    ) {
+      if (!matLower.includes("steel") && !matLower.includes("thép")) {
+        density = 2400; // concrete
+      }
+    }
+    if (matLower.includes("wood") || matLower.includes("gỗ") || matLower.includes("timber")) {
+      density = 600; // wood
+    }
+    if (matLower.includes("aluminum") || matLower.includes("aluminium") || matLower.includes("nhôm")) {
+      density = 2700; // aluminum
+    }
+    result.weight = result.volume * density;
   }
 
   return result;
@@ -1647,6 +1778,12 @@ function renderTree() {
       html += `<div class="tree-item${isSelected ? " selected" : ""}" data-uid="${escHtml(uid)}" data-model-id="${escHtml(obj.modelId)}" data-object-id="${obj.id}">`;
       html += `<input type="checkbox" class="tree-item-checkbox" ${isSelected ? "checked" : ""} />`;
       html += `<span class="tree-item-name" title="${escHtml(tooltip)}">${escHtml(displayLabel)}</span>`;
+      
+      // IFC Class badge (show element type for recognized structural/architectural elements)
+      const ifcClassBadge = getIfcClassBadge(obj.ifcClass);
+      if (ifcClassBadge) {
+        html += `<span class="tree-item-badge ifc-class" title="${escHtml(obj.ifcClass)}">${ifcClassBadge}</span>`;
+      }
       
       // Tekla Bolt badge (highest priority)
       if (obj.isTeklaBolt) {
@@ -2161,6 +2298,56 @@ async function toggleIsolate() {
   }
 }
 
+// ── IFC Class Badge Mapping ──
+// Returns a short emoji+label badge for recognized IFC element types
+function getIfcClassBadge(ifcClass) {
+  if (!ifcClass) return null;
+  const cls = ifcClass.toLowerCase();
+  // Structural
+  if (cls.includes("ifcbeam")) return "🔩 Beam";
+  if (cls.includes("ifccolumn")) return "🏛️ Column";
+  if (cls.includes("ifcmember")) return "📏 Member";
+  if (cls.includes("ifcplate")) return "🔲 Plate";
+  if (cls.includes("ifcslab")) return "⬜ Slab";
+  if (cls.includes("ifcwall")) return "🧱 Wall";
+  if (cls.includes("ifcfooting")) return "🏗️ Footing";
+  if (cls.includes("ifcpile")) return "📍 Pile";
+  if (cls.includes("ifcrailing")) return "🚧 Railing";
+  if (cls.includes("ifcramp")) return "♿ Ramp";
+  if (cls.includes("ifcroof")) return "🏠 Roof";
+  if (cls.includes("ifcstair")) return "🪜 Stair";
+  if (cls.includes("ifcchimney")) return "🏭 Chimney";
+  // Architectural
+  if (cls.includes("ifcdoor")) return "🚪 Door";
+  if (cls.includes("ifcwindow")) return "🪟 Window";
+  if (cls.includes("ifccurtainwall")) return "🏢 CurtainWall";
+  if (cls.includes("ifccovering")) return "📦 Covering";
+  // Connections & Bearings
+  if (cls.includes("ifcbearing")) return "⚙️ Bearing";
+  if (cls.includes("ifctendon")) return "🔗 Tendon";
+  // Proxies & Parts
+  if (cls.includes("ifcbuildingelementpart")) return "🧩 Part";
+  if (cls.includes("ifcbuildingelementproxy")) return "📎 Proxy";
+  if (cls.includes("ifcvirtualelement")) return "👻 Virtual";
+  // Fasteners & Bolts
+  if (cls.includes("ifcbolt")) return "🔩 Bolt";
+  if (cls.includes("ifcmechanicalfastener")) return "⚙️ Fastener";
+  if (cls.includes("ifcdiscreteaccessory")) return "🔧 Accessory";
+  if (cls.includes("ifcfastener")) return "📌 Fastener";
+  // Assembly
+  if (cls.includes("ifcelementassembly")) return "🏗️ Assembly";
+  // Reinforcement
+  if (cls.includes("ifcreinforc")) return "🔗 Rebar";
+  // MEP
+  if (cls.includes("ifcpipesegment") || cls.includes("ifcpipefitting")) return "🔧 Pipe";
+  if (cls.includes("ifcductsegment") || cls.includes("ifcductfitting")) return "💨 Duct";
+  if (cls.includes("ifcflow")) return "💧 Flow";
+  // Civil
+  if (cls.includes("ifcbridge")) return "🌉 Bridge";
+  if (cls.includes("ifcroad")) return "🛣️ Road";
+  return null;
+}
+
 // ── Build a descriptive display name for tree items ──
 function getObjectDisplayName(obj) {
   let name = obj.name || "";
@@ -2185,6 +2372,12 @@ function buildTooltip(obj) {
   if (obj.assemblyPos) parts.push(`Assembly Pos: ${obj.assemblyPos}`);
   if (obj.assemblyPosCode) parts.push(`Assembly Pos Code: ${obj.assemblyPosCode}`);
   if (obj.material) parts.push(`Vật liệu: ${obj.material}`);
+  
+  // Physical properties
+  if (obj.volume > 0) parts.push(`V: ${obj.volume.toFixed(6)} m³`);
+  if (obj.area > 0) parts.push(`A: ${obj.area.toFixed(4)} m²`);
+  if (obj.weight > 0) parts.push(`W: ${obj.weight.toFixed(2)} kg`);
+  if (obj.length > 0) parts.push(`L: ${obj.length.toFixed(3)} m`);
   
   // ── Tekla Bolt Properties (comprehensive) ──
   if (obj.isTeklaBolt) {
