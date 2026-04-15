@@ -112,7 +112,15 @@ function updateStatistics() {
     totalWeight += wt;
     totalArea += area;
 
-    return { ...obj, volume: vol, weight: wt, area };
+    return {
+      ...obj,
+      volume: vol,
+      weight: wt,
+      area,
+      density: obj.density || STEEL_DENSITY,
+      densityLabel: obj.densityLabel || "Thép",
+      weightSource: obj.weightSource || (wt > 0 && obj.weight === 0 ? "calculated" : (wt > 0 ? "ifc" : "")),
+    };
   });
 
   currentData = enriched;
@@ -128,12 +136,14 @@ function updateStatistics() {
   for (const obj of enriched) {
     const key = getGroupKey(obj, groupBy) || "(Không xác định)";
     if (!groups[key]) {
-      groups[key] = { name: key, count: 0, volume: 0, weight: 0, area: 0 };
+      groups[key] = { name: key, count: 0, volume: 0, weight: 0, area: 0, densities: new Set(), weightSources: new Set() };
     }
     groups[key].count++;
     groups[key].volume += obj.volume;
     groups[key].weight += obj.weight;
     groups[key].area += obj.area;
+    if (obj.density) groups[key].densities.add(`${obj.densityLabel}|${obj.density}`);
+    if (obj.weightSource) groups[key].weightSources.add(obj.weightSource);
   }
 
   const sortedGroups = Object.values(groups).sort((a, b) => b.weight - a.weight);
@@ -152,12 +162,15 @@ function renderStatsTable(groups, totalVolume, totalWeight, totalArea) {
 
   let bodyHtml = "";
   for (const g of groups) {
+    // Build density display string
+    const densityInfo = formatDensityInfo(g);
     bodyHtml += `<tr>`;
     bodyHtml += `<td>${escHtml(g.name)}</td>`;
     bodyHtml += `<td>${formatNumber(g.count)}</td>`;
     bodyHtml += `<td>${formatVolume(g.volume)}</td>`;
     bodyHtml += `<td>${formatArea(g.area)}</td>`;
     bodyHtml += `<td>${formatWeight(g.weight)}</td>`;
+    bodyHtml += `<td class="density-cell">${densityInfo}</td>`;
     bodyHtml += `</tr>`;
   }
   tbody.innerHTML = bodyHtml;
@@ -169,6 +182,7 @@ function renderStatsTable(groups, totalVolume, totalWeight, totalArea) {
       <td>${formatVolume(totalVolume)}</td>
       <td>${formatArea(totalArea)}</td>
       <td>${formatWeight(totalWeight)}</td>
+      <td>—</td>
     </tr>
   `;
 }
@@ -267,6 +281,38 @@ function formatArea(a) {
 function formatWeight(w) {
   if (w >= 1000) return (w / 1000).toFixed(2) + " tấn";
   return w.toFixed(2) + " kg";
+}
+
+/**
+ * Format density info for a group.
+ * Shows: "Thép (7.850 kg/m³) — V×ρ" or "Bê tông (2.400 kg/m³) — IFC" etc.
+ * If group has mixed densities, shows all.
+ */
+function formatDensityInfo(group) {
+  if (!group.densities || group.densities.size === 0) return "—";
+
+  const parts = [];
+  for (const entry of group.densities) {
+    const [label, densityStr] = entry.split("|");
+    const density = Number(densityStr);
+    parts.push(`${label} (${density.toLocaleString("vi-VN")} kg/m³)`);
+  }
+
+  // Weight source indicator
+  let sourceTag = "";
+  if (group.weightSources) {
+    const hasCal = group.weightSources.has("calculated");
+    const hasIfc = group.weightSources.has("ifc");
+    if (hasCal && hasIfc) {
+      sourceTag = ' <span class="ws-mixed" title="Hỗn hợp: một số từ IFC, một số tính từ V×ρ">hỗn hợp</span>';
+    } else if (hasCal) {
+      sourceTag = ' <span class="ws-calc" title="Khối lượng = Thể tích × Khối lượng riêng">V×ρ</span>';
+    } else if (hasIfc) {
+      sourceTag = ' <span class="ws-ifc" title="Khối lượng lấy từ thuộc tính IFC">IFC</span>';
+    }
+  }
+
+  return parts.join(", ") + sourceTag;
 }
 
 function escHtml(str) {

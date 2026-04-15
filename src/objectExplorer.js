@@ -2102,6 +2102,10 @@ function parseObjectProperties(props, modelId) {
     boltComments: "",
     allBoltProperties: {}, // All detected bolt properties
     rawProperties: [], // [{pset, name, value}] for debug/export
+    // ── Density & Weight Source tracking ──
+    density: 0,           // kg/m³ — the density used for weight calculation
+    densityLabel: "",     // Human-readable label: "Thép", "Bê tông", "Gỗ", "Nhôm"
+    weightSource: "",     // "ifc" = from IFC property, "calculated" = Volume × Density
   };
 
   // ── Detect Tekla Bolt Properties (comprehensive) ──
@@ -2303,7 +2307,10 @@ function parseObjectProperties(props, modelId) {
         normalizedWeight === "totalweight"
       ) {
         const w = parseQuantityNumber(propValue);
-        if (!isNaN(w) && w > 0 && w > result.weight) result.weight = w;
+        if (!isNaN(w) && w > 0 && w > result.weight) {
+          result.weight = w;
+          result.weightSource = "ifc";
+        }
       }
 
       // Surface Area (m²) — only match actual surface area properties,
@@ -2517,11 +2524,14 @@ function parseObjectProperties(props, modelId) {
   // Use material-appropriate density:
   // - Steel: 7850 kg/m³
   // - Concrete: 2400 kg/m³
+  // - Wood: 600 kg/m³
+  // - Aluminum: 2700 kg/m³
   // - Default: 7850 kg/m³ (steel assumed for structural elements)
-  if (result.weight === 0 && result.volume > 0) {
+  {
     const matLower = (result.material || "").toLowerCase();
     const clsLower = (result.ifcClass || "").toLowerCase();
     let density = 7850; // default steel
+    let densityLabel = "Thép";
     if (
       matLower.includes("concrete") || matLower.includes("bê tông") || matLower.includes("beton") ||
       clsLower === "ifcfooting" || clsLower === "ifcpile" ||
@@ -2532,15 +2542,28 @@ function parseObjectProperties(props, modelId) {
     ) {
       if (!matLower.includes("steel") && !matLower.includes("thép")) {
         density = 2400; // concrete
+        densityLabel = "Bê tông";
       }
     }
     if (matLower.includes("wood") || matLower.includes("gỗ") || matLower.includes("timber")) {
       density = 600; // wood
+      densityLabel = "Gỗ";
     }
     if (matLower.includes("aluminum") || matLower.includes("aluminium") || matLower.includes("nhôm")) {
       density = 2700; // aluminum
+      densityLabel = "Nhôm";
     }
-    result.weight = result.volume * density;
+    // Store density info on every object for transparency
+    result.density = density;
+    result.densityLabel = densityLabel;
+    if (result.weight === 0 && result.volume > 0) {
+      result.weight = result.volume * density;
+      result.weightSource = "calculated";
+    }
+    // If weight came from IFC but no weightSource set yet, mark it
+    if (result.weight > 0 && !result.weightSource) {
+      result.weightSource = "ifc";
+    }
   }
 
   return result;
@@ -3712,7 +3735,17 @@ function buildTooltip(obj) {
   if (obj.volume > 0) parts.push(`V: ${obj.volume.toFixed(6)} m³`);
   if (obj.area > 0) parts.push(`A: ${obj.area.toFixed(4)} m²`);
   if (obj.weight > 0) {
-    parts.push(`W: ${obj.weight >= 1000 ? (obj.weight / 1000).toFixed(2) + " tấn" : obj.weight.toFixed(2) + " kg"}`);
+    let weightStr = `W: ${obj.weight >= 1000 ? (obj.weight / 1000).toFixed(2) + " tấn" : obj.weight.toFixed(2) + " kg"}`;
+    if (obj.weightSource === "calculated" && obj.density) {
+      weightStr += ` (= V × ${obj.density} kg/m³ [${obj.densityLabel}])`;
+    } else if (obj.weightSource === "ifc") {
+      weightStr += ` (từ IFC)`;
+    }
+    parts.push(weightStr);
+  }
+  // Always show density info
+  if (obj.density) {
+    parts.push(`KLR: ${obj.density.toLocaleString("vi-VN")} kg/m³ (${obj.densityLabel})`);
   }
   if (obj.length > 0) parts.push(`L: ${obj.length.toFixed(3)} m`);
   
