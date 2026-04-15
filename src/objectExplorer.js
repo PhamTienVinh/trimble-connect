@@ -23,6 +23,10 @@ let lastClickedItem = null; // for Shift+click range selection
 let lastClickAction = "select"; // "select" or "deselect" — for Shift range
 let lastClickedGroupEl = null; // for Shift+click range selection on group headers
 let lastGroupClickAction = "select"; // "select" or "deselect" — for group Shift range
+let lastClickedSubgroupEl = null; // for Shift+click range selection on subgroup headers
+let lastSubgroupClickAction = "select"; // "select" or "deselect" — for subgroup Shift range
+let lastClickedSub2groupEl = null; // for Shift+click range selection on sub2group headers
+let lastSub2groupClickAction = "select"; // "select" or "deselect" — for sub2group Shift range
 let isSyncingFromViewer = false; // flag to prevent re-entry during sync
 let lastViewerSelectionKey = ""; // dedup key for polling
 let selectionFromPanel = false; // true when selection originates from panel click
@@ -3016,7 +3020,8 @@ function renderTree() {
   });
 
   // Bind subgroup checkbox events (Level 2 — select/deselect all items in subgroup)
-  container.querySelectorAll(".tree-subgroup").forEach((subEl) => {
+  const allSubgroups = Array.from(container.querySelectorAll(".tree-subgroup"));
+  allSubgroups.forEach((subEl) => {
     const subCb = subEl.querySelector(".tree-subgroup-checkbox");
     if (!subCb) return;
 
@@ -3025,6 +3030,48 @@ function renderTree() {
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
       const doSelect = subCb.checked;
+
+      if (e.shiftKey && lastClickedSubgroupEl !== null) {
+        const lastIndex = allSubgroups.indexOf(lastClickedSubgroupEl);
+        const currentIndex = allSubgroups.indexOf(subEl);
+        if (lastIndex >= 0 && currentIndex >= 0) {
+          const start = Math.min(lastIndex, currentIndex);
+          const end = Math.max(lastIndex, currentIndex);
+          const shiftDoSelect = lastSubgroupClickAction === "select";
+          subCb.checked = shiftDoSelect;
+
+          for (let i = start; i <= end; i++) {
+            const g = allSubgroups[i];
+            const gCb = g.querySelector(".tree-subgroup-checkbox");
+            const gItems = g.querySelectorAll(".tree-item");
+            if (gCb) {
+              gCb.checked = shiftDoSelect;
+              gCb.indeterminate = false;
+            }
+            gItems.forEach((item) => {
+              const uid = item.dataset.uid;
+              if (shiftDoSelect) {
+                selectedIds.add(uid);
+                item.classList.add("selected");
+                item.querySelector(".tree-item-checkbox").checked = true;
+              } else {
+                selectedIds.delete(uid);
+                item.classList.remove("selected");
+                item.querySelector(".tree-item-checkbox").checked = false;
+              }
+            });
+          }
+
+          selectionFromPanel = true;
+          updateGroupCheckboxStates();
+          updateSummary();
+          notifySelectionChanged();
+          applyHighlightColors();
+          syncSelectionToViewer();
+          treeContainer.scrollTop = savedScroll;
+          return;
+        }
+      }
 
       const items = subEl.querySelectorAll(".tree-item");
       items.forEach((item) => {
@@ -3041,6 +3088,8 @@ function renderTree() {
       });
 
       subCb.indeterminate = false;
+      lastClickedSubgroupEl = subEl;
+      lastSubgroupClickAction = doSelect ? "select" : "deselect";
       selectionFromPanel = true;
       updateGroupCheckboxStates();
       updateSummary();
@@ -3052,7 +3101,8 @@ function renderTree() {
   });
 
   // Bind sub2group checkbox events (Level 3 — select/deselect all items in sub2group)
-  container.querySelectorAll(".tree-sub2group").forEach((sub2El) => {
+  const allSub2groups = Array.from(container.querySelectorAll(".tree-sub2group"));
+  allSub2groups.forEach((sub2El) => {
     const sub2Cb = sub2El.querySelector(".tree-sub2group-checkbox");
     if (!sub2Cb) return;
 
@@ -3061,6 +3111,48 @@ function renderTree() {
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
       const doSelect = sub2Cb.checked;
+
+      if (e.shiftKey && lastClickedSub2groupEl !== null) {
+        const lastIndex = allSub2groups.indexOf(lastClickedSub2groupEl);
+        const currentIndex = allSub2groups.indexOf(sub2El);
+        if (lastIndex >= 0 && currentIndex >= 0) {
+          const start = Math.min(lastIndex, currentIndex);
+          const end = Math.max(lastIndex, currentIndex);
+          const shiftDoSelect = lastSub2groupClickAction === "select";
+          sub2Cb.checked = shiftDoSelect;
+
+          for (let i = start; i <= end; i++) {
+            const g = allSub2groups[i];
+            const gCb = g.querySelector(".tree-sub2group-checkbox");
+            const gItems = g.querySelectorAll(".tree-item");
+            if (gCb) {
+              gCb.checked = shiftDoSelect;
+              gCb.indeterminate = false;
+            }
+            gItems.forEach((item) => {
+              const uid = item.dataset.uid;
+              if (shiftDoSelect) {
+                selectedIds.add(uid);
+                item.classList.add("selected");
+                item.querySelector(".tree-item-checkbox").checked = true;
+              } else {
+                selectedIds.delete(uid);
+                item.classList.remove("selected");
+                item.querySelector(".tree-item-checkbox").checked = false;
+              }
+            });
+          }
+
+          selectionFromPanel = true;
+          updateGroupCheckboxStates();
+          updateSummary();
+          notifySelectionChanged();
+          applyHighlightColors();
+          syncSelectionToViewer();
+          treeContainer.scrollTop = savedScroll;
+          return;
+        }
+      }
 
       const items = sub2El.querySelectorAll(".tree-item");
       items.forEach((item) => {
@@ -3077,6 +3169,8 @@ function renderTree() {
       });
 
       sub2Cb.indeterminate = false;
+      lastClickedSub2groupEl = sub2El;
+      lastSub2groupClickAction = doSelect ? "select" : "deselect";
       selectionFromPanel = true;
       updateGroupCheckboxStates();
       updateSummary();
@@ -3981,6 +4075,8 @@ async function resetAll() {
   isolateActive = false;
   lastClickedItem = null;
   lastClickedGroupEl = null;
+  lastClickedSubgroupEl = null;
+  lastClickedSub2groupEl = null;
 
   const btnIsolate = document.getElementById("btn-isolate");
   if (btnIsolate) btnIsolate.classList.remove("active");
