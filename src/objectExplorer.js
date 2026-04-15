@@ -691,6 +691,9 @@ async function scanObjects() {
     renderTree();
     hidePlaceholder();
 
+    // ── Assembly Diagnostic Summary ──
+    logAssemblyDiagnostic();
+
     // Notify statistics module
     window.dispatchEvent(
       new CustomEvent("objects-scanned", { detail: allObjects }),
@@ -850,6 +853,209 @@ function classifyAssemblyProperty(rawPropName) {
 
   return null;
 }
+
+// ── Assembly Diagnostic Summary ──
+// Logs a comprehensive report of assembly property detection results
+function logAssemblyDiagnostic() {
+  const total = allObjects.length;
+  let withPos = 0, withName = 0, withCode = 0, withAny = 0, withNone = 0;
+  const psetNames = new Set();
+  const assemblyPropNames = new Set();
+
+  for (const obj of allObjects) {
+    const hasPos = !!obj.assemblyPos;
+    const hasName = !!obj.assemblyName;
+    const hasCode = !!obj.assemblyPosCode;
+    if (hasPos) withPos++;
+    if (hasName) withName++;
+    if (hasCode) withCode++;
+    if (hasPos || hasName || hasCode) withAny++;
+    else withNone++;
+
+    // Collect property set names and assembly property names
+    if (obj.rawProperties) {
+      for (const rp of obj.rawProperties) {
+        if (rp.pset) psetNames.add(rp.pset);
+        const cls = classifyAssemblyProperty(rp.name);
+        if (cls) assemblyPropNames.add(`${rp.pset}/${rp.name}`);
+      }
+    }
+  }
+
+  console.log(`\n╔══════════════════════════════════════════════════════════════╗`);
+  console.log(`║          🔍 ASSEMBLY DIAGNOSTIC SUMMARY                     ║`);
+  console.log(`╠══════════════════════════════════════════════════════════════╣`);
+  console.log(`║ Total objects:              ${String(total).padStart(6)}                       ║`);
+  console.log(`║ With ASSEMBLY_POS:          ${String(withPos).padStart(6)} (${(withPos/total*100).toFixed(1)}%)               ║`);
+  console.log(`║ With ASSEMBLY_NAME:         ${String(withName).padStart(6)} (${(withName/total*100).toFixed(1)}%)               ║`);
+  console.log(`║ With ASSEMBLY_POSITION_CODE:${String(withCode).padStart(6)} (${(withCode/total*100).toFixed(1)}%)               ║`);
+  console.log(`║ With ANY assembly info:     ${String(withAny).padStart(6)} (${(withAny/total*100).toFixed(1)}%)               ║`);
+  console.log(`║ WITHOUT assembly info:      ${String(withNone).padStart(6)} (${(withNone/total*100).toFixed(1)}%)               ║`);
+  console.log(`╠══════════════════════════════════════════════════════════════╣`);
+
+  if (psetNames.size > 0) {
+    console.log(`║ Property Sets found: ${psetNames.size}                                  ║`);
+    for (const ps of psetNames) {
+      console.log(`║   📋 ${ps}`);
+    }
+  }
+
+  if (assemblyPropNames.size > 0) {
+    console.log(`║ Assembly properties detected:                                ║`);
+    for (const ap of assemblyPropNames) {
+      console.log(`║   ✅ ${ap}`);
+    }
+  }
+
+  if (withAny === 0) {
+    console.log(`╠══════════════════════════════════════════════════════════════╣`);
+    console.log(`║ ⚠️  KHÔNG TÌM THẤY ASSEMBLY INFO TRONG FILE IFC!           ║`);
+    console.log(`║                                                              ║`);
+    console.log(`║ Nguyên nhân có thể:                                         ║`);
+    console.log(`║ 1. Tekla IFC export CHƯA cấu hình "Additional Property Sets"║`);
+    console.log(`║ 2. Cần thêm ASSEMBLY_POS, ASSEMBLY_NAME vào Property Set    ║`);
+    console.log(`║ 3. Dùng prefix ASSEMBLY. để gán cho children                 ║`);
+    console.log(`║                                                              ║`);
+    console.log(`║ Cách fix trong Tekla:                                        ║`);
+    console.log(`║   File → Export → IFC → Additional Property Sets → Edit     ║`);
+    console.log(`║   Thêm: ASSEMBLY.ASSEMBLY_POS, ASSEMBLY.ASSEMBLY_NAME       ║`);
+    console.log(`║         ASSEMBLY.ASSEMBLY_POSITION_CODE                      ║`);
+    console.log(`║   vào Pset cho IfcBeam, IfcColumn, IfcPlate, etc.           ║`);
+  } else if (withNone > 0 && withAny > 0) {
+    console.log(`╠══════════════════════════════════════════════════════════════╣`);
+    console.log(`║ ℹ️  ${withNone}/${total} objects thiếu assembly info.`);
+    console.log(`║    Có thể do: bolts, accessories, hoặc objects không thuộc assembly.`);
+  }
+
+  console.log(`╚══════════════════════════════════════════════════════════════╝\n`);
+
+  // Sample: show first 3 objects with assembly info for verification
+  const samples = allObjects.filter(o => o.assemblyPos).slice(0, 3);
+  if (samples.length > 0) {
+    console.log(`[Diagnostic] Sample objects with assembly info:`);
+    for (const s of samples) {
+      console.log(`  📍 "${s.name}" | POS="${s.assemblyPos}" | NAME="${s.assemblyName}" | CODE="${s.assemblyPosCode}" | IFC=${s.ifcClass}`);
+    }
+  }
+
+  // Sample: show first 3 objects WITHOUT assembly info
+  const noAsmSamples = allObjects.filter(o => !o.assemblyPos && !o.assemblyName && !o.assemblyPosCode).slice(0, 3);
+  if (noAsmSamples.length > 0) {
+    console.log(`[Diagnostic] Sample objects WITHOUT assembly info:`);
+    for (const s of noAsmSamples) {
+      const propCount = s.rawProperties ? s.rawProperties.length : 0;
+      console.log(`  ❌ "${s.name}" | IFC=${s.ifcClass} | ${propCount} raw properties`);
+    }
+  }
+}
+
+// ── Debug: Log ALL raw properties for currently selected object(s) ──
+// Call from console: window._debugSelectedProperties()
+window._debugSelectedProperties = function() {
+  if (selectedIds.size === 0) {
+    console.log("[Debug] No objects selected. Select an object first.");
+    return;
+  }
+
+  for (const uid of selectedIds) {
+    const obj = allObjects.find(o => `${o.modelId}:${o.id}` === uid);
+    if (!obj) continue;
+
+    console.log(`\n╔═══════ DEBUG PROPERTIES: "${obj.name}" (${obj.ifcClass}) ═══════╗`);
+    console.log(`  ID: ${obj.id} | Model: ${obj.modelId}`);
+    console.log(`  assemblyPos: "${obj.assemblyPos}"`);
+    console.log(`  assemblyName: "${obj.assemblyName}"`);
+    console.log(`  assemblyPosCode: "${obj.assemblyPosCode}"`);
+    console.log(`  assembly: "${obj.assembly}"`);
+    console.log(`  isTekla: ${obj.isTekla}`);
+    console.log(`  isTeklaBolt: ${obj.isTeklaBolt}`);
+    console.log(`  profile: "${obj.profile}"`);
+    console.log(`  material: "${obj.material}"`);
+    console.log(`  W=${obj.weight}kg V=${obj.volume}m³ A=${obj.area}m²`);
+
+    if (obj.rawProperties && obj.rawProperties.length > 0) {
+      console.log(`\n  ── ALL Raw Properties (${obj.rawProperties.length}) ──`);
+      // Group by pset
+      const byPset = {};
+      for (const rp of obj.rawProperties) {
+        const ps = rp.pset || "(no pset)";
+        if (!byPset[ps]) byPset[ps] = [];
+        byPset[ps].push(rp);
+      }
+      for (const [psetName, props] of Object.entries(byPset)) {
+        console.log(`  📋 ${psetName}:`);
+        for (const p of props) {
+          const cls = classifyAssemblyProperty(p.name);
+          const marker = cls ? ` ← [ASSEMBLY: ${cls}]` : "";
+          console.log(`     ${p.name} = "${p.value}"${marker}`);
+        }
+      }
+    } else {
+      console.log(`  ⚠️ No raw properties stored. TC API may not have returned property sets.`);
+    }
+    console.log(`╚═══════════════════════════════════════════════════════════════╝\n`);
+  }
+};
+
+// ── Debug: Fetch and log raw TC API properties for selected object ──
+// This fetches FRESH data from TC API (not cached) to verify what TC actually returns
+window._debugFetchProperties = async function() {
+  if (!viewerRef) {
+    console.log("[Debug] Viewer not available.");
+    return;
+  }
+  if (selectedIds.size === 0) {
+    console.log("[Debug] No objects selected. Select an object first.");
+    return;
+  }
+
+  const uid = selectedIds.values().next().value;
+  const idx = uid.indexOf(":");
+  const modelId = uid.substring(0, idx);
+  const objectId = parseInt(uid.substring(idx + 1));
+
+  console.log(`\n[Debug] Fetching FRESH properties from TC API for object ${objectId} (model ${modelId})...`);
+
+  try {
+    const propsArray = await viewerRef.getObjectProperties(modelId, [objectId]);
+    if (propsArray && propsArray.length > 0) {
+      const props = propsArray[0];
+      console.log("[Debug] TC API returned:", JSON.stringify(props, null, 2));
+
+      // Count property sets
+      const psets = props.properties || [];
+      console.log(`\n[Debug] Found ${psets.length} property sets:`);
+      for (const ps of psets) {
+        const propList = ps.properties || [];
+        console.log(`  📋 "${ps.name}" (${propList.length} properties)`);
+        for (const p of propList) {
+          console.log(`     ${p.name} = "${p.value}" (type=${p.type})`);
+        }
+      }
+
+      // Check for assembly properties
+      let foundAssembly = false;
+      for (const ps of psets) {
+        for (const p of (ps.properties || [])) {
+          const cls = classifyAssemblyProperty(p.name);
+          if (cls) {
+            console.log(`\n  ✅ FOUND ASSEMBLY PROPERTY: "${p.name}" = "${p.value}" → classified as "${cls}"`);
+            foundAssembly = true;
+          }
+        }
+      }
+      if (!foundAssembly) {
+        console.log(`\n  ⚠️ NO ASSEMBLY PROPERTIES found in TC API response.`);
+        console.log(`  → File IFC có thể chưa được export với Additional Property Sets từ Tekla.`);
+        console.log(`  → Cần cấu hình: Tekla → File → Export → IFC → Additional Property Sets`);
+      }
+    } else {
+      console.log("[Debug] TC API returned empty or null response.");
+    }
+  } catch (e) {
+    console.error("[Debug] TC API call failed:", e);
+  }
+};
 
 // ── Assembly Instance Assignment by Tekla Properties ──
 // Uses ASSEMBLY_POS as unique instance identifier (unique per physical assembly in Tekla)
