@@ -414,10 +414,10 @@ async function scanObjects() {
     // Build display names for assembly groups
     buildAssemblyDisplayNames();
 
-    // Mark assembly parent nodes and exclude component objects
-    // Strategy: Assembly objects from IFC hierarchy should be visible.
-    // Component objects (parts inside assembly) that are NOT assembly themselves should be hidden
-    // unless they have their own assemblyPos (Tekla main parts)
+    // Mark assembly parent nodes and component objects
+    // Build a set of all object keys for quick lookup
+    const allObjectKeys = new Set(allObjects.map(o => `${o.modelId}:${o.id}`));
+
     for (const obj of allObjects) {
       const objectKey = `${obj.modelId}:${obj.id}`;
       
@@ -431,6 +431,98 @@ async function scanObjects() {
         obj.isAssemblyComponent = true;
       }
     }
+
+    // ── FIX: Prevent IfcElementAssembly double-counting ──
+    // In Tekla IFC exports, IfcElementAssembly parent nodes carry
+    // aggregated weight/volume/area = sum of all children.
+    // If children are ALSO in allObjects, the parent's quantities
+    // would be double-counted. Solution: zero out parent quantities
+    // when their children are present, but preserve original values.
+    let assemblyParentsZeroed = 0;
+    for (const obj of allObjects) {
+      if (!obj.isAssemblyParent) continue;
+      
+      const objectKey = `${obj.modelId}:${obj.id}`;
+      const childIds = assemblyChildrenMap.get(objectKey);
+      if (!childIds || childIds.size === 0) continue;
+      
+      // Check if ANY children exist in allObjects
+      let hasChildrenInList = false;
+      for (const childId of childIds) {
+        if (allObjectKeys.has(`${obj.modelId}:${childId}`)) {
+          hasChildrenInList = true;
+          break;
+        }
+      }
+      
+      if (hasChildrenInList && (obj.weight > 0 || obj.volume > 0 || obj.area > 0)) {
+        // Preserve original values for debugging/export
+        obj.originalWeight = obj.weight;
+        obj.originalVolume = obj.volume;
+        obj.originalArea = obj.area;
+        // Zero out to prevent double-counting in statistics
+        obj.weight = 0;
+        obj.volume = 0;
+        obj.area = 0;
+        obj.isAssemblyAggregate = true; // flag for UI display
+        assemblyParentsZeroed++;
+        console.log(
+          `[ObjectExplorer] Zeroed assembly parent "${obj.name}" (${obj.ifcClass}): ` +
+          `was W=${obj.originalWeight.toFixed(2)}kg V=${obj.originalVolume.toFixed(6)}m³ A=${obj.originalArea.toFixed(4)}m² ` +
+          `(${childIds.size} children in hierarchy, children present in list)`
+        );
+      }
+    }
+    if (assemblyParentsZeroed > 0) {
+      console.log(`[ObjectExplorer] ✓ Zeroed ${assemblyParentsZeroed} assembly parent nodes to prevent double-counting`);
+    }
+
+    // ── Estimate bolt quantities ──
+    // Bolts (IfcMechanicalFastener) typically have no volume/weight/area.
+    // Estimate from bolt dimensions: V ≈ π×(d/2)²×L, W = V × 7850
+    let boltsEstimated = 0;
+    for (const obj of allObjects) {
+      if (!obj.isTeklaBolt) continue;
+      if (obj.weight > 0 || obj.volume > 0) continue; // already has data
+      
+      // Parse bolt diameter (mm) and length (mm)
+      const diameter = parseBoltDimension(obj.boltSize);
+      const length = parseBoltDimension(obj.boltLength);
+      
+      if (diameter > 0 && length > 0) {
+        // Convert mm to meters for volume calculation
+        const dMeters = diameter / 1000;
+        const lMeters = length / 1000;
+        // Volume of cylinder: π × (d/2)² × L
+        const boltVolume = Math.PI * Math.pow(dMeters / 2, 2) * lMeters;
+        // Multiply by bolt count if available
+        const count = obj.boltCount > 0 ? obj.boltCount : 1;
+        obj.volume = boltVolume * count;
+        obj.weight = obj.volume * 7850; // steel density
+        // Estimate surface area: π × d × L (lateral area of cylinder)
+        obj.area = Math.PI * dMeters * lMeters * count;
+        obj.boltEstimated = true;
+        boltsEstimated++;
+      } else if (diameter > 0) {
+        // Only diameter available — estimate minimal weight from standard bolt tables
+        const dMeters = diameter / 1000;
+        const estimatedLength = diameter * 3; // rough estimate: 3× diameter
+        const lMeters = estimatedLength / 1000;
+        const boltVolume = Math.PI * Math.pow(dMeters / 2, 2) * lMeters;
+        const count = obj.boltCount > 0 ? obj.boltCount : 1;
+        obj.volume = boltVolume * count;
+        obj.weight = obj.volume * 7850;
+        obj.area = Math.PI * dMeters * lMeters * count;
+        obj.boltEstimated = true;
+        boltsEstimated++;
+      }
+    }
+    if (boltsEstimated > 0) {
+      console.log(`[ObjectExplorer] ✓ Estimated quantities for ${boltsEstimated} bolt objects from dimensions`);
+    }
+
+    // ── Classify part roles ──
+    classifyPartRoles();
 
     // Stage 3: keep ALL objects (including assembly components).
     // The requirement "each 3D object is 1 object" needs a 1:1 mapping.
@@ -890,6 +982,133 @@ function buildAssemblyDisplayNames() {
   }
 }
 
+// ── Parse bolt dimension value (mm) ──
+// Handles formats: "20", "M20", "20mm", "20.0", "M20x60", "Ø20"
+function parseBoltDimension(value) {
+  if (!value) return 0;
+  const str = String(value).trim();
+  if (!str) return 0;
+  
+  // Try to extract first number from the string
+  // Handle M-prefix (metric bolt: M20 → 20)
+  const mMatch = str.match(/[Mm](\d+(?:[.,]\d+)?)/);
+  if (mMatch) return parseFloat(mMatch[1].replace(",", "."));
+  
+  // Handle Ø prefix
+  const diaMatch = str.match(/[Øø∅](\d+(?:[.,]\d+)?)/);
+  if (diaMatch) return parseFloat(diaMatch[1].replace(",", "."));
+  
+  // Generic number extraction
+  const numMatch = str.match(/(\d+(?:[.,]\d+)?)/);
+  if (numMatch) return parseFloat(numMatch[1].replace(",", "."));
+  
+  return 0;
+}
+
+// ── Classify Part Roles ──
+// Assigns a partRole to each object based on Tekla hierarchy and IFC class:
+// - assemblyContainer: IfcElementAssembly parent (container node)
+// - mainPart: Tekla main part (MAIN_PART=yes or first/largest part in assembly)
+// - secondaryPart: other structural parts within assembly
+// - bolt: IfcMechanicalFastener, IfcBolt, etc.
+// - accessory: IfcDiscreteAccessory (plates, clips, etc.)
+// - standalone: objects not part of any assembly
+function classifyPartRoles() {
+  let classified = { assemblyContainer: 0, mainPart: 0, secondaryPart: 0, bolt: 0, accessory: 0, standalone: 0 };
+
+  for (const obj of allObjects) {
+    const cls = (obj.ifcClass || "").toLowerCase();
+
+    // 1. Assembly container nodes
+    if (obj.isAssemblyParent && (cls === "ifcelementassembly" || cls.includes("elementassembly"))) {
+      obj.partRole = "assemblyContainer";
+      classified.assemblyContainer++;
+      continue;
+    }
+
+    // 2. Bolts / Fasteners
+    if (obj.isTeklaBolt) {
+      obj.partRole = "bolt";
+      classified.bolt++;
+      continue;
+    }
+
+    // 3. Discrete accessories
+    if (cls.includes("ifcdiscreteaccessory")) {
+      obj.partRole = "accessory";
+      classified.accessory++;
+      continue;
+    }
+
+    // 4. Main part (explicit flag from Tekla)
+    if (obj.isMainPart) {
+      obj.partRole = "mainPart";
+      classified.mainPart++;
+      continue;
+    }
+
+    // 5. Assembly components (parts within an assembly)
+    if (obj.isAssemblyComponent) {
+      // Try to determine if this is a main part by checking:
+      // - Has the same name as assemblyPos (convention: main part name = assembly name)
+      // - Is the heaviest part in its assembly group
+      // For now, classify as secondaryPart; mainPart detection is refined below
+      obj.partRole = "secondaryPart";
+      classified.secondaryPart++;
+      continue;
+    }
+
+    // 6. Standalone objects (not part of any assembly)
+    if (!obj.assemblyPos && !obj.isAssemblyComponent) {
+      obj.partRole = "standalone";
+      classified.standalone++;
+      continue;
+    }
+
+    // Default: secondary part
+    obj.partRole = "secondaryPart";
+    classified.secondaryPart++;
+  }
+
+  // Second pass: auto-detect main parts for assemblies missing MAIN_PART flag
+  // Strategy: within each assembly group, the heaviest part is likely the main part
+  const assemblyGroups = new Map(); // assemblyInstanceId → [objects]
+  for (const obj of allObjects) {
+    if (!obj.assemblyInstanceId || obj.partRole === "assemblyContainer" || obj.partRole === "bolt" || obj.partRole === "accessory") continue;
+    if (!assemblyGroups.has(obj.assemblyInstanceId)) {
+      assemblyGroups.set(obj.assemblyInstanceId, []);
+    }
+    assemblyGroups.get(obj.assemblyInstanceId).push(obj);
+  }
+
+  let autoMainParts = 0;
+  for (const [asmId, parts] of assemblyGroups) {
+    // Skip if any part is already marked as mainPart
+    if (parts.some(p => p.partRole === "mainPart")) continue;
+    if (parts.length === 0) continue;
+
+    // Find the heaviest part (most likely the main part)
+    let heaviest = parts[0];
+    for (const p of parts) {
+      if (p.weight > heaviest.weight) heaviest = p;
+    }
+
+    // Only auto-classify if there are multiple parts in the assembly
+    if (parts.length > 1) {
+      heaviest.partRole = "mainPart";
+      heaviest.isMainPart = true;
+      autoMainParts++;
+    }
+  }
+
+  console.log(
+    `[ObjectExplorer] Part roles: ${classified.assemblyContainer} containers, ` +
+    `${classified.mainPart + autoMainParts} main parts (${autoMainParts} auto-detected), ` +
+    `${classified.secondaryPart - autoMainParts} secondary, ${classified.bolt} bolts, ` +
+    `${classified.accessory} accessories, ${classified.standalone} standalone`
+  );
+}
+
 // Parses numeric quantity values returned from Trimble Connect.
 // Handles cases like "0,12", "1,234.56", "1.234,56", "12.3 m³", etc.
 function parseQuantityNumber(value) {
@@ -1268,8 +1487,20 @@ function parseObjectProperties(props, modelId) {
     isTekla: false,
     isAssemblyParent: false,     // Marked as IfcElementAssembly or assembly parent node
     isAssemblyComponent: false,  // Marked as component/child of an assembly
+    isAssemblyAggregate: false,  // Marked: quantities zeroed to prevent double-counting
+    // ── Tekla Part Hierarchy ──
+    partPos: "",          // PART_POS from Tekla (unique per part)
+    isMainPart: false,    // MAIN_PART flag from Tekla
+    partRole: "",         // Classified role: mainPart, secondaryPart, bolt, accessory, assemblyContainer
+    phase: "",            // PHASE from Tekla
+    hierarchyLevel: "",   // HIERARCHY_LEVEL from Tekla
+    // ── Preserved original quantities (before assembly zeroing) ──
+    originalWeight: 0,
+    originalVolume: 0,
+    originalArea: 0,
     // ── Tekla Bolt Properties (comprehensive) ──
     isTeklaBolt: false,
+    boltEstimated: false,  // If true, quantities were estimated from bolt dimensions
     boltType: "",
     boltName: "",
     boltSize: "",
@@ -1617,6 +1848,49 @@ function parseObjectProperties(props, modelId) {
           propName === "typename")
       ) {
         result.type = String(propValue || "");
+      }
+
+      // ── Tekla Part Hierarchy Properties ──
+      const propNameNormForPart = propName.replace(/[\s_.\-]/g, "").replace(/[()]/g, "");
+      
+      // PART_POS (unique per part within assembly)
+      if (
+        propNameNormForPart === "partpos" ||
+        propNameNormForPart === "partposition" ||
+        propNameNormForPart === "partmark" ||
+        propName === "part_pos" ||
+        propName === "part pos"
+      ) {
+        if (!result.partPos) result.partPos = String(propValue || "");
+      }
+
+      // MAIN_PART flag
+      if (
+        propNameNormForPart === "mainpart" ||
+        propNameNormForPart === "ismainpart" ||
+        propName === "main_part" ||
+        propName === "main part"
+      ) {
+        const val = String(propValue || "").toLowerCase();
+        result.isMainPart = (val === "yes" || val === "true" || val === "1" || val === "main");
+      }
+
+      // PHASE
+      if (
+        propNameNormForPart === "phase" ||
+        propName === "phase" ||
+        propName === "giai đoạn"
+      ) {
+        if (!result.phase) result.phase = String(propValue || "");
+      }
+
+      // HIERARCHY_LEVEL
+      if (
+        propNameNormForPart === "hierarchylevel" ||
+        propNameNormForPart === "hierarchy" ||
+        propName === "hierarchy_level"
+      ) {
+        if (!result.hierarchyLevel) result.hierarchyLevel = String(propValue || "");
       }
     }
   }
@@ -2171,6 +2445,12 @@ function getGroupKey(obj, groupBy) {
       return obj.assemblyPos || "(Không xác định)";
     case "assemblyPosCode":
       return obj.assemblyPosCode || "(Không xác định)";
+    case "partRole":
+      return getPartRoleLabel(obj.partRole) || "(Không xác định)";
+    case "partPos":
+      return obj.partPos || "(Không xác định)";
+    case "phase":
+      return obj.phase || "(Không xác định)";
     case "name":
       return obj.name;
     case "group":
@@ -2189,6 +2469,19 @@ function getGroupKey(obj, groupBy) {
       return obj.assemblyDisplayName || obj.assembly;
   }
 }
+
+function getPartRoleLabel(role) {
+  switch (role) {
+    case "assemblyContainer": return "🏗️ Assembly Container";
+    case "mainPart": return "⭐ Main Part";
+    case "secondaryPart": return "🔧 Secondary Part";
+    case "bolt": return "🔩 Bolt / Fastener";
+    case "accessory": return "📎 Accessory";
+    case "standalone": return "📦 Standalone";
+    default: return role || "(Không xác định)";
+  }
+}
+
 
 // ── Highlight ──
 // Selection glow is handled natively by the TC viewer via setSelection.
