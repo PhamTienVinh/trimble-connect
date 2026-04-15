@@ -94,6 +94,30 @@
         <span id="selected-stats" style="display:none; color: var(--accent); font-weight: 600;"></span>
       </div>
 
+      <!-- Assembly Info Bar (shown when selecting children) -->
+      <div id="assembly-info-bar" class="assembly-info-bar" style="display:none;">
+        <div class="assembly-info-header" id="assembly-info-toggle">
+          <span class="assembly-info-icon">🏗️</span>
+          <span class="assembly-info-title">Assembly Container</span>
+          <span class="assembly-info-collapse">▼</span>
+        </div>
+        <div class="assembly-info-content" id="assembly-info-content">
+          <div class="assembly-info-row" id="asm-info-name">
+            <span class="asm-label">ASSEMBLY_NAME</span>
+            <span class="asm-value" id="asm-val-name">—</span>
+          </div>
+          <div class="assembly-info-row" id="asm-info-pos">
+            <span class="asm-label">ASSEMBLY_POS</span>
+            <span class="asm-value" id="asm-val-pos">—</span>
+          </div>
+          <div class="assembly-info-row" id="asm-info-code">
+            <span class="asm-label">ASSEMBLY_CODE</span>
+            <span class="asm-value" id="asm-val-code">—</span>
+          </div>
+          <div class="assembly-info-stats" id="asm-info-stats"></div>
+        </div>
+      </div>
+
       <!-- Object Tree -->
       <div id="object-tree" class="tree-container">
         <div class="placeholder" id="tree-placeholder">
