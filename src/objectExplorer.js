@@ -465,6 +465,22 @@ async function scanObjects() {
       objectLookup.set(`${obj.modelId}:${obj.id}`, obj);
     }
 
+    // Step 1.5: Enrich assemblyNodeInfoMap with ACTUAL parsed assembly properties
+    // from the container objects (IfcElementAssembly). This is critical because:
+    //   - assemblyNodeInfoMap initially only stores node.name (IFC entity name)
+    //   - After parsing, containers now have actual ASSEMBLY_POS, ASSEMBLY_NAME, etc.
+    //   - We must copy these BEFORE propagation, so children get correct values
+    //   - Later when containers are removed from allObjects, the map still has correct data
+    for (const [asmKey, nodeInfo] of assemblyNodeInfoMap) {
+      const containerObj = objectLookup.get(asmKey);
+      if (containerObj) {
+        if (containerObj.assemblyPos) nodeInfo.assemblyPos = containerObj.assemblyPos;
+        if (containerObj.assemblyName) nodeInfo.assemblyName = containerObj.assemblyName;
+        if (containerObj.assemblyPosCode) nodeInfo.assemblyPosCode = containerObj.assemblyPosCode;
+        console.log(`[ASM] Enriched nodeInfo for ${asmKey}: pos="${nodeInfo.assemblyPos}", name="${nodeInfo.assemblyName}", code="${nodeInfo.assemblyPosCode}" (IFC name="${nodeInfo.name}")`);
+      }
+    }
+
     // Step 2: Propagate assembly info from IfcElementAssembly containers to ALL children
     // Uses 3 sources to maximize coverage:
     //   Source A: assemblyChildrenMap (from ElementAssembly hierarchy API)
@@ -473,25 +489,36 @@ async function scanObjects() {
     let childrenEnriched = 0;
 
     // Helper: propagate assembly info from container to child
+    // IMPORTANT: Only propagate actual property values, NOT the container's IFC name.
+    // The IFC entity name (e.g. "BEAM-1") is NOT the same as ASSEMBLY_POS.
     function propagateAssemblyInfo(containerObj, childObj) {
-      const containerAssemblyPos = containerObj.assemblyPos || containerObj.assemblyName || containerObj.name || "";
-      const containerAssemblyName = containerObj.assemblyName || containerObj.name || "";
+      // Use only actual assembly property values from the container
+      // Do NOT use containerObj.name as fallback — that's the IFC entity name, not ASSEMBLY_POS
+      const containerAssemblyPos = containerObj.assemblyPos || "";
+      const containerAssemblyName = containerObj.assemblyName || "";
       const containerAssemblyPosCode = containerObj.assemblyPosCode || "";
-      if (!containerAssemblyPos) return false;
+      const containerAssembly = containerObj.assembly || "";
+
+      // Need at least one real assembly property to propagate
+      if (!containerAssemblyPos && !containerAssemblyName && !containerAssemblyPosCode && !containerAssembly) return false;
 
       let enriched = false;
-      if (!childObj.assemblyPos || childObj.assemblyPos === "(Không xác định)") {
+      // Only propagate assemblyPos if container has a real assemblyPos value
+      if (containerAssemblyPos && (!childObj.assemblyPos || childObj.assemblyPos === "(Không xác định)")) {
         childObj.assemblyPos = containerAssemblyPos;
         enriched = true;
       }
-      if (!childObj.assemblyName || childObj.assemblyName === "(Không xác định)") {
+      // Only propagate assemblyName if container has a real assemblyName value  
+      if (containerAssemblyName && (!childObj.assemblyName || childObj.assemblyName === "(Không xác định)")) {
         childObj.assemblyName = containerAssemblyName;
+        enriched = true;
       }
-      if (!childObj.assemblyPosCode && containerAssemblyPosCode) {
+      if (containerAssemblyPosCode && !childObj.assemblyPosCode) {
         childObj.assemblyPosCode = containerAssemblyPosCode;
+        enriched = true;
       }
-      if (!childObj.assembly) {
-        childObj.assembly = containerAssemblyName;
+      if (containerAssembly && !childObj.assembly) {
+        childObj.assembly = containerAssembly;
       }
       return enriched;
     }
@@ -529,13 +556,24 @@ async function scanObjects() {
         }
       } else {
         // Parent was already removed or not in allObjects — use nodeInfo
+        // NOTE: nodeInfo.name is the IFC entity name, NOT a Tekla property.
+        // Only use it for assembly (generic) and assemblyName, NOT for assemblyPos
+        // because assemblyPos should be the value of the ASSEMBLY_POS property.
         const nodeInfo = assemblyNodeInfoMap.get(`${parentInfo.modelId}:${parentInfo.id}`);
         if (nodeInfo && nodeInfo.name) {
-          if (!childObj.assemblyPos || childObj.assemblyPos === "(Không xác định)") {
-            childObj.assemblyPos = nodeInfo.name;
+          // Use nodeInfo properties if they were enriched, otherwise use name as assemblyName only
+          if (nodeInfo.assemblyPos && (!childObj.assemblyPos || childObj.assemblyPos === "(Không xác định)")) {
+            childObj.assemblyPos = nodeInfo.assemblyPos;
             childrenEnriched++;
           }
-          if (!childObj.assemblyName) childObj.assemblyName = nodeInfo.name;
+          if (nodeInfo.assemblyName && !childObj.assemblyName) {
+            childObj.assemblyName = nodeInfo.assemblyName;
+          } else if (!childObj.assemblyName) {
+            childObj.assemblyName = nodeInfo.name;
+          }
+          if (nodeInfo.assemblyPosCode && !childObj.assemblyPosCode) {
+            childObj.assemblyPosCode = nodeInfo.assemblyPosCode;
+          }
           if (!childObj.assembly) childObj.assembly = nodeInfo.name;
         }
       }
@@ -557,12 +595,22 @@ async function scanObjects() {
         }
       } else {
         // Container already removed — use assemblyNodeInfoMap
+        // Only use actual assembly properties, not IFC entity name for assemblyPos
         const nodeInfo = assemblyNodeInfoMap.get(assemblyKey);
         if (nodeInfo && nodeInfo.name) {
-          obj.assemblyPos = nodeInfo.name;
-          if (!obj.assemblyName) obj.assemblyName = nodeInfo.name;
+          if (nodeInfo.assemblyPos && (!obj.assemblyPos || obj.assemblyPos === "(Không xác định)")) {
+            obj.assemblyPos = nodeInfo.assemblyPos;
+            childrenEnriched++;
+          }
+          if (nodeInfo.assemblyName && !obj.assemblyName) {
+            obj.assemblyName = nodeInfo.assemblyName;
+          } else if (!obj.assemblyName) {
+            obj.assemblyName = nodeInfo.name;
+          }
+          if (nodeInfo.assemblyPosCode && !obj.assemblyPosCode) {
+            obj.assemblyPosCode = nodeInfo.assemblyPosCode;
+          }
           if (!obj.assembly) obj.assembly = nodeInfo.name;
-          childrenEnriched++;
         }
       }
     }
@@ -701,16 +749,39 @@ async function fetchAndParseProperties(modelId, objectIds) {
 // ── Centralized Assembly Property Classifier ──
 // Classifies any IFC property name into assembly categories.
 // Returns: "pos" | "name" | "code" | "mark" | "generic" | null
+//
+// Tekla exports assembly properties in multiple formats:
+//   1. Direct: "ASSEMBLY_POS", "ASSEMBLY_NAME", "ASSEMBLY_POSITION_CODE"
+//   2. Prefixed: "Tekla.ASSEMBLY_POS", "Tekla Common/ASSEMBLY_POS"
+//   3. ASSEMBLY. prefix on children: "ASSEMBLY.ASSEMBLY_POS" (inherits from parent assembly)
+//   4. User-defined labels: "Assembly Pos", "Asm Pos", etc.
+//   5. Slash-separated: "TeklaCommon/ASSEMBLY_POS"
 function classifyAssemblyProperty(rawPropName) {
   if (!rawPropName) return null;
 
-  // Strip dot-prefix notation (e.g. "Tekla.ASSEMBLY_POS" → "ASSEMBLY_POS")
+  // Strip ALL prefix notations:
+  // "Tekla.ASSEMBLY_POS" → "ASSEMBLY_POS"
+  // "TeklaCommon/ASSEMBLY_POS" → "ASSEMBLY_POS"
+  // "ASSEMBLY.ASSEMBLY_POS" → "ASSEMBLY_POS"
+  // "Pset_TeklaCommon/ASSEMBLY.ASSEMBLY_POS" → "ASSEMBLY_POS"
   let cleanName = rawPropName;
-  const lastDot = rawPropName.lastIndexOf(".");
+  
+  // First strip path-like prefixes (slashes)
   const lastSlash = rawPropName.lastIndexOf("/");
-  const lastSep = Math.max(lastDot, lastSlash);
-  if (lastSep > 0 && lastSep < rawPropName.length - 1) {
-    cleanName = rawPropName.substring(lastSep + 1);
+  if (lastSlash > 0 && lastSlash < rawPropName.length - 1) {
+    cleanName = rawPropName.substring(lastSlash + 1);
+  }
+  
+  // Then strip ASSEMBLY. prefix (Tekla uses this for child-to-parent inheritance)
+  // Handle nested: "ASSEMBLY.ASSEMBLY.ASSEMBLY_POS" → "ASSEMBLY_POS"
+  while (cleanName.toUpperCase().startsWith("ASSEMBLY.")) {
+    cleanName = cleanName.substring(9); // len("ASSEMBLY.") = 9
+  }
+  
+  // Strip other dot-prefixes (e.g. "Tekla.ASSEMBLY_POS")
+  const lastDot = cleanName.lastIndexOf(".");
+  if (lastDot > 0 && lastDot < cleanName.length - 1) {
+    cleanName = cleanName.substring(lastDot + 1);
   }
 
   // Normalize: lowercase, remove spaces, underscores, dots, hyphens
@@ -721,7 +792,9 @@ function classifyAssemblyProperty(rawPropName) {
     norm === "assemblypos" ||
     norm === "assemblyposition" ||
     norm === "mainpartpos" ||
-    norm === "mainpartposition"
+    norm === "mainpartposition" ||
+    norm === "asmpos" ||
+    norm === "asmposition"
   ) {
     if (!norm.includes("code") && !norm.includes("prefix") && !norm.includes("number")) {
       return "pos";
@@ -734,7 +807,8 @@ function classifyAssemblyProperty(rawPropName) {
     norm === "assemblemark" ||
     norm === "asmmark" ||
     norm === "mainmark" ||
-    norm === "mainpartmark"
+    norm === "mainpartmark" ||
+    norm === "assemblypartmark"
   ) {
     return "mark";
   }
@@ -743,7 +817,8 @@ function classifyAssemblyProperty(rawPropName) {
   if (
     norm === "assemblyname" ||
     norm === "assemblename" ||
-    norm === "asmname"
+    norm === "asmname" ||
+    norm === "assemblypartname"
   ) {
     return "name";
   }
@@ -754,7 +829,10 @@ function classifyAssemblyProperty(rawPropName) {
     norm === "assemblyposcode" ||
     norm === "assemblyprefixcode" ||
     norm === "assemblyprefix" ||
-    norm === "positioncode"
+    norm === "positioncode" ||
+    norm === "asmposcode" ||
+    norm === "asmpositioncode" ||
+    norm === "assemblyposprefix"
   ) {
     return "code";
   }
@@ -775,6 +853,8 @@ function classifyAssemblyProperty(rawPropName) {
   if (/^ass?e?m(?:bly)?[\s_.-]?mark$/i.test(cleanName)) return "mark";
   if (/^ass?e?m(?:bly)?[\s_.-]?name$/i.test(cleanName)) return "name";
   if (/^main[\s_.-]?part[\s_.-]?pos(?:ition)?$/i.test(cleanName)) return "pos";
+  if (/^ass?e?m(?:bly)?[\s_.-]?pos(?:ition)?[\s_.-]?code$/i.test(cleanName)) return "code";
+  if (/^pos(?:ition)?[\s_.-]?code$/i.test(cleanName)) return "code";
 
   return null;
 }
@@ -905,11 +985,18 @@ async function buildAssemblyHierarchyMap(models) {
             const childSet = new Set();
 
             // Store assembly node info for later enrichment
+            // Note: node.name is the IFC entity name. Assembly properties
+            // (assemblyPos, assemblyName, assemblyPosCode) will be enriched
+            // later from the parsed object properties.
             assemblyNodeInfoMap.set(assemblyKey, {
               id: node.id,
               name: node.name || "",
               class: node.class || "",
               modelId: modelId,
+              // These will be filled from parsed object properties later
+              assemblyPos: "",
+              assemblyName: "",
+              assemblyPosCode: "",
             });
 
             function collectChildren(childNodes) {
@@ -2012,7 +2099,7 @@ function parseObjectProperties(props, modelId) {
     }
   }
 
-  // Fallback: use product description as assembly if still empty
+  // Fallback: use product description as assembly (generic) if still empty
   if (!result.assembly && props.product && props.product.description) {
     const desc = props.product.description.trim();
     if (desc && desc !== result.name) {
@@ -2020,21 +2107,15 @@ function parseObjectProperties(props, modelId) {
     }
   }
 
-  // If assemblyPos is missing but we have assemblyName/assembly,
-  // use them as assemblyPos so grouping by "assemblyPos" won't produce "(Không xác định)".
-  if (!result.assemblyPos || result.assemblyPos === "(Không xác định)") {
-    if (result.assemblyName && result.assemblyName !== "(Không xác định)") {
-      result.assemblyPos = result.assemblyName;
-    } else if (
-      result.assemblyPosCode &&
-      result.assemblyPosCode !== "(Không xác định)"
-    ) {
-      // Some Tekla bolts/connections may export only assembly position code.
-      result.assemblyPos = result.assemblyPosCode;
-    } else if (result.assembly && result.assembly !== "(Không xác định)") {
-      result.assemblyPos = result.assembly;
-    }
-  }
+  // ── IMPORTANT: Keep each assembly field INDEPENDENT ──
+  // Do NOT cross-fill assemblyPos with assemblyName or vice versa.
+  // Each represents a different Tekla concept:
+  //   - assemblyPos:     ASSEMBLY_POS     (unique instance identifier, e.g. "B1/1")
+  //   - assemblyName:    ASSEMBLY_NAME    (type name, e.g. "BEAM_ASSEMBLY")
+  //   - assemblyPosCode: ASSEMBLY_POSITION_CODE (prefix/code, e.g. "B")
+  //   - assembly:        Generic assembly fallback
+  // They should remain separate so filtering works correctly.
+  // If assemblyPos is empty, it stays empty — don't fill it with assemblyName.
 
   // Fallback name
   if (!result.name) result.name = `Object ${props.id}`;
