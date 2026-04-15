@@ -109,14 +109,6 @@ export function initObjectExplorer(api, viewer) {
     expandBtn.addEventListener("click", expandAll);
   }
 
-  // Assembly info bar toggle
-  const asmInfoToggle = document.getElementById("assembly-info-toggle");
-  if (asmInfoToggle) {
-    asmInfoToggle.addEventListener("click", () => {
-      const bar = document.getElementById("assembly-info-bar");
-      if (bar) bar.classList.toggle("collapsed");
-    });
-  }
 }
 
 // ── Export data for statistics module ──
@@ -2310,6 +2302,24 @@ function renderTreeItemHtml(obj, groupBy) {
   return html;
 }
 
+// ── Cascade Toggle: collapse/expand with inner levels ──
+// When collapsing: also collapse all inner sub-levels
+// When expanding: only expand the clicked level (inner levels stay as-is)
+window._cascadeToggle = function(el, containerClass) {
+  const container = el.closest('.' + containerClass);
+  if (!container) return;
+  
+  const wasCollapsed = container.classList.contains('collapsed');
+  container.classList.toggle('collapsed');
+  
+  // If we just collapsed (wasCollapsed=false → now collapsed=true),
+  // also collapse all inner sub-levels
+  if (!wasCollapsed) {
+    container.querySelectorAll('.tree-subgroup').forEach(g => g.classList.add('collapsed'));
+    container.querySelectorAll('.tree-sub2group').forEach(g => g.classList.add('collapsed'));
+  }
+};
+
 // ── Tree Rendering ──
 function renderTree() {
   const container = document.getElementById("object-tree");
@@ -2348,9 +2358,9 @@ function renderTree() {
       html += `<div class="tree-group" data-group="${escHtml(l1Key)}">`;
       html += `<div class="tree-group-header">`;
       html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm" />`;
-      html += `<span class="tree-toggle" onclick="this.closest('.tree-group').classList.toggle('collapsed')">▼</span>`;
-      html += `<span class="tree-group-name" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${mlConfig.icon1} ${escHtml(l1Key)}</span>`;
-      html += `<span class="tree-group-count" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${allL1Items.length}</span>`;
+      html += `<span class="tree-toggle" onclick="_cascadeToggle(this,'tree-group')">▼</span>`;
+      html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">${mlConfig.icon1} ${escHtml(l1Key)}</span>`;
+      html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${allL1Items.length}</span>`;
       html += `</div>`;
       html += `<div class="tree-items">`;
 
@@ -2370,9 +2380,9 @@ function renderTree() {
         html += `<div class="tree-subgroup" data-subgroup="${escHtml(l2Key)}">`;
         html += `<div class="tree-subgroup-header">`;
         html += `<input type="checkbox" class="tree-subgroup-checkbox" ${l2AllChecked ? "checked" : ""} ${!l2AllChecked && l2SomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm con" />`;
-        html += `<span class="tree-subgroup-toggle" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">▼</span>`;
-        html += `<span class="tree-subgroup-name" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">${mlConfig.icon2} ${escHtml(l2Key)}</span>`;
-        html += `<span class="tree-subgroup-count" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">${allL2Items.length}</span>`;
+        html += `<span class="tree-subgroup-toggle" onclick="_cascadeToggle(this,'tree-subgroup')">▼</span>`;
+        html += `<span class="tree-subgroup-name" onclick="_cascadeToggle(this,'tree-subgroup')">${mlConfig.icon2} ${escHtml(l2Key)}</span>`;
+        html += `<span class="tree-subgroup-count" onclick="_cascadeToggle(this,'tree-subgroup')">${allL2Items.length}</span>`;
         html += `</div>`;
         html += `<div class="tree-subitems">`;
 
@@ -2433,9 +2443,9 @@ function renderTree() {
       html += `<div class="tree-group" data-group="${escHtml(l1Key)}">`;
       html += `<div class="tree-group-header">`;
       html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm" />`;
-      html += `<span class="tree-toggle" onclick="this.closest('.tree-group').classList.toggle('collapsed')">▼</span>`;
-      html += `<span class="tree-group-name" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${mlConfig.icon1} ${escHtml(l1Key)}</span>`;
-      html += `<span class="tree-group-count" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${allL1Items.length}</span>`;
+      html += `<span class="tree-toggle" onclick="_cascadeToggle(this,'tree-group')">▼</span>`;
+      html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">${mlConfig.icon1} ${escHtml(l1Key)}</span>`;
+      html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${allL1Items.length}</span>`;
       html += `</div>`;
       html += `<div class="tree-items">`;
 
@@ -3665,105 +3675,6 @@ function updateSummary() {
     if (statsDivider) statsDivider.style.display = "none";
   }
 
-  // Update assembly info bar
-  updateAssemblyInfoBar();
-}
-
-// ── Assembly Info Bar — shows container info for selected children ──
-function updateAssemblyInfoBar() {
-  const bar = document.getElementById("assembly-info-bar");
-  if (!bar) return;
-
-  if (selectedIds.size === 0) {
-    bar.style.display = "none";
-    return;
-  }
-
-  // Get selected objects
-  const selectedObjs = allObjects.filter(o => selectedIds.has(`${o.modelId}:${o.id}`));
-  if (selectedObjs.length === 0) {
-    bar.style.display = "none";
-    return;
-  }
-
-  // Collect unique assembly container values
-  const asmNames = new Set();
-  const asmPositions = new Set();
-  const asmCodes = new Set();
-
-  for (const obj of selectedObjs) {
-    if (obj.assemblyName) asmNames.add(obj.assemblyName);
-    if (obj.assemblyPos) asmPositions.add(obj.assemblyPos);
-    if (obj.assemblyPosCode) asmCodes.add(obj.assemblyPosCode);
-  }
-
-  // Only show if at least one assembly property is present
-  const hasAnyAssembly = asmNames.size > 0 || asmPositions.size > 0 || asmCodes.size > 0;
-  if (!hasAnyAssembly) {
-    bar.style.display = "none";
-    return;
-  }
-
-  bar.style.display = "block";
-
-  // Format value display — single value or count of unique values
-  const formatAsmValue = (valueSet) => {
-    if (valueSet.size === 0) return { text: "—", isMulti: false };
-    if (valueSet.size === 1) return { text: Array.from(valueSet)[0], isMulti: false };
-    return { text: `${valueSet.size} nhóm: ${Array.from(valueSet).slice(0, 3).join(", ")}${valueSet.size > 3 ? "..." : ""}`, isMulti: true };
-  };
-
-  const nameVal = formatAsmValue(asmNames);
-  const posVal = formatAsmValue(asmPositions);
-  const codeVal = formatAsmValue(asmCodes);
-
-  const valName = document.getElementById("asm-val-name");
-  const valPos = document.getElementById("asm-val-pos");
-  const valCode = document.getElementById("asm-val-code");
-
-  if (valName) {
-    valName.textContent = nameVal.text;
-    valName.className = `asm-value${nameVal.isMulti ? " multi" : ""}`;
-  }
-  if (valPos) {
-    valPos.textContent = posVal.text;
-    valPos.className = `asm-value${posVal.isMulti ? " multi" : ""}`;
-  }
-  if (valCode) {
-    valCode.textContent = codeVal.text;
-    valCode.className = `asm-value${codeVal.isMulti ? " multi" : ""}`;
-  }
-
-  // Assembly group stats — count siblings and totals
-  const statsEl = document.getElementById("asm-info-stats");
-  if (statsEl) {
-    // For single assembly pos: show sibling count and totals
-    if (asmPositions.size === 1) {
-      const posValue = Array.from(asmPositions)[0];
-      const siblings = allObjects.filter(o => o.assemblyPos === posValue);
-      const totalW = siblings.reduce((s, o) => s + (o.weight || 0), 0);
-      const totalV = siblings.reduce((s, o) => s + (o.volume || 0), 0);
-      const totalA = siblings.reduce((s, o) => s + (o.area || 0), 0);
-      const fmtW = totalW >= 1000 ? (totalW/1000).toFixed(2) + " tấn" : totalW.toFixed(2) + " kg";
-
-      statsEl.innerHTML = `
-        <span class="asm-stat">👥 Tổng children cùng nhóm: <span class="asm-stat-val">${siblings.length}</span></span>
-        <span class="asm-stat">⚖️ W: <span class="asm-stat-val">${fmtW}</span></span>
-        <span class="asm-stat">📐 V: <span class="asm-stat-val">${totalV.toFixed(6)} m³</span></span>
-        <span class="asm-stat">📏 A: <span class="asm-stat-val">${totalA.toFixed(4)} m²</span></span>
-      `;
-    } else if (asmPositions.size > 1) {
-      const totalW = selectedObjs.reduce((s, o) => s + (o.weight || 0), 0);
-      const fmtW = totalW >= 1000 ? (totalW/1000).toFixed(2) + " tấn" : totalW.toFixed(2) + " kg";
-      statsEl.innerHTML = `
-        <span class="asm-stat">📦 Đã chọn: <span class="asm-stat-val">${selectedObjs.length} objects</span></span>
-        <span class="asm-stat">📍 Thuộc: <span class="asm-stat-val">${asmPositions.size} assembly pos</span></span>
-        <span class="asm-stat">⚖️ W: <span class="asm-stat-val">${fmtW}</span></span>
-      `;
-    } else {
-      statsEl.innerHTML = `<span class="asm-stat">📦 Đã chọn: <span class="asm-stat-val">${selectedObjs.length} objects</span></span>`;
-    }
-  }
 }
 
 function showLoading(show) {
