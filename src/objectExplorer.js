@@ -278,9 +278,9 @@ async function scanObjects() {
       "ifcspace", "ifcgroup", "ifcopeningelement", "ifcownerhistory",
       "ifcreldefinesbyproperties", "ifcrelassociatesmaterial",
       "ifcrelcontainedinspatialstructure", "ifcrelaggregates",
-      // Assembly containers (aggregate nodes — NOT real 3D objects)
-      // Their weight/volume/area = SUM of children → keeping them causes double-counting
-      "ifcelementassembly", "ifcelementassemblytype",
+      // NOTE: IfcElementAssembly is NOT in this list.
+      // It must survive Stage 1 so enrichAssemblyFromHierarchy() can
+      // propagate assembly info to children. It is removed later.
       // Grid & Level (Revit/IFC)
       "ifcgrid", "ifcgridaxis", "ifcgridplacement",
       // Annotations & 2D
@@ -438,22 +438,69 @@ async function scanObjects() {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // FIX: Remove ALL IfcElementAssembly objects to prevent double-counting
+    // Remove IfcElementAssembly containers — only count CHILDREN
     // ══════════════════════════════════════════════════════════════════
-    // IfcElementAssembly is NEVER a real physical 3D object.
-    // It is always an aggregate CONTAINER whose weight/volume/area =
-    // SUM of all children (IfcBeam, IfcPlate, IfcMember, etc.).
+    // IfcElementAssembly is an aggregate CONTAINER:
+    //   weight = SUM(children weights)
+    //   volume = SUM(children volumes)
+    //   area   = SUM(children areas)
+    // Keeping it would double-count all quantities.
     //
-    // The children always exist as separate objects in the IFC model and
-    // carry their own individual quantities. Keeping the IfcElementAssembly
-    // node would double-count all quantities.
-    //
-    // Assembly grouping is NOT lost — the children already have:
-    //   - assemblyPos (from ASSEMBLY_POS property)
-    //   - assemblyName (from ASSEMBLY_NAME property)
-    //   - assemblyPosCode (from ASSEMBLY_POSITION_CODE property)
-    // These are set via parseObjectProperties() and enrichAssemblyFromHierarchy().
+    // Before removing: propagate assembly grouping info to ALL children
+    // so they remain correctly grouped under assembly_pos/assembly_name.
     // ══════════════════════════════════════════════════════════════════
+
+    // Step 1: Build lookup map for quick object access
+    const objectLookup = new Map();
+    for (const obj of allObjects) {
+      objectLookup.set(`${obj.modelId}:${obj.id}`, obj);
+    }
+
+    // Step 2: Propagate assembly info from containers to ALL children
+    // This ensures children inherit assemblyPos/assemblyName/assemblyPosCode
+    // even if enrichAssemblyFromHierarchy() missed some
+    let childrenEnriched = 0;
+    for (const obj of allObjects) {
+      const cls = (obj.ifcClass || "").toLowerCase();
+      if (cls !== "ifcelementassembly" && !cls.includes("elementassembly")) continue;
+
+      const containerKey = `${obj.modelId}:${obj.id}`;
+      const childIds = assemblyChildrenMap.get(containerKey);
+      if (!childIds || childIds.size === 0) continue;
+
+      // Determine the best assembly identifier from the container
+      const containerAssemblyPos = obj.assemblyPos || obj.assemblyName || obj.name || "";
+      const containerAssemblyName = obj.assemblyName || obj.name || "";
+      const containerAssemblyPosCode = obj.assemblyPosCode || "";
+
+      if (!containerAssemblyPos) continue;
+
+      // Push assembly info down to every child
+      for (const childId of childIds) {
+        const childObj = objectLookup.get(`${obj.modelId}:${childId}`);
+        if (!childObj) continue;
+
+        // Only set if child doesn't already have assembly info
+        if (!childObj.assemblyPos || childObj.assemblyPos === "(Không xác định)") {
+          childObj.assemblyPos = containerAssemblyPos;
+          childrenEnriched++;
+        }
+        if (!childObj.assemblyName || childObj.assemblyName === "(Không xác định)") {
+          childObj.assemblyName = containerAssemblyName;
+        }
+        if (!childObj.assemblyPosCode && containerAssemblyPosCode) {
+          childObj.assemblyPosCode = containerAssemblyPosCode;
+        }
+        if (!childObj.assembly) {
+          childObj.assembly = containerAssemblyName;
+        }
+      }
+    }
+    if (childrenEnriched > 0) {
+      console.log(`[ObjectExplorer] ✓ Propagated assembly info from containers to ${childrenEnriched} children`);
+    }
+
+    // Step 3: Remove ALL IfcElementAssembly containers
     const beforeAssemblyDedup = allObjects.length;
     const removedAssemblyContainers = [];
     allObjects = allObjects.filter((obj) => {
@@ -463,7 +510,7 @@ async function scanObjects() {
           name: obj.name, ifcClass: obj.ifcClass,
           weight: obj.weight, volume: obj.volume, area: obj.area,
         });
-        return false; // REMOVE — this is a container, not a real 3D object
+        return false; // REMOVE — container, not a real 3D object
       }
       return true;
     });
