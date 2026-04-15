@@ -409,6 +409,12 @@ async function scanObjects() {
     // Build IFC hierarchy-based assembly map (like TC Windows)
     await buildAssemblyHierarchyMap(models);
 
+    // ── KEY STEP: Fetch properties directly from IfcElementAssembly containers ──
+    // TC API does NOT inherit properties from parent to children.
+    // We must explicitly fetch the parent container's properties (ASSEMBLY_POS, etc.)
+    // and propagate them to children ourselves.
+    await fetchAssemblyContainerProperties();
+
     // Enrich objects missing ASSEMBLY_POS using IFC hierarchy
     // This mimics how Trimble Connect for Windows groups parts:
     // parts under the same IfcElementAssembly node share the same assembly
@@ -1231,6 +1237,139 @@ async function buildAssemblyHierarchyMap(models) {
   console.log(`[ObjectExplorer] Assembly hierarchy: ${assemblyChildrenMap.size} IfcElementAssembly nodes, ${assemblyMembershipMap.size} mapped objects, ${hierarchyParentMap.size} parent-child relationships`);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Fetch properties directly from IfcElementAssembly containers ──
+// ══════════════════════════════════════════════════════════════════════════════
+// 
+// PROBLEM: TC Viewer API does NOT implement "Values inherited from higher
+//   level assembly". When you call getObjectProperties() for an IfcBeam child,
+//   you get ONLY properties written directly on that IfcBeam.
+//   ASSEMBLY_POS, ASSEMBLY_NAME, ASSEMBLY_POSITION_CODE are typically 
+//   stored ONLY on the IfcElementAssembly container in Tekla IFC exports.
+//
+// SOLUTION: Explicitly fetch properties for EVERY IfcElementAssembly node
+//   found in the hierarchy, extract assembly properties, then propagate
+//   them to all children via enrichAssemblyFromHierarchy().
+//
+// This is the missing link that makes the extension understand
+// "inherited values" — something TC web shows but doesn't expose via API.
+// ══════════════════════════════════════════════════════════════════════════════
+async function fetchAssemblyContainerProperties() {
+  if (!viewerRef || assemblyNodeInfoMap.size === 0) return;
+
+  console.log(`[AssemblyFetch] Fetching properties for ${assemblyNodeInfoMap.size} IfcElementAssembly containers...`);
+
+  // Group assembly nodes by modelId for batch fetching
+  const byModel = new Map(); // modelId → [{ key, nodeInfo }]
+  for (const [key, nodeInfo] of assemblyNodeInfoMap) {
+    const modelId = nodeInfo.modelId;
+    if (!byModel.has(modelId)) byModel.set(modelId, []);
+    byModel.get(modelId).push({ key, nodeInfo });
+  }
+
+  let totalFetched = 0;
+  let enrichedCount = 0;
+  let withPos = 0, withName = 0, withCode = 0;
+
+  for (const [modelId, entries] of byModel) {
+    // Extract object IDs for this model
+    const objectIds = entries.map(e => e.nodeInfo.id);
+    
+    // Batch fetch (50 per batch for performance)
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < objectIds.length; i += BATCH_SIZE) {
+      const batchIds = objectIds.slice(i, i + BATCH_SIZE);
+      const batchEntries = entries.slice(i, i + BATCH_SIZE);
+      
+      try {
+        const propsArray = await viewerRef.getObjectProperties(modelId, batchIds);
+        if (!propsArray) continue;
+
+        for (let j = 0; j < propsArray.length; j++) {
+          const props = propsArray[j];
+          const entry = batchEntries[j];
+          if (!props || !entry) continue;
+
+          totalFetched++;
+          let foundAny = false;
+
+          // Parse ALL property sets from the container
+          const propertySets = props.properties || [];
+          for (const pSet of propertySets) {
+            const properties = pSet.properties || [];
+            for (const prop of properties) {
+              const rawPropName = prop.name || "";
+              const propValue = String(prop.value || "").trim();
+              if (!propValue) continue;
+
+              const asmClass = classifyAssemblyProperty(rawPropName);
+              if (!asmClass) continue;
+
+              if (asmClass === "pos" && !entry.nodeInfo.assemblyPos) {
+                entry.nodeInfo.assemblyPos = propValue;
+                withPos++;
+                foundAny = true;
+              } else if (asmClass === "mark" && !entry.nodeInfo.assemblyPos) {
+                // ASSEMBLY_MARK as fallback for assemblyPos
+                entry.nodeInfo.assemblyPos = propValue;
+                withPos++;
+                foundAny = true;
+              } else if (asmClass === "name" && !entry.nodeInfo.assemblyName) {
+                entry.nodeInfo.assemblyName = propValue;
+                withName++;
+                foundAny = true;
+              } else if (asmClass === "code" && !entry.nodeInfo.assemblyPosCode) {
+                entry.nodeInfo.assemblyPosCode = propValue;
+                withCode++;
+                foundAny = true;
+              }
+            }
+          }
+
+          // Also extract from product info
+          if (props.product) {
+            if (!entry.nodeInfo.assemblyName && props.product.name) {
+              entry.nodeInfo.assemblyName = props.product.name;
+              withName++;
+              foundAny = true;
+            }
+          }
+
+          if (foundAny) {
+            enrichedCount++;
+            // Update the assemblyNodeInfoMap
+            assemblyNodeInfoMap.set(entry.key, entry.nodeInfo);
+          }
+        }
+      } catch (e) {
+        console.warn(`[AssemblyFetch] Batch fetch failed for model ${modelId}:`, e);
+      }
+    }
+  }
+
+  console.log(
+    `[AssemblyFetch] ✓ Fetched ${totalFetched}/${assemblyNodeInfoMap.size} containers. ` +
+    `Enriched: ${enrichedCount} (POS: ${withPos}, NAME: ${withName}, CODE: ${withCode})`
+  );
+
+  // Log samples for verification
+  const enrichedSamples = [];
+  for (const [key, info] of assemblyNodeInfoMap) {
+    if (info.assemblyPos || info.assemblyName || info.assemblyPosCode) {
+      enrichedSamples.push(info);
+      if (enrichedSamples.length >= 5) break;
+    }
+  }
+  if (enrichedSamples.length > 0) {
+    console.log(`[AssemblyFetch] Sample enriched containers:`);
+    for (const s of enrichedSamples) {
+      console.log(
+        `  🏗️ "${s.name}" | POS="${s.assemblyPos}" | NAME="${s.assemblyName}" | CODE="${s.assemblyPosCode}"`
+      );
+    }
+  }
+}
+
 // ── Enrich objects with assembly info from IFC hierarchy ──
 // Uses cached hierarchy info — no extra API calls.
 // Fixed logic: prevents duplicates in assembly groups and eliminates false "(Không xác định)" entries.
@@ -1264,20 +1403,36 @@ async function enrichAssemblyFromHierarchy() {
 
     // Strategy 1: Check explicit IfcElementAssembly membership first
     // This is the most accurate — Tekla exports assembly structure via IfcElementAssembly
+    // NOW ENHANCED: nodeInfo contains actual ASSEMBLY_POS/NAME/CODE fetched from the container
     const assemblyKey = assemblyMembershipMap.get(objectKey);
     if (assemblyKey) {
       const nodeInfo = assemblyNodeInfoMap.get(assemblyKey);
-      if (nodeInfo && nodeInfo.name && nodeInfo.name.trim()) {
-        // Check if the assembly node itself has assemblyPos from Tekla properties
-        const assemblyObj = objectMap.get(assemblyKey);
-        if (assemblyObj && assemblyObj.assemblyPos && assemblyObj.assemblyPos.trim()) {
-          // Inherit the assembly node's assemblyPos
-          obj.assemblyPos = assemblyObj.assemblyPos;
-        } else {
-          obj.assemblyPos = nodeInfo.name;
+      if (nodeInfo) {
+        // Priority 1: Use ASSEMBLY_POS fetched directly from the container via API
+        if (nodeInfo.assemblyPos && nodeInfo.assemblyPos.trim()) {
+          obj.assemblyPos = nodeInfo.assemblyPos;
         }
-        if (!obj.assemblyName) obj.assemblyName = nodeInfo.name;
-        if (!obj.assembly) obj.assembly = nodeInfo.name;
+        // Priority 2: Use assemblyPos from the parsed container object (if it's in allObjects)
+        else {
+          const assemblyObj = objectMap.get(assemblyKey);
+          if (assemblyObj && assemblyObj.assemblyPos && assemblyObj.assemblyPos.trim()) {
+            obj.assemblyPos = assemblyObj.assemblyPos;
+          }
+          // Priority 3: Fall back to IFC entity name
+          else if (nodeInfo.name && nodeInfo.name.trim()) {
+            obj.assemblyPos = nodeInfo.name;
+          }
+        }
+
+        // Use enriched assemblyName (from container API) or fall back to IFC name
+        if (!obj.assemblyName) {
+          obj.assemblyName = nodeInfo.assemblyName || nodeInfo.name || "";
+        }
+        // Use enriched assemblyPosCode (from container API)
+        if (!obj.assemblyPosCode && nodeInfo.assemblyPosCode) {
+          obj.assemblyPosCode = nodeInfo.assemblyPosCode;
+        }
+        if (!obj.assembly) obj.assembly = nodeInfo.name || "";
         obj.isTekla = true;
         enrichedFromAssembly++;
         continue;
