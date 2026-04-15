@@ -278,6 +278,9 @@ async function scanObjects() {
       "ifcspace", "ifcgroup", "ifcopeningelement", "ifcownerhistory",
       "ifcreldefinesbyproperties", "ifcrelassociatesmaterial",
       "ifcrelcontainedinspatialstructure", "ifcrelaggregates",
+      // Assembly containers (aggregate nodes — NOT real 3D objects)
+      // Their weight/volume/area = SUM of children → keeping them causes double-counting
+      "ifcelementassembly", "ifcelementassemblytype",
       // Grid & Level (Revit/IFC)
       "ifcgrid", "ifcgridaxis", "ifcgridplacement",
       // Annotations & 2D
@@ -435,109 +438,45 @@ async function scanObjects() {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // FIX: Remove IfcElementAssembly aggregate nodes to prevent double-counting
+    // FIX: Remove ALL IfcElementAssembly objects to prevent double-counting
     // ══════════════════════════════════════════════════════════════════
-    // Problem: In Tekla IFC exports, IfcElementAssembly nodes are AGGREGATE
-    // containers whose weight/volume/area = SUM of all children.
-    // When both parent AND children are in allObjects, statistics are doubled.
+    // IfcElementAssembly is NEVER a real physical 3D object.
+    // It is always an aggregate CONTAINER whose weight/volume/area =
+    // SUM of all children (IfcBeam, IfcPlate, IfcMember, etc.).
     //
-    // Strategy 1: Hierarchy API — remove parents tracked in assemblyChildrenMap
-    // Strategy 2: IFC Class — remove ANY IfcElementAssembly where other
-    //             objects exist with the same assemblyPos (the real parts)
-    // Strategy 3: Spatial hierarchy — remove parents tracked in hierarchyParentMap
+    // The children always exist as separate objects in the IFC model and
+    // carry their own individual quantities. Keeping the IfcElementAssembly
+    // node would double-count all quantities.
+    //
+    // Assembly grouping is NOT lost — the children already have:
+    //   - assemblyPos (from ASSEMBLY_POS property)
+    //   - assemblyName (from ASSEMBLY_NAME property)
+    //   - assemblyPosCode (from ASSEMBLY_POSITION_CODE property)
+    // These are set via parseObjectProperties() and enrichAssemblyFromHierarchy().
     // ══════════════════════════════════════════════════════════════════
     const beforeAssemblyDedup = allObjects.length;
-    const removedAssemblyParents = [];
-
-    // Strategy 1: Hierarchy-based (assemblyChildrenMap)
-    const strategy1Ids = new Set();
-    for (const obj of allObjects) {
-      if (!obj.isAssemblyParent) continue;
-      const objectKey = `${obj.modelId}:${obj.id}`;
-      const childIds = assemblyChildrenMap.get(objectKey);
-      if (!childIds || childIds.size === 0) continue;
-      for (const childId of childIds) {
-        if (allObjectKeys.has(`${obj.modelId}:${childId}`)) {
-          strategy1Ids.add(objectKey);
-          break;
-        }
-      }
-    }
-
-    // Strategy 2: IFC Class detection — ANY IfcElementAssembly that has
-    // other non-assembly objects sharing the same assemblyPos
-    const strategy2Ids = new Set();
-    // Build a map: assemblyPos → count of NON-IfcElementAssembly objects
-    const assemblyPosNonAssemblyCount = new Map();
-    for (const obj of allObjects) {
-      if (!obj.assemblyPos) continue;
-      const cls = (obj.ifcClass || "").toLowerCase();
-      if (cls === "ifcelementassembly" || cls.includes("elementassembly")) continue;
-      const count = assemblyPosNonAssemblyCount.get(obj.assemblyPos) || 0;
-      assemblyPosNonAssemblyCount.set(obj.assemblyPos, count + 1);
-    }
-    for (const obj of allObjects) {
-      const cls = (obj.ifcClass || "").toLowerCase();
-      if (cls !== "ifcelementassembly" && !cls.includes("elementassembly")) continue;
-      const objectKey = `${obj.modelId}:${obj.id}`;
-      // If there are real parts sharing its assemblyPos, this is a container → remove
-      if (obj.assemblyPos && assemblyPosNonAssemblyCount.has(obj.assemblyPos)) {
-        strategy2Ids.add(objectKey);
-        continue;
-      }
-      // Even without assemblyPos match, remove if it has children in hierarchy
-      if (assemblyMembershipMap.has(objectKey)) {
-        // This IfcElementAssembly is also a member of another assembly → it's nested, check children
-        const childIds = assemblyChildrenMap.get(objectKey);
-        if (childIds && childIds.size > 0) {
-          strategy2Ids.add(objectKey);
-        }
-      }
-    }
-
-    // Strategy 3: Spatial hierarchy — check if any objects are children of
-    // IfcElementAssembly in the spatial tree and have the parent as an object
-    const strategy3Ids = new Set();
-    for (const [childKey, parentInfo] of hierarchyParentMap) {
-      const parentCls = (parentInfo.class || "").toLowerCase();
-      if (parentCls !== "ifcelementassembly" && !parentCls.includes("elementassembly")) continue;
-      const parentKey = `${parentInfo.modelId}:${parentInfo.id}`;
-      if (allObjectKeys.has(parentKey) && allObjectKeys.has(childKey)) {
-        strategy3Ids.add(parentKey);
-      }
-    }
-
-    // Combine all strategies — any object flagged by ANY strategy gets removed
-    const allRemoveIds = new Set([...strategy1Ids, ...strategy2Ids, ...strategy3Ids]);
-
+    const removedAssemblyContainers = [];
     allObjects = allObjects.filter((obj) => {
-      const objectKey = `${obj.modelId}:${obj.id}`;
-      if (allRemoveIds.has(objectKey)) {
-        removedAssemblyParents.push({
+      const cls = (obj.ifcClass || "").toLowerCase();
+      if (cls === "ifcelementassembly" || cls.includes("elementassembly")) {
+        removedAssemblyContainers.push({
           name: obj.name, ifcClass: obj.ifcClass,
           weight: obj.weight, volume: obj.volume, area: obj.area,
-          strategies: [
-            strategy1Ids.has(objectKey) ? "hierarchy" : null,
-            strategy2Ids.has(objectKey) ? "ifcClass" : null,
-            strategy3Ids.has(objectKey) ? "spatial" : null,
-          ].filter(Boolean).join("+"),
         });
-        return false;
+        return false; // REMOVE — this is a container, not a real 3D object
       }
       return true;
     });
-
-    if (removedAssemblyParents.length > 0) {
+    if (removedAssemblyContainers.length > 0) {
+      const totalRemovedWeight = removedAssemblyContainers.reduce((s, p) => s + (p.weight || 0), 0);
       console.log(
-        `[ObjectExplorer] ✓ Removed ${removedAssemblyParents.length} IfcElementAssembly aggregate parents ` +
-        `(${beforeAssemblyDedup} → ${allObjects.length} objects) to prevent double-counting`
+        `[ObjectExplorer] ✓ Removed ${removedAssemblyContainers.length} IfcElementAssembly containers ` +
+        `(${beforeAssemblyDedup} → ${allObjects.length} objects). ` +
+        `Removed aggregate weight: ${totalRemovedWeight.toFixed(2)}kg (was double-counted)`
       );
-      console.log(
-        `  Strategies: hierarchy=${strategy1Ids.size}, ifcClass=${strategy2Ids.size}, spatial=${strategy3Ids.size}`
-      );
-      for (const p of removedAssemblyParents.slice(0, 10)) {
+      for (const p of removedAssemblyContainers.slice(0, 10)) {
         console.log(
-          `  - "${p.name}" (${p.ifcClass}) [${p.strategies}]: W=${(p.weight||0).toFixed(2)}kg V=${(p.volume||0).toFixed(6)}m³`
+          `  - "${p.name}" (${p.ifcClass}): W=${(p.weight||0).toFixed(2)}kg V=${(p.volume||0).toFixed(6)}m³`
         );
       }
     }
