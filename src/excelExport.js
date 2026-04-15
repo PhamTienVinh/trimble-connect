@@ -77,7 +77,6 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     [],
     [
       "STT", "Tên", "Profile", "Reference", "IFC Class", "Object Type",
-      "Part Role", "Part Pos", "Phase",
       "Assembly Pos", "Assembly Name", "Assembly Code",
       "Group", "Vật liệu",
       "Thể tích (m³)", "DT bề mặt (m²)", "Khối lượng (kg)",
@@ -134,9 +133,6 @@ export function exportToExcel(data, groupBy, selectedOnly) {
       obj.referenceName || "",
       obj.ifcClass || "",
       obj.type || "",
-      obj.partRole || "",
-      obj.partPos || "",
-      obj.phase || "",
       obj.assemblyPos || "",
       obj.assemblyName || "",
       obj.assemblyPosCode || "",
@@ -167,7 +163,6 @@ export function exportToExcel(data, groupBy, selectedOnly) {
   const wsDetail = XLSX.utils.aoa_to_sheet([...detailHeader, ...detailRows]);
   wsDetail["!cols"] = [
     { wch: 6 }, { wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 },
-    { wch: 18 }, { wch: 14 }, { wch: 10 },
     { wch: 18 }, { wch: 22 }, { wch: 18 },
     { wch: 18 }, { wch: 15 },
     { wch: 16 }, { wch: 16 }, { wch: 16 },
@@ -176,7 +171,7 @@ export function exportToExcel(data, groupBy, selectedOnly) {
   ];
 
   // Merge: title row + all group header rows
-  const colCount = 25; // total columns
+  const colCount = 22; // total columns
   const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: colCount } }];
   for (const rowIdx of mergeRows) {
     merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: colCount } });
@@ -189,9 +184,6 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     { key: "assemblyPos", label: "Assembly Pos", sheetName: "Theo Assembly Pos" },
     { key: "assemblyName", label: "Assembly Name", sheetName: "Theo Assembly Name" },
     { key: "assemblyPosCode", label: "Assembly Code", sheetName: "Theo Assembly Code" },
-    { key: "partRole", label: "Part Role", sheetName: "Theo Part Role" },
-    { key: "partPos", label: "Part Pos", sheetName: "Theo Part Pos" },
-    { key: "phase", label: "Phase", sheetName: "Theo Phase" },
     { key: "objectType", label: "Object Type", sheetName: "Theo Object Type" },
     { key: "profile", label: "Profile", sheetName: "Theo Profile" },
     { key: "referenceName", label: "Reference Name", sheetName: "Theo Reference" },
@@ -297,15 +289,11 @@ function createGroupSheet(data, groupBy, label) {
   return ws;
 }
 
-// ── Group key resolver ──
 function getGroupKey(obj, groupBy) {
   switch (groupBy) {
     case "assemblyName": return obj.assemblyName || obj.assembly || "(Không xác định)";
     case "assemblyPos": return obj.assemblyPos || "(Không xác định)";
     case "assemblyPosCode": return obj.assemblyPosCode || "(Không xác định)";
-    case "partRole": return getPartRoleLabel(obj.partRole) || "(Không xác định)";
-    case "partPos": return obj.partPos || "(Không xác định)";
-    case "phase": return obj.phase || "(Không xác định)";
     case "name": return obj.name;
     case "group": return obj.group;
     case "objectType": return obj.type || obj.ifcClass || "(Không xác định)";
@@ -317,27 +305,12 @@ function getGroupKey(obj, groupBy) {
   }
 }
 
-function getPartRoleLabel(role) {
-  switch (role) {
-    case "assemblyContainer": return "🏗️ Assembly Container";
-    case "mainPart": return "⭐ Main Part";
-    case "secondaryPart": return "🔧 Secondary Part";
-    case "bolt": return "🔩 Bolt / Fastener";
-    case "accessory": return "📎 Accessory";
-    case "standalone": return "📦 Standalone";
-    default: return role || "(Không xác định)";
-  }
-}
-
 // ── Group label for display ──
 function getGroupLabel(groupBy) {
   switch (groupBy) {
     case "assemblyName": return "Assembly Name (Tekla)";
     case "assemblyPos": return "Assembly Pos (Tekla)";
     case "assemblyPosCode": return "Assembly Code (Tekla)";
-    case "partRole": return "Part Role";
-    case "partPos": return "Part Pos (Tekla)";
-    case "phase": return "Phase";
     case "name": return "Tên";
     case "group": return "Group";
     case "objectType": return "Object Type";

@@ -224,9 +224,6 @@ function getGroupKey(obj, groupBy) {
     case "assemblyName": return obj.assemblyName || obj.assembly || "(Không xác định)";
     case "assemblyPos": return obj.assemblyPos || "(Không xác định)";
     case "assemblyPosCode": return obj.assemblyPosCode || "(Không xác định)";
-    case "partRole": return getPartRoleLabel(obj.partRole) || "(Không xác định)";
-    case "partPos": return obj.partPos || "(Không xác định)";
-    case "phase": return obj.phase || "(Không xác định)";
     case "name": return obj.name;
     case "group": return obj.group;
     case "objectType": return obj.type || obj.ifcClass || "(Không xác định)";
@@ -235,18 +232,6 @@ function getGroupKey(obj, groupBy) {
     case "referenceName": return obj.referenceName || "(Không xác định)";
     case "ifcClass": return obj.ifcClass || "(Không xác định)";
     default: return obj.assemblyDisplayName || obj.assembly;
-  }
-}
-
-function getPartRoleLabel(role) {
-  switch (role) {
-    case "assemblyContainer": return "🏗️ Assembly Container";
-    case "mainPart": return "⭐ Main Part";
-    case "secondaryPart": return "🔧 Secondary Part";
-    case "bolt": return "🔩 Bolt / Fastener";
-    case "accessory": return "📎 Accessory";
-    case "standalone": return "📦 Standalone";
-    default: return role || "(Không xác định)";
   }
 }
 

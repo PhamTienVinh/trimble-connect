@@ -432,49 +432,45 @@ async function scanObjects() {
       }
     }
 
-    // ── FIX: Prevent IfcElementAssembly double-counting ──
+    // ── FIX: Remove IfcElementAssembly aggregate parents to prevent double-counting ──
     // In Tekla IFC exports, IfcElementAssembly parent nodes carry
     // aggregated weight/volume/area = sum of all children.
-    // If children are ALSO in allObjects, the parent's quantities
-    // would be double-counted. Solution: zero out parent quantities
-    // when their children are present, but preserve original values.
-    let assemblyParentsZeroed = 0;
-    for (const obj of allObjects) {
-      if (!obj.isAssemblyParent) continue;
+    // If children are ALSO in allObjects, keeping the parent would
+    // double-count both quantities AND object count.
+    // Solution: completely remove assembly parent nodes when their children exist.
+    const beforeAssemblyDedup = allObjects.length;
+    const removedAssemblyParents = [];
+    allObjects = allObjects.filter((obj) => {
+      if (!obj.isAssemblyParent) return true;
       
       const objectKey = `${obj.modelId}:${obj.id}`;
       const childIds = assemblyChildrenMap.get(objectKey);
-      if (!childIds || childIds.size === 0) continue;
+      if (!childIds || childIds.size === 0) return true;
       
       // Check if ANY children exist in allObjects
-      let hasChildrenInList = false;
       for (const childId of childIds) {
         if (allObjectKeys.has(`${obj.modelId}:${childId}`)) {
-          hasChildrenInList = true;
-          break;
+          // Children exist → remove this aggregate parent
+          removedAssemblyParents.push({
+            name: obj.name, ifcClass: obj.ifcClass,
+            weight: obj.weight, volume: obj.volume, area: obj.area,
+            childCount: childIds.size,
+          });
+          return false; // REMOVE from allObjects
         }
       }
-      
-      if (hasChildrenInList && (obj.weight > 0 || obj.volume > 0 || obj.area > 0)) {
-        // Preserve original values for debugging/export
-        obj.originalWeight = obj.weight;
-        obj.originalVolume = obj.volume;
-        obj.originalArea = obj.area;
-        // Zero out to prevent double-counting in statistics
-        obj.weight = 0;
-        obj.volume = 0;
-        obj.area = 0;
-        obj.isAssemblyAggregate = true; // flag for UI display
-        assemblyParentsZeroed++;
+      return true; // no children found, keep it
+    });
+    if (removedAssemblyParents.length > 0) {
+      console.log(
+        `[ObjectExplorer] ✓ Removed ${removedAssemblyParents.length} IfcElementAssembly aggregate parents ` +
+        `(${beforeAssemblyDedup} → ${allObjects.length} objects) to prevent double-counting`
+      );
+      for (const p of removedAssemblyParents.slice(0, 5)) {
         console.log(
-          `[ObjectExplorer] Zeroed assembly parent "${obj.name}" (${obj.ifcClass}): ` +
-          `was W=${obj.originalWeight.toFixed(2)}kg V=${obj.originalVolume.toFixed(6)}m³ A=${obj.originalArea.toFixed(4)}m² ` +
-          `(${childIds.size} children in hierarchy, children present in list)`
+          `  - "${p.name}" (${p.ifcClass}): W=${(p.weight||0).toFixed(2)}kg V=${(p.volume||0).toFixed(6)}m³ (${p.childCount} children)`
         );
       }
-    }
-    if (assemblyParentsZeroed > 0) {
-      console.log(`[ObjectExplorer] ✓ Zeroed ${assemblyParentsZeroed} assembly parent nodes to prevent double-counting`);
     }
 
     // ── Estimate bolt quantities ──
@@ -490,23 +486,18 @@ async function scanObjects() {
       const length = parseBoltDimension(obj.boltLength);
       
       if (diameter > 0 && length > 0) {
-        // Convert mm to meters for volume calculation
         const dMeters = diameter / 1000;
         const lMeters = length / 1000;
-        // Volume of cylinder: π × (d/2)² × L
         const boltVolume = Math.PI * Math.pow(dMeters / 2, 2) * lMeters;
-        // Multiply by bolt count if available
         const count = obj.boltCount > 0 ? obj.boltCount : 1;
         obj.volume = boltVolume * count;
-        obj.weight = obj.volume * 7850; // steel density
-        // Estimate surface area: π × d × L (lateral area of cylinder)
+        obj.weight = obj.volume * 7850;
         obj.area = Math.PI * dMeters * lMeters * count;
         obj.boltEstimated = true;
         boltsEstimated++;
       } else if (diameter > 0) {
-        // Only diameter available — estimate minimal weight from standard bolt tables
         const dMeters = diameter / 1000;
-        const estimatedLength = diameter * 3; // rough estimate: 3× diameter
+        const estimatedLength = diameter * 3;
         const lMeters = estimatedLength / 1000;
         const boltVolume = Math.PI * Math.pow(dMeters / 2, 2) * lMeters;
         const count = obj.boltCount > 0 ? obj.boltCount : 1;
@@ -521,10 +512,7 @@ async function scanObjects() {
       console.log(`[ObjectExplorer] ✓ Estimated quantities for ${boltsEstimated} bolt objects from dimensions`);
     }
 
-    // ── Classify part roles ──
-    classifyPartRoles();
-
-    // Stage 3: keep ALL objects (including assembly components).
+    // Stage 3: keep ALL objects (assembly aggregates already removed above).
     // The requirement "each 3D object is 1 object" needs a 1:1 mapping.
     // Grouping into assemblyPos will be handled by assigning assemblyPos/assemblyName/assembly.
     filteredObjects = [...allObjects];
@@ -2059,12 +2047,8 @@ function renderTree() {
         html += `<span class="tree-item-badge ifc-class" title="${escHtml(obj.ifcClass)}">${ifcClassBadge}</span>`;
       }
       
-      // Tekla Bolt badge (highest priority)
-      if (obj.isTeklaBolt) {
-        html += `<span class="tree-item-badge bolt" title="Tekla Bolt - ${obj.boltType || 'Fastener'}">⚙️ Bolt</span>`;
-      }
       // Tekla Structures badge
-      else if (obj.isTekla) {
+      if (obj.isTekla) {
         html += `<span class="tree-item-badge tekla" title="Vẽ bằng Tekla Structures">🏗️</span>`;
       }
       
@@ -2445,12 +2429,6 @@ function getGroupKey(obj, groupBy) {
       return obj.assemblyPos || "(Không xác định)";
     case "assemblyPosCode":
       return obj.assemblyPosCode || "(Không xác định)";
-    case "partRole":
-      return getPartRoleLabel(obj.partRole) || "(Không xác định)";
-    case "partPos":
-      return obj.partPos || "(Không xác định)";
-    case "phase":
-      return obj.phase || "(Không xác định)";
     case "name":
       return obj.name;
     case "group":
@@ -2470,17 +2448,6 @@ function getGroupKey(obj, groupBy) {
   }
 }
 
-function getPartRoleLabel(role) {
-  switch (role) {
-    case "assemblyContainer": return "🏗️ Assembly Container";
-    case "mainPart": return "⭐ Main Part";
-    case "secondaryPart": return "🔧 Secondary Part";
-    case "bolt": return "🔩 Bolt / Fastener";
-    case "accessory": return "📎 Accessory";
-    case "standalone": return "📦 Standalone";
-    default: return role || "(Không xác định)";
-  }
-}
 
 
 // ── Highlight ──
