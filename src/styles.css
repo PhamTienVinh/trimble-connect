@@ -1119,3 +1119,132 @@ select:focus {
   color: var(--warning);
   border: 1px solid rgba(210, 153, 34, 0.3);
 }
+
+/* ===== HIERARCHICAL ASSEMBLY STATS TABLE ===== */
+
+/* Level 1: Assembly value group header */
+.stats-group-header {
+  background: linear-gradient(135deg, rgba(88,166,255,0.08) 0%, rgba(31,111,235,0.04) 100%) !important;
+  border-top: 2px solid var(--accent-dark);
+}
+
+.stats-group-header:hover {
+  background: linear-gradient(135deg, rgba(88,166,255,0.14) 0%, rgba(31,111,235,0.08) 100%) !important;
+}
+
+.stats-group-header td {
+  color: var(--accent) !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+.stats-group-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stats-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  color: var(--accent);
+  cursor: pointer;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+
+.stats-toggle:hover {
+  background: rgba(88,166,255,0.2);
+}
+
+.stats-group-header.collapsed .stats-toggle {
+  transform: rotate(-90deg);
+}
+
+/* Level 2: IfcElementAssembly container row */
+.stats-container-row {
+  background: rgba(121, 192, 255, 0.03) !important;
+}
+
+.stats-container-row:hover {
+  background: rgba(121, 192, 255, 0.08) !important;
+}
+
+.stats-container-row td {
+  color: var(--info) !important;
+  font-size: 11px;
+}
+
+.stats-container-name {
+  padding-left: 28px !important;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stats-toggle-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+  color: var(--info);
+  cursor: pointer;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+
+.stats-toggle-sm:hover {
+  background: rgba(121, 192, 255, 0.15);
+}
+
+.stats-container-row.collapsed .stats-toggle-sm {
+  transform: rotate(-90deg);
+}
+
+/* Orphan container styling */
+.stats-orphan-row td {
+  color: var(--warning) !important;
+  font-style: italic;
+}
+
+/* Level 3: Child row */
+.stats-child-row {
+  background: transparent !important;
+}
+
+.stats-child-row:hover {
+  background: var(--bg-hover) !important;
+}
+
+.stats-child-row td {
+  font-size: 11px;
+  color: var(--text-secondary) !important;
+}
+
+.stats-child-name {
+  padding-left: 52px !important;
+  color: var(--text-secondary) !important;
+  font-size: 11px;
+}
+
+/* Assembly container badge in tree items */
+.tree-item-badge.asm-container {
+  background: rgba(88, 166, 255, 0.10);
+  color: var(--accent);
+  border: 1px solid rgba(88, 166, 255, 0.25);
+  font-size: 9px;
+  padding: 0px 5px;
+  letter-spacing: 0.2px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -673,10 +673,6 @@ export function logObjectAssemblyRelationship(obj) {
   
   console.log(`╚════════════════════════════════════════════════════════════╝\n`);
 }
-  }
-  
-  console.log(`╚════════════════════════════════════════════════════════════╝\n`);
-}
 
 // ── Object Scanning ──
 async function scanObjects() {
