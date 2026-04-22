@@ -3383,74 +3383,135 @@ function clearSearch() {
   renderTree();
 }
 
-// ── Check if groupBy mode should use multi-level assembly grouping ──
-// Returns config with 2 or 3 levels depending on groupBy mode.
-function getMultiLevelConfig(groupBy) {
+// ── Check if groupBy mode should use assembly container grouping ──
+// Assembly grouping uses IfcElementAssembly containers as intermediate level:
+//   Level 1: Assembly value (name/pos/code)
+//   Level 2: IfcElementAssembly containers (grouping only — no weight)
+//   Level 3: Children within each container (actual quantities)
+function isAssemblyGroupingMode(groupBy) {
+  return groupBy === "assemblyName" || groupBy === "assemblyPos" || groupBy === "assemblyPosCode";
+}
+
+// ── Get assembly field key from groupBy ──
+function getAssemblyFieldKeyForTree(groupBy) {
   switch (groupBy) {
-    case "assemblyPos":
-      // 3 levels: Assembly Code > Assembly Name > Assembly Pos > children
-      return {
-        levels: 3,
-        level1: "assemblyPosCode", level2: "assemblyName", level3: "assemblyPos",
-        icon1: "🔖", icon2: "🏗️", icon3: "📍",
-        label1: "Assembly Code", label2: "Assembly Name", label3: "Assembly Pos"
-      };
-    case "assemblyPosCode":
-      // 3 levels: Assembly Code > Assembly Name > Assembly Pos > children
-      return {
-        levels: 3,
-        level1: "assemblyPosCode", level2: "assemblyName", level3: "assemblyPos",
-        icon1: "🔖", icon2: "🏗️", icon3: "📍",
-        label1: "Assembly Code", label2: "Assembly Name", label3: "Assembly Pos"
-      };
-    case "assemblyName":
-      // 2 levels: Assembly Name > Assembly Pos > children
-      return {
-        levels: 2,
-        level1: "assemblyName", level2: "assemblyPos",
-        icon1: "🏗️", icon2: "📍",
-        label1: "Assembly Name", label2: "Assembly Pos"
-      };
-    default:
-      return null;
+    case "assemblyName": return "assemblyName";
+    case "assemblyPos": return "assemblyPos";
+    case "assemblyPosCode": return "assemblyPosCode";
+    default: return null;
   }
 }
 
-// ── Build 2-level group map ──
-function buildMultiLevelGroups(objects, level1Key, level2Key) {
-  const groups = {};
+// ── Get assembly group icon ──
+function getAssemblyGroupIcon(groupBy) {
+  switch (groupBy) {
+    case "assemblyName": return "🏗️";
+    case "assemblyPos": return "📍";
+    case "assemblyPosCode": return "🔖";
+    default: return "📦";
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Build assembly container groups for Object Tree ──
+// Structure:
+//   Level 1: Assembly value (name/pos/code)
+//     Level 2: IfcElementAssembly containers (listing only — no weight contribution)
+//       Level 3: Children within each container (actual objects)
+//     ⚠️ Orphans (children not belonging to any IfcElementAssembly)
+//
+// IMPORTANT: IfcElementAssembly containers are for listing/grouping ONLY.
+// Actual weight/volume/area totals always come from the children.
+// This prevents double-counting since IfcElementAssembly weight = SUM(children).
+// ══════════════════════════════════════════════════════════════════════════════
+function buildAssemblyContainerGroupsForTree(objects, groupBy) {
+  const fieldKey = getAssemblyFieldKeyForTree(groupBy);
+  if (!fieldKey) return null;
+
+  // Get all IfcElementAssembly containers from objectExplorer maps
+  const containers = getAssemblyContainers();
+
+  // Build a map: assemblyValue → { containers: Map<containerKey, {info, children[]}>, orphans: [] }
+  const assemblyGroups = {};
+
+  // Step 1: Group containers by their assembly value
+  for (const container of containers) {
+    const assemblyValue = container[fieldKey] || "(Không xác định)";
+    if (!assemblyGroups[assemblyValue]) {
+      assemblyGroups[assemblyValue] = {
+        name: assemblyValue,
+        containers: new Map(),
+        orphans: [],
+      };
+    }
+
+    // Add container entry (will be populated with children later)
+    assemblyGroups[assemblyValue].containers.set(container.key, {
+      info: container,
+      children: [],
+    });
+  }
+
+  // Step 2: Build a quick lookup: objectKey → container key
+  const objectToContainerKey = new Map();
+  for (const container of containers) {
+    const childObjs = getAssemblyChildren(container.modelId, container.id);
+    for (const child of childObjs) {
+      objectToContainerKey.set(`${child.modelId}:${child.id}`, container.key);
+    }
+  }
+
+  // Step 3: Assign each object to its container within the correct assembly group
   for (const obj of objects) {
-    const l1 = getAssemblyValueForKey(obj, level1Key) || "(Không xác định)";
-    const l2 = getAssemblyValueForKey(obj, level2Key) || "(Không xác định)";
-    if (!groups[l1]) groups[l1] = {};
-    if (!groups[l1][l2]) groups[l1][l2] = [];
-    groups[l1][l2].push(obj);
-  }
-  return groups;
-}
+    const assemblyValue = obj[fieldKey] || "(Không xác định)";
 
-// ── Build 3-level group map ──
-function buildThreeLevelGroups(objects, level1Key, level2Key, level3Key) {
-  const groups = {};
-  for (const obj of objects) {
-    const l1 = getAssemblyValueForKey(obj, level1Key) || "(Không xác định)";
-    const l2 = getAssemblyValueForKey(obj, level2Key) || "(Không xác định)";
-    const l3 = getAssemblyValueForKey(obj, level3Key) || "(Không xác định)";
-    if (!groups[l1]) groups[l1] = {};
-    if (!groups[l1][l2]) groups[l1][l2] = {};
-    if (!groups[l1][l2][l3]) groups[l1][l2][l3] = [];
-    groups[l1][l2][l3].push(obj);
-  }
-  return groups;
-}
+    // Ensure the assembly group exists
+    if (!assemblyGroups[assemblyValue]) {
+      assemblyGroups[assemblyValue] = {
+        name: assemblyValue,
+        containers: new Map(),
+        orphans: [],
+      };
+    }
 
-function getAssemblyValueForKey(obj, key) {
-  switch (key) {
-    case "assemblyName": return obj.assemblyName || "";
-    case "assemblyPos": return obj.assemblyPos || "";
-    case "assemblyPosCode": return obj.assemblyPosCode || "";
-    default: return "";
+    const group = assemblyGroups[assemblyValue];
+    const objKey = `${obj.modelId}:${obj.id}`;
+    const containerKey = objectToContainerKey.get(objKey);
+
+    if (containerKey && group.containers.has(containerKey)) {
+      // Object belongs to a container within this assembly group
+      group.containers.get(containerKey).children.push(obj);
+    } else if (containerKey) {
+      // Object belongs to a container, but the container's assembly value differs
+      // from the object's own value. Find or create the container in this group.
+      const containerInfo = containers.find(c => c.key === containerKey);
+      if (containerInfo && !group.containers.has(containerKey)) {
+        group.containers.set(containerKey, {
+          info: containerInfo,
+          children: [],
+        });
+      }
+      if (group.containers.has(containerKey)) {
+        group.containers.get(containerKey).children.push(obj);
+      } else {
+        group.orphans.push(obj);
+      }
+    } else {
+      // Object doesn't belong to any IfcElementAssembly container
+      group.orphans.push(obj);
+    }
   }
+
+  // Step 4: Remove empty containers (no children matched)
+  for (const group of Object.values(assemblyGroups)) {
+    for (const [key, entry] of group.containers) {
+      if (entry.children.length === 0) {
+        group.containers.delete(key);
+      }
+    }
+  }
+
+  return assemblyGroups;
 }
 
 // ── Render a single tree item HTML ──
@@ -3530,158 +3591,104 @@ function renderTree() {
     return;
   }
 
-  // Check if multi-level grouping applies
-  const mlConfig = getMultiLevelConfig(groupBy);
+  // Check if assembly container grouping applies
+  const useAssemblyGrouping = isAssemblyGroupingMode(groupBy);
 
   let html = "";
 
-  if (mlConfig && mlConfig.levels === 3) {
-    // ── 3-level grouping (Code > Name > Pos > children) ──
-    const mlGroups = buildThreeLevelGroups(filteredObjects, mlConfig.level1, mlConfig.level2, mlConfig.level3);
-    const sortedL1Keys = Object.keys(mlGroups).sort();
+  if (useAssemblyGrouping) {
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── Assembly container grouping ──
+    // Structure:
+    //   Level 1: Assembly value (name/pos/code)
+    //     Level 2: IfcElementAssembly containers (📦) — grouping only
+    //       Level 3: Children (actual objects)
+    //     ⚠️ Orphans (not in any container)
+    // ══════════════════════════════════════════════════════════════════════════
+    const assemblyGroups = buildAssemblyContainerGroupsForTree(filteredObjects, groupBy);
+    const groupIcon = getAssemblyGroupIcon(groupBy);
+    const sortedGroupKeys = Object.keys(assemblyGroups).sort();
 
-    for (const l1Key of sortedL1Keys) {
-      const l2Groups = mlGroups[l1Key];
-      // Collect ALL items in this L1 group
-      const allL1Items = [];
-      for (const l2Subs of Object.values(l2Groups)) {
-        for (const l3Items of Object.values(l2Subs)) {
-          allL1Items.push(...l3Items);
-        }
+    for (const groupKey of sortedGroupKeys) {
+      const group = assemblyGroups[groupKey];
+
+      // Collect ALL items in this assembly group (from containers + orphans)
+      const allGroupItems = [];
+      for (const [, containerEntry] of group.containers) {
+        allGroupItems.push(...containerEntry.children);
       }
-      const allL1Uids = allL1Items.map(o => `${o.modelId}:${o.id}`);
-      const allChecked = allL1Uids.every(uid => selectedIds.has(uid));
-      const someChecked = allL1Uids.some(uid => selectedIds.has(uid));
+      allGroupItems.push(...group.orphans);
 
-      // Level 1 header
-      html += `<div class="tree-group" data-group="${escHtml(l1Key)}">`;
+      const allGroupUids = allGroupItems.map(o => `${o.modelId}:${o.id}`);
+      const allChecked = allGroupUids.length > 0 && allGroupUids.every(uid => selectedIds.has(uid));
+      const someChecked = allGroupUids.some(uid => selectedIds.has(uid));
+
+      // Level 1: Assembly value header
+      html += `<div class="tree-group" data-group="${escHtml(groupKey)}">`;
       html += `<div class="tree-group-header">`;
       html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm" />`;
       html += `<span class="tree-toggle" onclick="_cascadeToggle(this,'tree-group')">▼</span>`;
-      html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">${mlConfig.icon1} ${escHtml(l1Key)}</span>`;
-      html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${allL1Items.length}</span>`;
+      html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">${groupIcon} ${escHtml(groupKey)}</span>`;
+      html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${allGroupItems.length}</span>`;
       html += `</div>`;
       html += `<div class="tree-items">`;
 
-      // Level 2 sub-groups
-      const sortedL2Keys = Object.keys(l2Groups).sort();
-      for (const l2Key of sortedL2Keys) {
-        const l3Groups = l2Groups[l2Key];
-        // Count all items in this L2 group
-        const allL2Items = [];
-        for (const l3Items of Object.values(l3Groups)) {
-          allL2Items.push(...l3Items);
-        }
-        const allL2Uids = allL2Items.map(o => `${o.modelId}:${o.id}`);
-        const l2AllChecked = allL2Uids.every(uid => selectedIds.has(uid));
-        const l2SomeChecked = allL2Uids.some(uid => selectedIds.has(uid));
+      // Level 2: IfcElementAssembly containers
+      const sortedContainerKeys = Array.from(group.containers.keys()).sort((a, b) => {
+        const nameA = group.containers.get(a).info.name || "";
+        const nameB = group.containers.get(b).info.name || "";
+        return nameA.localeCompare(nameB);
+      });
 
-        html += `<div class="tree-subgroup" data-subgroup="${escHtml(l2Key)}">`;
+      for (const containerKey of sortedContainerKeys) {
+        const containerEntry = group.containers.get(containerKey);
+        const containerName = containerEntry.info.name || `Container ${containerEntry.info.id}`;
+        const children = containerEntry.children;
+
+        const containerUids = children.map(o => `${o.modelId}:${o.id}`);
+        const containerAllChecked = containerUids.length > 0 && containerUids.every(uid => selectedIds.has(uid));
+        const containerSomeChecked = containerUids.some(uid => selectedIds.has(uid));
+
+        html += `<div class="tree-subgroup" data-subgroup="${escHtml(containerKey)}">`;
         html += `<div class="tree-subgroup-header">`;
-        html += `<input type="checkbox" class="tree-subgroup-checkbox" ${l2AllChecked ? "checked" : ""} ${!l2AllChecked && l2SomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm con" />`;
+        html += `<input type="checkbox" class="tree-subgroup-checkbox" ${containerAllChecked ? "checked" : ""} ${!containerAllChecked && containerSomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn container" />`;
         html += `<span class="tree-subgroup-toggle" onclick="_cascadeToggle(this,'tree-subgroup')">▼</span>`;
-        html += `<span class="tree-subgroup-name" onclick="_cascadeToggle(this,'tree-subgroup')">${mlConfig.icon2} ${escHtml(l2Key)}</span>`;
-        html += `<span class="tree-subgroup-count" onclick="_cascadeToggle(this,'tree-subgroup')">${allL2Items.length}</span>`;
+        html += `<span class="tree-subgroup-name" onclick="_cascadeToggle(this,'tree-subgroup')">📦 ${escHtml(containerName)}</span>`;
+        html += `<span class="tree-subgroup-count" onclick="_cascadeToggle(this,'tree-subgroup')">${children.length}</span>`;
         html += `</div>`;
         html += `<div class="tree-subitems">`;
 
-        // Level 3 sub2-groups
-        const sortedL3Keys = Object.keys(l3Groups).sort();
-        const hasMultipleL3 = sortedL3Keys.length > 1 || (sortedL3Keys.length === 1 && sortedL3Keys[0] !== l2Key);
+        // Level 3: Children
+        for (const obj of children) {
+          html += renderTreeItemHtml(obj, groupBy);
+        }
 
-        if (hasMultipleL3) {
-          for (const l3Key of sortedL3Keys) {
-            const items = l3Groups[l3Key];
-            const allL3Uids = items.map(o => `${o.modelId}:${o.id}`);
-            const l3AllChecked = allL3Uids.every(uid => selectedIds.has(uid));
-            const l3SomeChecked = allL3Uids.some(uid => selectedIds.has(uid));
+        html += `</div></div>`; // close tree-subitems + tree-subgroup
+      }
 
-            html += `<div class="tree-sub2group" data-sub2group="${escHtml(l3Key)}">`;
-            html += `<div class="tree-sub2group-header">`;
-            html += `<input type="checkbox" class="tree-sub2group-checkbox" ${l3AllChecked ? "checked" : ""} ${!l3AllChecked && l3SomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn" />`;
-            html += `<span class="tree-sub2group-toggle" onclick="this.closest('.tree-sub2group').classList.toggle('collapsed')">▼</span>`;
-            html += `<span class="tree-sub2group-name" onclick="this.closest('.tree-sub2group').classList.toggle('collapsed')">${mlConfig.icon3} ${escHtml(l3Key)}</span>`;
-            html += `<span class="tree-sub2group-count" onclick="this.closest('.tree-sub2group').classList.toggle('collapsed')">${items.length}</span>`;
-            html += `</div>`;
-            html += `<div class="tree-sub2-items">`;
-            for (const obj of items) {
-              html += renderTreeItemHtml(obj, groupBy);
-            }
-            html += `</div></div>`;
-          }
-        } else {
-          // Single L3 — render items directly
-          for (const l3Key of sortedL3Keys) {
-            for (const obj of l3Groups[l3Key]) {
-              html += renderTreeItemHtml(obj, groupBy);
-            }
-          }
+      // Orphan children (not belonging to any IfcElementAssembly container)
+      if (group.orphans.length > 0) {
+        const orphanUids = group.orphans.map(o => `${o.modelId}:${o.id}`);
+        const orphanAllChecked = orphanUids.every(uid => selectedIds.has(uid));
+        const orphanSomeChecked = orphanUids.some(uid => selectedIds.has(uid));
+
+        html += `<div class="tree-subgroup tree-orphan-subgroup" data-subgroup="orphans">`;
+        html += `<div class="tree-subgroup-header">`;
+        html += `<input type="checkbox" class="tree-subgroup-checkbox" ${orphanAllChecked ? "checked" : ""} ${!orphanAllChecked && orphanSomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn" />`;
+        html += `<span class="tree-subgroup-toggle" onclick="_cascadeToggle(this,'tree-subgroup')">▼</span>`;
+        html += `<span class="tree-subgroup-name" onclick="_cascadeToggle(this,'tree-subgroup')">⚠️ Không thuộc Assembly container</span>`;
+        html += `<span class="tree-subgroup-count" onclick="_cascadeToggle(this,'tree-subgroup')">${group.orphans.length}</span>`;
+        html += `</div>`;
+        html += `<div class="tree-subitems">`;
+
+        for (const obj of group.orphans) {
+          html += renderTreeItemHtml(obj, groupBy);
         }
 
         html += `</div></div>`; // close tree-subitems + tree-subgroup
       }
 
       html += `</div></div>`; // close tree-items + tree-group
-    }
-  } else if (mlConfig && mlConfig.levels === 2) {
-    // ── 2-level grouping (Name > Pos > children) ──
-    const mlGroups = buildMultiLevelGroups(filteredObjects, mlConfig.level1, mlConfig.level2);
-    const sortedL1Keys = Object.keys(mlGroups).sort();
-
-    for (const l1Key of sortedL1Keys) {
-      const subGroups = mlGroups[l1Key];
-      // Collect all items in this L1 group
-      const allL1Items = [];
-      for (const subItems of Object.values(subGroups)) {
-        allL1Items.push(...subItems);
-      }
-      const allL1Uids = allL1Items.map(o => `${o.modelId}:${o.id}`);
-      const allChecked = allL1Uids.every(uid => selectedIds.has(uid));
-      const someChecked = allL1Uids.some(uid => selectedIds.has(uid));
-
-      html += `<div class="tree-group" data-group="${escHtml(l1Key)}">`;
-      html += `<div class="tree-group-header">`;
-      html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm" />`;
-      html += `<span class="tree-toggle" onclick="_cascadeToggle(this,'tree-group')">▼</span>`;
-      html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">${mlConfig.icon1} ${escHtml(l1Key)}</span>`;
-      html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${allL1Items.length}</span>`;
-      html += `</div>`;
-      html += `<div class="tree-items">`;
-
-      // Render sub-groups (Level 2)
-      const sortedL2Keys = Object.keys(subGroups).sort();
-      const hasMultipleSubgroups = sortedL2Keys.length > 1 || (sortedL2Keys.length === 1 && sortedL2Keys[0] !== l1Key);
-
-      if (hasMultipleSubgroups) {
-        for (const l2Key of sortedL2Keys) {
-          const items = subGroups[l2Key];
-          const allL2Uids = items.map(o => `${o.modelId}:${o.id}`);
-          const l2AllChecked = allL2Uids.every(uid => selectedIds.has(uid));
-          const l2SomeChecked = allL2Uids.some(uid => selectedIds.has(uid));
-
-          html += `<div class="tree-subgroup" data-subgroup="${escHtml(l2Key)}">`;
-          html += `<div class="tree-subgroup-header">`;
-          html += `<input type="checkbox" class="tree-subgroup-checkbox" ${l2AllChecked ? "checked" : ""} ${!l2AllChecked && l2SomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm con" />`;
-          html += `<span class="tree-subgroup-toggle" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">▼</span>`;
-          html += `<span class="tree-subgroup-name" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">${mlConfig.icon2} ${escHtml(l2Key)}</span>`;
-          html += `<span class="tree-subgroup-count" onclick="this.closest('.tree-subgroup').classList.toggle('collapsed')">${items.length}</span>`;
-          html += `</div>`;
-          html += `<div class="tree-subitems">`;
-          for (const obj of items) {
-            html += renderTreeItemHtml(obj, groupBy);
-          }
-          html += `</div></div>`;
-        }
-      } else {
-        // Single sub-group — render items directly (no sub-group header)
-        for (const l2Key of sortedL2Keys) {
-          for (const obj of subGroups[l2Key]) {
-            html += renderTreeItemHtml(obj, groupBy);
-          }
-        }
-      }
-
-      html += `</div></div>`;
     }
   } else {
     // ── Standard single-level grouping ──
@@ -3700,15 +3707,11 @@ function renderTree() {
       const allChecked = allGroupUids.every(uid => selectedIds.has(uid));
       const someChecked = allGroupUids.some(uid => selectedIds.has(uid));
 
-      // Add Assembly badge when grouping by assemblyName
-      const isAssemblyGroup = groupBy === "assemblyName";
-      const groupDisplayName = isAssemblyGroup ? `🏗️ ${escHtml(key)}` : escHtml(key);
-
       html += `<div class="tree-group" data-group="${escHtml(key)}">`;
       html += `<div class="tree-group-header">`;
       html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn nhóm" />`;
       html += `<span class="tree-toggle" onclick="this.closest('.tree-group').classList.toggle('collapsed')">▼</span>`;
-      html += `<span class="tree-group-name" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${groupDisplayName}</span>`;
+      html += `<span class="tree-group-name" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${escHtml(key)}</span>`;
       html += `<span class="tree-group-count" onclick="this.closest('.tree-group').classList.toggle('collapsed')">${items.length}</span>`;
       html += `</div>`;
       html += `<div class="tree-items">`;
