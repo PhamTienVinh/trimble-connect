@@ -17,6 +17,7 @@ let selectedIds = new Set(); // Set of "modelId:objectId"
 let assemblyMembershipMap = new Map(); // "modelId:objectId" -> "modelId:assemblyParentId"
 let assemblyChildrenMap = new Map(); // "modelId:assemblyParentId" -> Set([objectId1, objectId2, ...])
 let assemblyNodeInfoMap = new Map(); // "modelId:assemblyNodeId" -> { id, name, class, modelId }
+let savedAssemblyContainers = []; // Full IfcElementAssembly objects saved before removal (for display)
 let isolateActive = false;
 let searchTimeout = null;
 let lastClickedItem = null; // for Shift+click range selection
@@ -125,6 +126,9 @@ export function getSelectedIds() {
 export function getSelectedObjects() {
   if (selectedIds.size === 0) return [];
   return allObjects.filter((o) => selectedIds.has(`${o.modelId}:${o.id}`));
+}
+export function getSavedAssemblyContainers() {
+  return savedAssemblyContainers;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1162,30 +1166,30 @@ async function scanObjects() {
     // Re-assign assembly instances after propagation to update assemblyInstanceId
     assignAssemblyInstances();
 
-    // Step 3: Remove ALL IfcElementAssembly containers
+    // Step 3: Remove ALL IfcElementAssembly containers from allObjects
+    // BUT save full objects for assembly grouping display (container headers)
     const beforeAssemblyDedup = allObjects.length;
-    const removedAssemblyContainers = [];
+    savedAssemblyContainers = [];
     allObjects = allObjects.filter((obj) => {
       const cls = (obj.ifcClass || "").toLowerCase();
       if (cls === "ifcelementassembly" || cls.includes("elementassembly")) {
-        removedAssemblyContainers.push({
-          name: obj.name, ifcClass: obj.ifcClass,
-          weight: obj.weight, volume: obj.volume, area: obj.area,
-        });
+        // Save the FULL object (with all parsed properties) for display purposes
+        savedAssemblyContainers.push({ ...obj });
         return false; // REMOVE — container, not a real 3D object
       }
       return true;
     });
-    if (removedAssemblyContainers.length > 0) {
-      const totalRemovedWeight = removedAssemblyContainers.reduce((s, p) => s + (p.weight || 0), 0);
+    if (savedAssemblyContainers.length > 0) {
+      const totalRemovedWeight = savedAssemblyContainers.reduce((s, p) => s + (p.weight || 0), 0);
       console.log(
-        `[ObjectExplorer] ✓ Removed ${removedAssemblyContainers.length} IfcElementAssembly containers ` +
+        `[ObjectExplorer] ✓ Removed ${savedAssemblyContainers.length} IfcElementAssembly containers ` +
         `(${beforeAssemblyDedup} → ${allObjects.length} objects). ` +
+        `Saved full container objects for assembly grouping display. ` +
         `Removed aggregate weight: ${totalRemovedWeight.toFixed(2)}kg (was double-counted)`
       );
-      for (const p of removedAssemblyContainers.slice(0, 10)) {
+      for (const p of savedAssemblyContainers.slice(0, 10)) {
         console.log(
-          `  - "${p.name}" (${p.ifcClass}): W=${(p.weight||0).toFixed(2)}kg V=${(p.volume||0).toFixed(6)}m³`
+          `  - "${p.name}" (${p.ifcClass}): POS="${p.assemblyPos}" NAME="${p.assemblyName}" CODE="${p.assemblyPosCode}" W=${(p.weight||0).toFixed(2)}kg`
         );
       }
     }
@@ -3420,9 +3424,10 @@ function getAssemblyGroupIcon(groupBy) {
 //       Level 3: Children within each container (actual objects)
 //     ⚠️ Orphans (children not belonging to any IfcElementAssembly)
 //
-// APPROACH: Instead of pre-grouping containers by their own assembly value
-// (which may be empty), we follow children → container using assemblyMembershipMap.
-// This guarantees containers appear in the correct assembly value group.
+// Uses 3 strategies to find child→container mapping:
+//   Strategy 1: assemblyMembershipMap (from ElementAssembly hierarchy API)
+//   Strategy 2: hierarchyParentMap (from SpatialHierarchy API)
+//   Strategy 3: savedAssemblyContainers matched by assembly property values
 //
 // IMPORTANT: IfcElementAssembly containers are for listing/grouping ONLY.
 // Actual weight/volume/area totals always come from the children.
@@ -3431,12 +3436,104 @@ function buildAssemblyContainerGroupsForTree(objects, groupBy) {
   const fieldKey = getAssemblyFieldKeyForTree(groupBy);
   if (!fieldKey) return null;
 
-  // Result: assemblyValue → { name, containers: Map<containerKey, {info, children[]}>, orphans: [] }
+  // ── Build comprehensive child→container lookup ──
+  // Uses multiple strategies to maximize coverage
+  const childToContainerKey = new Map(); // objKey → containerKey
+  const containerInfoLookup = new Map(); // containerKey → { name, id, modelId, ... }
+
+  // Strategy 1: assemblyMembershipMap (from ElementAssembly hierarchy API)
+  for (const [childKey, containerKey] of assemblyMembershipMap) {
+    if (childKey === containerKey) continue; // skip self-references
+    childToContainerKey.set(childKey, containerKey);
+    // Get container info from assemblyNodeInfoMap
+    const nodeInfo = assemblyNodeInfoMap.get(containerKey);
+    if (nodeInfo && !containerInfoLookup.has(containerKey)) {
+      containerInfoLookup.set(containerKey, {
+        key: containerKey,
+        id: nodeInfo.id,
+        modelId: nodeInfo.modelId,
+        name: nodeInfo.name || `Container ${nodeInfo.id}`,
+        ifcClass: nodeInfo.class || "IfcElementAssembly",
+        assemblyPos: nodeInfo.assemblyPos || "",
+        assemblyName: nodeInfo.assemblyName || "",
+        assemblyPosCode: nodeInfo.assemblyPosCode || "",
+      });
+    }
+  }
+
+  // Strategy 2: hierarchyParentMap (from SpatialHierarchy API)
+  // For children not yet mapped, check if their spatial parent is an IfcElementAssembly
+  for (const obj of objects) {
+    const objKey = `${obj.modelId}:${obj.id}`;
+    if (childToContainerKey.has(objKey)) continue; // already mapped
+
+    const parentInfo = hierarchyParentMap.get(objKey);
+    if (parentInfo) {
+      const parentCls = (parentInfo.class || "").toLowerCase();
+      if (parentCls === "ifcelementassembly" || parentCls.includes("elementassembly")) {
+        const parentKey = `${parentInfo.modelId}:${parentInfo.id}`;
+        childToContainerKey.set(objKey, parentKey);
+        if (!containerInfoLookup.has(parentKey)) {
+          containerInfoLookup.set(parentKey, {
+            key: parentKey,
+            id: parentInfo.id,
+            modelId: parentInfo.modelId,
+            name: parentInfo.name || `Container ${parentInfo.id}`,
+            ifcClass: parentInfo.class || "IfcElementAssembly",
+            assemblyPos: "",
+            assemblyName: "",
+            assemblyPosCode: "",
+          });
+        }
+      }
+    }
+  }
+
+  // Strategy 3: savedAssemblyContainers matched by assembly property values
+  // Build container info from saved IfcElementAssembly objects (have full parsed properties)
+  for (const container of savedAssemblyContainers) {
+    const containerKey = `${container.modelId}:${container.id}`;
+    if (!containerInfoLookup.has(containerKey)) {
+      containerInfoLookup.set(containerKey, {
+        key: containerKey,
+        id: container.id,
+        modelId: container.modelId,
+        name: container.name || `Container ${container.id}`,
+        ifcClass: container.ifcClass || "IfcElementAssembly",
+        assemblyPos: container.assemblyPos || "",
+        assemblyName: container.assemblyName || "",
+        assemblyPosCode: container.assemblyPosCode || "",
+      });
+    } else {
+      // Enrich existing entry with saved object's parsed properties (more complete)
+      const existing = containerInfoLookup.get(containerKey);
+      if (!existing.assemblyPos && container.assemblyPos) existing.assemblyPos = container.assemblyPos;
+      if (!existing.assemblyName && container.assemblyName) existing.assemblyName = container.assemblyName;
+      if (!existing.assemblyPosCode && container.assemblyPosCode) existing.assemblyPosCode = container.assemblyPosCode;
+      if (existing.name === `Container ${existing.id}` && container.name) existing.name = container.name;
+    }
+
+    // For children still unmapped: match by assemblyChildrenMap
+    const childIds = assemblyChildrenMap.get(containerKey);
+    if (childIds) {
+      for (const childId of childIds) {
+        const childKey = `${container.modelId}:${childId}`;
+        if (!childToContainerKey.has(childKey)) {
+          childToContainerKey.set(childKey, containerKey);
+        }
+      }
+    }
+  }
+
+  console.log(
+    `[AssemblyGrouping] child→container mappings: ${childToContainerKey.size}, ` +
+    `container info entries: ${containerInfoLookup.size}, ` +
+    `saved containers: ${savedAssemblyContainers.length}`
+  );
+
+  // ── Build the grouped result ──
   const assemblyGroups = {};
 
-  // For each object, determine:
-  //   1. Its assembly value (name/pos/code)
-  //   2. Which IfcElementAssembly container it belongs to (if any)
   for (const obj of objects) {
     const assemblyValue = obj[fieldKey] || "(Không xác định)";
 
@@ -3451,38 +3548,21 @@ function buildAssemblyContainerGroupsForTree(objects, groupBy) {
 
     const group = assemblyGroups[assemblyValue];
     const objKey = `${obj.modelId}:${obj.id}`;
-
-    // Check if this object belongs to an IfcElementAssembly container
-    const containerKey = assemblyMembershipMap.get(objKey);
+    const containerKey = childToContainerKey.get(objKey);
 
     if (containerKey) {
-      // Look up container info from assemblyNodeInfoMap
-      const nodeInfo = assemblyNodeInfoMap.get(containerKey);
-
-      // Skip if the object IS the container itself (shouldn't be in allObjects, but safety check)
-      if (containerKey === objKey) {
-        group.orphans.push(obj);
-        continue;
-      }
-
+      // Create container entry if not yet in this group
       if (!group.containers.has(containerKey)) {
-        // Create container entry in this group
-        const containerName = nodeInfo ? (nodeInfo.name || `Container ${nodeInfo.id}`) : `Container`;
+        const info = containerInfoLookup.get(containerKey) || {
+          key: containerKey, id: 0, modelId: obj.modelId,
+          name: "Container", ifcClass: "IfcElementAssembly",
+          assemblyPos: "", assemblyName: "", assemblyPosCode: "",
+        };
         group.containers.set(containerKey, {
-          info: {
-            key: containerKey,
-            id: nodeInfo ? nodeInfo.id : 0,
-            modelId: nodeInfo ? nodeInfo.modelId : obj.modelId,
-            name: containerName,
-            ifcClass: nodeInfo ? nodeInfo.class : "IfcElementAssembly",
-            assemblyPos: nodeInfo ? nodeInfo.assemblyPos : "",
-            assemblyName: nodeInfo ? nodeInfo.assemblyName : "",
-            assemblyPosCode: nodeInfo ? nodeInfo.assemblyPosCode : "",
-          },
+          info: info,
           children: [],
         });
       }
-
       group.containers.get(containerKey).children.push(obj);
     } else {
       // Object doesn't belong to any IfcElementAssembly container

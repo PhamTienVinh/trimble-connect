@@ -4,6 +4,7 @@ import {
   getSelectedIds,
   getAssemblyContainers,
   getAssemblyChildren,
+  getSavedAssemblyContainers,
 } from "./objectExplorer.js";
 import { exportToExcel } from "./excelExport.js";
 
@@ -67,30 +68,53 @@ function getAssemblyFieldKey(groupBy) {
 //     Level 2: IfcElementAssembly containers
 //       Level 3: Children within each container
 //
-// APPROACH: Follow children → container using the objectExplorer's
-// getAssemblyContainers/getAssemblyChildren API. Containers are placed in
-// the group matching the CHILDREN's assembly value, not the container's own
-// value (which may be empty).
+// Uses getAssemblyContainers/getAssemblyChildren + savedAssemblyContainers
+// to build child→container mappings. Containers placed in the group matching
+// the CHILDREN's assembly value for accuracy.
 //
 // IMPORTANT: IfcElementAssembly containers are for listing/grouping ONLY.
 // Actual weight/volume/area totals always come from the children.
-// This prevents double-counting since IfcElementAssembly weight = SUM(children).
 // ══════════════════════════════════════════════════════════════════════════════
 function buildAssemblyGroupedData(enrichedObjects, groupBy) {
   const fieldKey = getAssemblyFieldKey(groupBy);
   if (!fieldKey) return null;
 
-  // Get all IfcElementAssembly containers
+  // Build child→container lookup from multiple sources
   const containers = getAssemblyContainers();
+  const savedContainers = getSavedAssemblyContainers();
 
-  // Build a quick lookup: objectKey → containerKey
   const objectToContainerKey = new Map();
-  const containerInfoMap = new Map(); // containerKey → container info
+  const containerInfoMap = new Map();
+
+  // Source 1: getAssemblyContainers + getAssemblyChildren
   for (const container of containers) {
     containerInfoMap.set(container.key, container);
     const childObjs = getAssemblyChildren(container.modelId, container.id);
     for (const child of childObjs) {
       objectToContainerKey.set(`${child.modelId}:${child.id}`, container.key);
+    }
+  }
+
+  // Source 2: savedAssemblyContainers (have full parsed properties)
+  for (const container of savedContainers) {
+    const containerKey = `${container.modelId}:${container.id}`;
+    if (!containerInfoMap.has(containerKey)) {
+      containerInfoMap.set(containerKey, {
+        key: containerKey,
+        id: container.id,
+        modelId: container.modelId,
+        name: container.name || `Container ${container.id}`,
+        ifcClass: container.ifcClass || "IfcElementAssembly",
+        assemblyPos: container.assemblyPos || "",
+        assemblyName: container.assemblyName || "",
+        assemblyPosCode: container.assemblyPosCode || "",
+      });
+    } else {
+      // Enrich with saved properties
+      const existing = containerInfoMap.get(containerKey);
+      if (!existing.assemblyPos && container.assemblyPos) existing.assemblyPos = container.assemblyPos;
+      if (!existing.assemblyName && container.assemblyName) existing.assemblyName = container.assemblyName;
+      if (!existing.assemblyPosCode && container.assemblyPosCode) existing.assemblyPosCode = container.assemblyPosCode;
     }
   }
 
@@ -100,7 +124,6 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
   for (const obj of enrichedObjects) {
     const assemblyValue = obj[fieldKey] || "(Không xác định)";
 
-    // Ensure the assembly group exists
     if (!assemblyGroups[assemblyValue]) {
       assemblyGroups[assemblyValue] = {
         name: assemblyValue,
@@ -118,7 +141,6 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
     const containerKey = objectToContainerKey.get(objKey);
 
     if (containerKey) {
-      // Object belongs to a container — place container in THIS group (child's assembly value)
       if (!group.containers.has(containerKey)) {
         const cInfo = containerInfoMap.get(containerKey) || { name: "Container", id: 0 };
         group.containers.set(containerKey, {
@@ -135,7 +157,6 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
       containerEntry.totalWeight += obj.weight;
       containerEntry.totalArea += obj.area;
     } else {
-      // Object doesn't belong to any IfcElementAssembly container
       group.orphans.push(obj);
     }
 
