@@ -2150,29 +2150,36 @@ async function fetchAssemblyContainerProperties() {
           // Parse ALL property sets from the container
           const propertySets = props.properties || [];
           for (const pSet of propertySets) {
+            const pSetName = pSet.name || "";
             const properties = pSet.properties || [];
             for (const prop of properties) {
               const rawPropName = prop.name || "";
               const propValue = String(prop.value || "").trim();
               if (!propValue) continue;
 
-              const asmClass = classifyAssemblyProperty(rawPropName);
+              // Try classification with propName alone first, then with pSet/propName
+              let asmClass = classifyAssemblyProperty(rawPropName);
+              if (!asmClass && pSetName) {
+                asmClass = classifyAssemblyProperty(`${pSetName}/${rawPropName}`);
+              }
               if (!asmClass) continue;
 
-              if (asmClass === "pos" && !entry.nodeInfo.assemblyPos) {
+              if ((asmClass === "pos" || asmClass === "mark") && !entry.nodeInfo.assemblyPos) {
                 entry.nodeInfo.assemblyPos = propValue;
                 withPos++;
                 foundAny = true;
-              } else if (asmClass === "mark" && !entry.nodeInfo.assemblyPos) {
-                // ASSEMBLY_MARK as fallback for assemblyPos
-                entry.nodeInfo.assemblyPos = propValue;
-                withPos++;
-                foundAny = true;
-              } else if (asmClass === "name" && !entry.nodeInfo.assemblyName) {
+              }
+              if (asmClass === "mark" && !entry.nodeInfo.assemblyName) {
                 entry.nodeInfo.assemblyName = propValue;
                 withName++;
                 foundAny = true;
-              } else if (asmClass === "code" && !entry.nodeInfo.assemblyPosCode) {
+              }
+              if (asmClass === "name" && !entry.nodeInfo.assemblyName) {
+                entry.nodeInfo.assemblyName = propValue;
+                withName++;
+                foundAny = true;
+              }
+              if (asmClass === "code" && !entry.nodeInfo.assemblyPosCode) {
                 entry.nodeInfo.assemblyPosCode = propValue;
                 withCode++;
                 foundAny = true;
@@ -3029,23 +3036,24 @@ function parseObjectProperties(props, modelId) {
         // Store raw properties for export
         result.rawProperties.push({ pset: pSet.name || "", name: rawPropName, value: asmVal });
 
-        // Classify the property
-        const asmClass = classifyAssemblyProperty(rawPropName);
+        // Classify the property — try propName alone first, then pSetName/propName
+        let asmClass = classifyAssemblyProperty(rawPropName);
+        if (!asmClass && pSet.name) {
+          asmClass = classifyAssemblyProperty(`${pSet.name}/${rawPropName}`);
+        }
 
         if (asmClass === "pos" && !result.assemblyPos) {
           result.assemblyPos = asmVal;
-          console.log(`[ASM] Object ${props.id}: assemblyPos = "${asmVal}" (from "${rawPropName}")`);
+          console.log(`[ASM] Object ${props.id}: assemblyPos = "${asmVal}" (from "${rawPropName}" in pSet "${pSet.name || ""}")`);
         } else if (asmClass === "mark") {
           // ASSEMBLY_MARK / cast unit mark → sets BOTH assemblyPos AND assemblyName
-          // Mark is the assembly's identifying number (e.g. "B1")
-          // It serves as assemblyPos fallback AND assemblyName if those are empty
           if (!result.assemblyPos) {
             result.assemblyPos = asmVal;
-            console.log(`[ASM] Object ${props.id}: assemblyPos(mark) = "${asmVal}" (from "${rawPropName}")`);
+            console.log(`[ASM] Object ${props.id}: assemblyPos(mark) = "${asmVal}" (from "${rawPropName}" in pSet "${pSet.name || ""}")`);
           }
           if (!result.assemblyName) {
             result.assemblyName = asmVal;
-            console.log(`[ASM] Object ${props.id}: assemblyName(mark) = "${asmVal}" (from "${rawPropName}")`);
+            console.log(`[ASM] Object ${props.id}: assemblyName(mark) = "${asmVal}" (from "${rawPropName}" in pSet "${pSet.name || ""}")`);
           }
         } else if (asmClass === "name" && !result.assemblyName) {
           result.assemblyName = asmVal;
