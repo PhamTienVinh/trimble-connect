@@ -292,7 +292,7 @@ function updateStatistics() {
 //     📦 IfcElementAssembly "container name" (sub-total from its children)
 //       ─ child 1
 //       ─ child 2
-//     ⚠️ Không thuộc Assembly (orphan children)
+//     Direct children (not in IfcElementAssembly)
 // ══════════════════════════════════════════════════════════════════════════════
 function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, totalArea, groupBy) {
   const tbody = document.getElementById("stats-table-body");
@@ -348,7 +348,7 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
       }
     }
 
-    // Render orphan children directly (no container header)
+    // Render direct children (not in IfcElementAssembly container)
     for (const child of group.orphans) {
       bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(group.name)}" data-container="direct">`;
       bodyHtml += `<td class="stats-child-name">─ ${escHtml(child.name || "(Không tên)")}</td>`;

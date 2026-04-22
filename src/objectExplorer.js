@@ -1311,6 +1311,7 @@ function classifyAssemblyProperty(rawPropName) {
   // "TeklaCommon/ASSEMBLY_POS" → "ASSEMBLY_POS"
   // "ASSEMBLY.ASSEMBLY_POS" → "ASSEMBLY_POS"
   // "Pset_TeklaCommon/ASSEMBLY.ASSEMBLY_POS" → "ASSEMBLY_POS"
+  // "ASSEMBLY_NAME.ASSEMBLY_POS" → "ASSEMBLY_POS" (compound names)
   let cleanName = rawPropName;
   
   // First strip path-like prefixes (slashes)
@@ -1325,10 +1326,26 @@ function classifyAssemblyProperty(rawPropName) {
     cleanName = cleanName.substring(9); // len("ASSEMBLY.") = 9
   }
   
-  // Strip other dot-prefixes (e.g. "Tekla.ASSEMBLY_POS")
+  // Handle compound dot-separated patterns like "ASSEMBLY_NAME.ASSEMBLY_POS"
+  // Take the last dot-segment if it looks like a known assembly property
   const lastDot = cleanName.lastIndexOf(".");
   if (lastDot > 0 && lastDot < cleanName.length - 1) {
-    cleanName = cleanName.substring(lastDot + 1);
+    const afterDot = cleanName.substring(lastDot + 1);
+    const afterDotNorm = afterDot.toLowerCase().replace(/[\s_\-]/g, "");
+    // Only strip the prefix if the suffix looks like a known assembly property
+    if (
+      afterDotNorm.startsWith("assembly") ||
+      afterDotNorm.startsWith("castunit") ||
+      afterDotNorm === "mainpartpos" ||
+      afterDotNorm === "mainpartposition" ||
+      afterDotNorm === "mainpartmark" ||
+      afterDotNorm === "positioncode" ||
+      afterDotNorm === "preliminarymark"
+    ) {
+      cleanName = afterDot;
+    } else {
+      cleanName = cleanName.substring(lastDot + 1);
+    }
   }
 
   // Normalize: lowercase, remove spaces, underscores, dots, hyphens
@@ -3430,7 +3447,7 @@ function getAssemblyGroupIcon(groupBy) {
 //   Level 1: Assembly value (name/pos/code)
 //     Level 2: IfcElementAssembly containers (📦) — listing only, no weight
 //       Level 3: Children within each container (actual objects)
-//     ⚠️ Orphans (children not belonging to any IfcElementAssembly)
+//     Direct children (not in any IfcElementAssembly container)
 //
 // Uses 3 strategies to find child→container mapping:
 //   Strategy 1: assemblyMembershipMap (from ElementAssembly hierarchy API)
@@ -3670,7 +3687,7 @@ function renderTree() {
     //   Level 1: Assembly value (name/pos/code)
     //     Level 2: IfcElementAssembly containers (📦) — grouping only
     //       Level 3: Children (actual objects)
-    //     ⚠️ Orphans (not in any container)
+    //     Direct children (not in IfcElementAssembly)
     // ══════════════════════════════════════════════════════════════════════════
     const assemblyGroups = buildAssemblyContainerGroupsForTree(filteredObjects, groupBy);
     const groupIcon = getAssemblyGroupIcon(groupBy);
@@ -3733,7 +3750,7 @@ function renderTree() {
         html += `</div></div>`; // close tree-subitems + tree-subgroup
       }
 
-      // Render orphan items directly (no subgroup wrapper)
+      // Render direct children (not in any IfcElementAssembly container)
       for (const obj of group.orphans) {
         html += renderTreeItemHtml(obj, groupBy);
       }
