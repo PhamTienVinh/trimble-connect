@@ -348,32 +348,15 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
       }
     }
 
-    // Orphan children (not belonging to any IfcElementAssembly)
-    if (group.orphans.length > 0) {
-      const orphanVol = group.orphans.reduce((s, o) => s + o.volume, 0);
-      const orphanWt = group.orphans.reduce((s, o) => s + o.weight, 0);
-      const orphanArea = group.orphans.reduce((s, o) => s + o.area, 0);
-
-      bodyHtml += `<tr class="stats-container-row stats-orphan-row" data-assembly-group="${escHtml(group.name)}" data-container="orphans">`;
-      bodyHtml += `<td class="stats-container-name">`;
-      bodyHtml += `<span class="stats-toggle-sm" onclick="this.closest('tr').classList.toggle('collapsed'); _toggleContainerChildren(this)">▼</span> `;
-      bodyHtml += `⚠️ <em>Không thuộc Assembly container</em>`;
-      bodyHtml += `</td>`;
-      bodyHtml += `<td>${formatNumber(group.orphans.length)}</td>`;
-      bodyHtml += `<td>${formatVolume(orphanVol)}</td>`;
-      bodyHtml += `<td>${formatArea(orphanArea)}</td>`;
-      bodyHtml += `<td>${formatWeight(orphanWt)}</td>`;
+    // Render orphan children directly (no container header)
+    for (const child of group.orphans) {
+      bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(group.name)}" data-container="direct">`;
+      bodyHtml += `<td class="stats-child-name">─ ${escHtml(child.name || "(Không tên)")}</td>`;
+      bodyHtml += `<td>1</td>`;
+      bodyHtml += `<td>${formatVolume(child.volume)}</td>`;
+      bodyHtml += `<td>${formatArea(child.area)}</td>`;
+      bodyHtml += `<td>${formatWeight(child.weight)}</td>`;
       bodyHtml += `</tr>`;
-
-      for (const child of group.orphans) {
-        bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(group.name)}" data-container="orphans">`;
-        bodyHtml += `<td class="stats-child-name">─ ${escHtml(child.name || "(Không tên)")}</td>`;
-        bodyHtml += `<td>1</td>`;
-        bodyHtml += `<td>${formatVolume(child.volume)}</td>`;
-        bodyHtml += `<td>${formatArea(child.area)}</td>`;
-        bodyHtml += `<td>${formatWeight(child.weight)}</td>`;
-        bodyHtml += `</tr>`;
-      }
     }
   }
 

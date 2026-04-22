@@ -3733,26 +3733,9 @@ function renderTree() {
         html += `</div></div>`; // close tree-subitems + tree-subgroup
       }
 
-      // Orphan children (not belonging to any IfcElementAssembly container)
-      if (group.orphans.length > 0) {
-        const orphanUids = group.orphans.map(o => `${o.modelId}:${o.id}`);
-        const orphanAllChecked = orphanUids.every(uid => selectedIds.has(uid));
-        const orphanSomeChecked = orphanUids.some(uid => selectedIds.has(uid));
-
-        html += `<div class="tree-subgroup tree-orphan-subgroup" data-subgroup="orphans">`;
-        html += `<div class="tree-subgroup-header">`;
-        html += `<input type="checkbox" class="tree-subgroup-checkbox" ${orphanAllChecked ? "checked" : ""} ${!orphanAllChecked && orphanSomeChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn" />`;
-        html += `<span class="tree-subgroup-toggle" onclick="_cascadeToggle(this,'tree-subgroup')">▼</span>`;
-        html += `<span class="tree-subgroup-name" onclick="_cascadeToggle(this,'tree-subgroup')">⚠️ Không thuộc Assembly container</span>`;
-        html += `<span class="tree-subgroup-count" onclick="_cascadeToggle(this,'tree-subgroup')">${group.orphans.length}</span>`;
-        html += `</div>`;
-        html += `<div class="tree-subitems">`;
-
-        for (const obj of group.orphans) {
-          html += renderTreeItemHtml(obj, groupBy);
-        }
-
-        html += `</div></div>`; // close tree-subitems + tree-subgroup
+      // Render orphan items directly (no subgroup wrapper)
+      for (const obj of group.orphans) {
+        html += renderTreeItemHtml(obj, groupBy);
       }
 
       html += `</div></div>`; // close tree-items + tree-group
