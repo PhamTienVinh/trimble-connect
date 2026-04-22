@@ -1,16 +1,3 @@
-/**
- * steelStatistics.js — Volume, Weight & Area Statistics with Grouping
- *
- * Computes per-object and grouped statistics for steel and all objects.
- * Integrates with objectExplorer for data and with excelExport for export.
- *
- * Assembly grouping (assemblyName, assemblyPos, assemblyPosCode) uses
- * a 3-level hierarchy:
- *   Level 1: Assembly value (e.g. assembly name)
- *   Level 2: IfcElementAssembly containers (grouping only — no weight)
- *   Level 3: Children within each container (actual quantities)
- */
-
 import {
   getAllObjects,
   getSelectedObjects,
@@ -80,6 +67,11 @@ function getAssemblyFieldKey(groupBy) {
 //     Level 2: IfcElementAssembly containers
 //       Level 3: Children within each container
 //
+// APPROACH: Follow children → container using the objectExplorer's
+// getAssemblyContainers/getAssemblyChildren API. Containers are placed in
+// the group matching the CHILDREN's assembly value, not the container's own
+// value (which may be empty).
+//
 // IMPORTANT: IfcElementAssembly containers are for listing/grouping ONLY.
 // Actual weight/volume/area totals always come from the children.
 // This prevents double-counting since IfcElementAssembly weight = SUM(children).
@@ -88,46 +80,22 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
   const fieldKey = getAssemblyFieldKey(groupBy);
   if (!fieldKey) return null;
 
-  // Get all IfcElementAssembly containers from objectExplorer
+  // Get all IfcElementAssembly containers
   const containers = getAssemblyContainers();
 
-  // Build a map: assemblyValue → { containers: Map<containerKey, {info, children[]}>, orphans: [] }
-  const assemblyGroups = {};
-
-  // Step 1: Group containers by their assembly value
-  for (const container of containers) {
-    const assemblyValue = container[fieldKey] || "(Không xác định)";
-    if (!assemblyGroups[assemblyValue]) {
-      assemblyGroups[assemblyValue] = {
-        name: assemblyValue,
-        containers: new Map(),
-        orphans: [], // children not belonging to any container
-        totalCount: 0,
-        totalVolume: 0,
-        totalWeight: 0,
-        totalArea: 0,
-      };
-    }
-
-    // Add container entry (will be populated with children later)
-    assemblyGroups[assemblyValue].containers.set(container.key, {
-      info: container,
-      children: [],
-      totalVolume: 0,
-      totalWeight: 0,
-      totalArea: 0,
-    });
-  }
-
-  // Step 2: Assign each enriched object to its container within the correct assembly group
-  // Build a quick lookup: objectId → container key
+  // Build a quick lookup: objectKey → containerKey
   const objectToContainerKey = new Map();
+  const containerInfoMap = new Map(); // containerKey → container info
   for (const container of containers) {
+    containerInfoMap.set(container.key, container);
     const childObjs = getAssemblyChildren(container.modelId, container.id);
     for (const child of childObjs) {
       objectToContainerKey.set(`${child.modelId}:${child.id}`, container.key);
     }
   }
+
+  // Result: assemblyValue → { name, containers: Map, orphans: [], totals }
+  const assemblyGroups = {};
 
   for (const obj of enrichedObjects) {
     const assemblyValue = obj[fieldKey] || "(Không xác định)";
@@ -149,35 +117,23 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
     const objKey = `${obj.modelId}:${obj.id}`;
     const containerKey = objectToContainerKey.get(objKey);
 
-    if (containerKey && group.containers.has(containerKey)) {
-      // Object belongs to a container within this assembly group
-      const containerEntry = group.containers.get(containerKey);
-      containerEntry.children.push(obj);
-      containerEntry.totalVolume += obj.volume;
-      containerEntry.totalWeight += obj.weight;
-      containerEntry.totalArea += obj.area;
-    } else if (containerKey) {
-      // Object belongs to a container, but the container's assembly value differs
-      // from the object's own value. Find or create the container in this group.
-      const containerInfo = containers.find(c => c.key === containerKey);
-      if (containerInfo && !group.containers.has(containerKey)) {
+    if (containerKey) {
+      // Object belongs to a container — place container in THIS group (child's assembly value)
+      if (!group.containers.has(containerKey)) {
+        const cInfo = containerInfoMap.get(containerKey) || { name: "Container", id: 0 };
         group.containers.set(containerKey, {
-          info: containerInfo,
+          info: cInfo,
           children: [],
           totalVolume: 0,
           totalWeight: 0,
           totalArea: 0,
         });
       }
-      if (group.containers.has(containerKey)) {
-        const containerEntry = group.containers.get(containerKey);
-        containerEntry.children.push(obj);
-        containerEntry.totalVolume += obj.volume;
-        containerEntry.totalWeight += obj.weight;
-        containerEntry.totalArea += obj.area;
-      } else {
-        group.orphans.push(obj);
-      }
+      const containerEntry = group.containers.get(containerKey);
+      containerEntry.children.push(obj);
+      containerEntry.totalVolume += obj.volume;
+      containerEntry.totalWeight += obj.weight;
+      containerEntry.totalArea += obj.area;
     } else {
       // Object doesn't belong to any IfcElementAssembly container
       group.orphans.push(obj);
@@ -188,15 +144,6 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
     group.totalVolume += obj.volume;
     group.totalWeight += obj.weight;
     group.totalArea += obj.area;
-  }
-
-  // Step 3: Remove empty containers (no children matched)
-  for (const group of Object.values(assemblyGroups)) {
-    for (const [key, entry] of group.containers) {
-      if (entry.children.length === 0) {
-        group.containers.delete(key);
-      }
-    }
   }
 
   return assemblyGroups;

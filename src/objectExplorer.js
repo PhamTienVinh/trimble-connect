@@ -3416,52 +3416,27 @@ function getAssemblyGroupIcon(groupBy) {
 // ── Build assembly container groups for Object Tree ──
 // Structure:
 //   Level 1: Assembly value (name/pos/code)
-//     Level 2: IfcElementAssembly containers (listing only — no weight contribution)
+//     Level 2: IfcElementAssembly containers (📦) — listing only, no weight
 //       Level 3: Children within each container (actual objects)
 //     ⚠️ Orphans (children not belonging to any IfcElementAssembly)
 //
+// APPROACH: Instead of pre-grouping containers by their own assembly value
+// (which may be empty), we follow children → container using assemblyMembershipMap.
+// This guarantees containers appear in the correct assembly value group.
+//
 // IMPORTANT: IfcElementAssembly containers are for listing/grouping ONLY.
 // Actual weight/volume/area totals always come from the children.
-// This prevents double-counting since IfcElementAssembly weight = SUM(children).
 // ══════════════════════════════════════════════════════════════════════════════
 function buildAssemblyContainerGroupsForTree(objects, groupBy) {
   const fieldKey = getAssemblyFieldKeyForTree(groupBy);
   if (!fieldKey) return null;
 
-  // Get all IfcElementAssembly containers from objectExplorer maps
-  const containers = getAssemblyContainers();
-
-  // Build a map: assemblyValue → { containers: Map<containerKey, {info, children[]}>, orphans: [] }
+  // Result: assemblyValue → { name, containers: Map<containerKey, {info, children[]}>, orphans: [] }
   const assemblyGroups = {};
 
-  // Step 1: Group containers by their assembly value
-  for (const container of containers) {
-    const assemblyValue = container[fieldKey] || "(Không xác định)";
-    if (!assemblyGroups[assemblyValue]) {
-      assemblyGroups[assemblyValue] = {
-        name: assemblyValue,
-        containers: new Map(),
-        orphans: [],
-      };
-    }
-
-    // Add container entry (will be populated with children later)
-    assemblyGroups[assemblyValue].containers.set(container.key, {
-      info: container,
-      children: [],
-    });
-  }
-
-  // Step 2: Build a quick lookup: objectKey → container key
-  const objectToContainerKey = new Map();
-  for (const container of containers) {
-    const childObjs = getAssemblyChildren(container.modelId, container.id);
-    for (const child of childObjs) {
-      objectToContainerKey.set(`${child.modelId}:${child.id}`, container.key);
-    }
-  }
-
-  // Step 3: Assign each object to its container within the correct assembly group
+  // For each object, determine:
+  //   1. Its assembly value (name/pos/code)
+  //   2. Which IfcElementAssembly container it belongs to (if any)
   for (const obj of objects) {
     const assemblyValue = obj[fieldKey] || "(Không xác định)";
 
@@ -3476,38 +3451,42 @@ function buildAssemblyContainerGroupsForTree(objects, groupBy) {
 
     const group = assemblyGroups[assemblyValue];
     const objKey = `${obj.modelId}:${obj.id}`;
-    const containerKey = objectToContainerKey.get(objKey);
 
-    if (containerKey && group.containers.has(containerKey)) {
-      // Object belongs to a container within this assembly group
-      group.containers.get(containerKey).children.push(obj);
-    } else if (containerKey) {
-      // Object belongs to a container, but the container's assembly value differs
-      // from the object's own value. Find or create the container in this group.
-      const containerInfo = containers.find(c => c.key === containerKey);
-      if (containerInfo && !group.containers.has(containerKey)) {
+    // Check if this object belongs to an IfcElementAssembly container
+    const containerKey = assemblyMembershipMap.get(objKey);
+
+    if (containerKey) {
+      // Look up container info from assemblyNodeInfoMap
+      const nodeInfo = assemblyNodeInfoMap.get(containerKey);
+
+      // Skip if the object IS the container itself (shouldn't be in allObjects, but safety check)
+      if (containerKey === objKey) {
+        group.orphans.push(obj);
+        continue;
+      }
+
+      if (!group.containers.has(containerKey)) {
+        // Create container entry in this group
+        const containerName = nodeInfo ? (nodeInfo.name || `Container ${nodeInfo.id}`) : `Container`;
         group.containers.set(containerKey, {
-          info: containerInfo,
+          info: {
+            key: containerKey,
+            id: nodeInfo ? nodeInfo.id : 0,
+            modelId: nodeInfo ? nodeInfo.modelId : obj.modelId,
+            name: containerName,
+            ifcClass: nodeInfo ? nodeInfo.class : "IfcElementAssembly",
+            assemblyPos: nodeInfo ? nodeInfo.assemblyPos : "",
+            assemblyName: nodeInfo ? nodeInfo.assemblyName : "",
+            assemblyPosCode: nodeInfo ? nodeInfo.assemblyPosCode : "",
+          },
           children: [],
         });
       }
-      if (group.containers.has(containerKey)) {
-        group.containers.get(containerKey).children.push(obj);
-      } else {
-        group.orphans.push(obj);
-      }
+
+      group.containers.get(containerKey).children.push(obj);
     } else {
       // Object doesn't belong to any IfcElementAssembly container
       group.orphans.push(obj);
-    }
-  }
-
-  // Step 4: Remove empty containers (no children matched)
-  for (const group of Object.values(assemblyGroups)) {
-    for (const [key, entry] of group.containers) {
-      if (entry.children.length === 0) {
-        group.containers.delete(key);
-      }
     }
   }
 
