@@ -33,15 +33,7 @@ let lastViewerSelectionKey = ""; // dedup key for polling
 let selectionFromPanel = false; // true when selection originates from panel click
 let shouldScrollToTop = false; // flag to scroll to top after renderTree()
 
-// ── Undo / Redo — full viewer state history ──
-// Each snapshot: { selectedIds: [...], isolateActive: bool, hiddenIds: [...], label: string }
-let undoStack = [];           // Array of full state snapshots (before-action)
-let redoStack = [];           // Array of full state snapshots
-let isUndoRedoAction = false; // flag to prevent pushing during undo/redo
-let hiddenIds = new Set();    // Set of "modelId:objectId" currently hidden
-const MAX_UNDO_HISTORY = 50;  // limit stack depth
-let _pendingSnapshotTimer = null;  // debounce timer for selection-driven snapshots
-let _lastPushedStateKey = "";      // dedup key: avoids pushing identical states
+
 
 // ── Init ──
 export function initObjectExplorer(api, viewer) {
@@ -109,42 +101,7 @@ export function initObjectExplorer(api, viewer) {
     refreshBtn.addEventListener("click", scanObjects);
   }
   
-  const undoBtn = document.getElementById("btn-undo");
-  if (undoBtn) {
-    undoBtn.addEventListener("click", undoAction);
-  }
-  
-  const redoBtn = document.getElementById("btn-redo");
-  if (redoBtn) {
-    redoBtn.addEventListener("click", redoAction);
-  }
-  
-  // Keyboard shortcuts: Ctrl+Z = Undo, Ctrl+Y / Ctrl+Shift+Z = Redo
-  document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
-      e.preventDefault();
-      undoAction();
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
-      e.preventDefault();
-      redoAction();
-    }
-  });
-  
-  // Hide / Show All / Zoom buttons
-  const hideBtn = document.getElementById("btn-hide");
-  if (hideBtn) {
-    hideBtn.addEventListener("click", hideSelected);
-  }
-  
-  const showAllBtn = document.getElementById("btn-show-all");
-  if (showAllBtn) {
-    showAllBtn.addEventListener("click", showAll);
-  }
-  
-  const zoomBtn = document.getElementById("btn-zoom");
-  if (zoomBtn) {
-    zoomBtn.addEventListener("click", zoomToSelection);
-  }
+
   
   const collapseBtn = document.getElementById("btn-collapse-all");
   if (collapseBtn) {
@@ -4247,7 +4204,7 @@ function renderTree() {
     groupCb.addEventListener("click", (e) => {
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
-      pushStateHistory(); // Record pre-change state for undo
+
       const doSelect = groupCb.checked;
 
       if (e.shiftKey && lastClickedGroupEl !== null) {
@@ -4331,7 +4288,7 @@ function renderTree() {
       e.stopPropagation(); // prevent toggle of parent
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
-      pushStateHistory(); // Record pre-change state for undo
+
       const doSelect = subCb.checked;
 
       if (e.shiftKey && lastClickedSubgroupEl !== null) {
@@ -4413,7 +4370,7 @@ function renderTree() {
       e.stopPropagation(); // prevent toggle of parent
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
-      pushStateHistory(); // Record pre-change state for undo
+
       const doSelect = sub2Cb.checked;
 
       if (e.shiftKey && lastClickedSub2groupEl !== null) {
@@ -4492,7 +4449,7 @@ function renderTree() {
     el.addEventListener("click", (e) => {
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
-      pushStateHistory(); // Record pre-change state for undo
+
       const isCheckboxClick = e.target.classList.contains("tree-item-checkbox");
 
       // ── Shift+click range selection ──
@@ -4642,256 +4599,9 @@ function toggleSelection(uid, el) {
   if (treeContainer) treeContainer.scrollTop = savedScroll;
 }
 
-// ══════════════════════════════════════════════════════════════════════
-// ── Full-State Undo / Redo System (Debounced Command Pattern) ──
-// Captures: selection, isolation, and hidden objects for every distinct
-// user action. Selection changes are DEBOUNCED (300ms) so Shift+click
-// ranges produce only ONE undo entry. Explicit actions (Isolate, Reset,
-// Hide, Show All) push immediately with descriptive labels.
-// ══════════════════════════════════════════════════════════════════════
 
-// Build a dedup key from current state
-function _buildStateKey() {
-  const selKey = Array.from(selectedIds).sort().join(",");
-  const hideKey = Array.from(hiddenIds).sort().join(",");
-  return `sel=${selKey}|iso=${isolateActive}|hide=${hideKey}`;
-}
 
-// Check if snapshot is identical to top of undo stack
-function _isDuplicateOfTop(snapshot) {
-  if (undoStack.length === 0) return false;
-  const top = undoStack[undoStack.length - 1];
-  return (
-    top.isolateActive === snapshot.isolateActive &&
-    top.selectedIds.length === snapshot.selectedIds.length &&
-    top.hiddenIds.length === snapshot.hiddenIds.length &&
-    top.selectedIds.every((id, i) => id === snapshot.selectedIds[i]) &&
-    top.hiddenIds.every((id, i) => id === snapshot.hiddenIds[i])
-  );
-}
 
-// Capture a full snapshot of current viewer state
-function captureStateSnapshot(label) {
-  return {
-    selectedIds: Array.from(selectedIds),
-    isolateActive: isolateActive,
-    hiddenIds: Array.from(hiddenIds),
-    label: label || "action",
-    timestamp: Date.now(),
-  };
-}
-
-// ── IMMEDIATE push (for explicit actions: Isolate, Reset, Hide, Show All) ──
-function pushUndoImmediate(label) {
-  if (isUndoRedoAction) return;
-  // Cancel any pending debounced push first
-  if (_pendingSnapshotTimer) {
-    clearTimeout(_pendingSnapshotTimer);
-    _pendingSnapshotTimer = null;
-  }
-  const snapshot = captureStateSnapshot(label);
-  if (_isDuplicateOfTop(snapshot)) return;
-  undoStack.push(snapshot);
-  if (undoStack.length > MAX_UNDO_HISTORY) undoStack.shift();
-  redoStack.length = 0;
-  _lastPushedStateKey = _buildStateKey();
-  updateUndoRedoButtons();
-}
-
-// ── DEBOUNCED push (for selection changes — coalesces rapid clicks) ──
-function pushUndoDebounced(label) {
-  if (isUndoRedoAction) return;
-  const currentKey = _buildStateKey();
-  if (currentKey === _lastPushedStateKey) return; // no change
-  if (_pendingSnapshotTimer) clearTimeout(_pendingSnapshotTimer);
-  _pendingSnapshotTimer = setTimeout(() => {
-    _pendingSnapshotTimer = null;
-    const snapshot = captureStateSnapshot(label || "selection");
-    if (_isDuplicateOfTop(snapshot)) return;
-    undoStack.push(snapshot);
-    if (undoStack.length > MAX_UNDO_HISTORY) undoStack.shift();
-    redoStack.length = 0;
-    _lastPushedStateKey = _buildStateKey();
-    updateUndoRedoButtons();
-  }, 300);
-}
-
-// Legacy compatibility — called from selection-change sites
-function pushStateHistory() {
-  if (isUndoRedoAction) return;
-  pushUndoDebounced("selection");
-}
-
-// Build a modelMap from a list of "modelId:objectId" strings
-function buildModelMapFromUids(uids) {
-  const modelMap = {};
-  for (const uid of uids) {
-    const idx = uid.indexOf(":");
-    const modelId = uid.substring(0, idx);
-    const objectId = parseInt(uid.substring(idx + 1));
-    if (!modelMap[modelId]) modelMap[modelId] = [];
-    if (!isNaN(objectId)) modelMap[modelId].push(objectId);
-  }
-  return modelMap;
-}
-
-// Restore a full state snapshot to the viewer
-async function restoreStateSnapshot(snapshot) {
-  // 1. Restore selection
-  selectedIds.clear();
-  for (const uid of snapshot.selectedIds) {
-    selectedIds.add(uid);
-  }
-
-  // Update tree UI checkboxes
-  document.querySelectorAll(".tree-item").forEach((el) => {
-    const uid = el.dataset.uid;
-    const isSelected = selectedIds.has(uid);
-    el.classList.toggle("selected", isSelected);
-    const cb = el.querySelector(".tree-item-checkbox");
-    if (cb) cb.checked = isSelected;
-  });
-  updateGroupCheckboxStates();
-  updateSummary();
-  applyHighlightColors();
-  syncSelectionToViewer();
-
-  // 2. Restore visibility state (hidden objects)
-  try {
-    // First, reset all visibility
-    await viewerRef.setObjectState(undefined, { visible: "reset" });
-    await viewerRef.setObjectState(undefined, { color: "reset" });
-  } catch (e) {
-    console.warn("[UndoRedo] Reset visibility failed:", e);
-  }
-
-  // 3. Restore isolate state
-  const isolateBtn = document.getElementById("btn-isolate");
-  if (snapshot.isolateActive) {
-    // Re-apply isolate with the snapshot's selected objects
-    if (snapshot.selectedIds.length > 0) {
-      const modelMap = buildModelMapFromUids(snapshot.selectedIds);
-      try {
-        await viewerRef.isolateEntities(
-          Object.entries(modelMap).map(([modelId, ids]) => ({
-            modelId,
-            entityIds: ids,
-          })),
-        );
-        isolateActive = true;
-        if (isolateBtn) isolateBtn.classList.add("active");
-      } catch (e) {
-        console.warn("[UndoRedo] Isolate restore failed:", e);
-      }
-    }
-  } else {
-    isolateActive = false;
-    if (isolateBtn) isolateBtn.classList.remove("active");
-
-    // 4. Re-apply hidden objects (only when not isolating)
-    hiddenIds.clear();
-    if (snapshot.hiddenIds && snapshot.hiddenIds.length > 0) {
-      for (const uid of snapshot.hiddenIds) {
-        hiddenIds.add(uid);
-      }
-      const hideModelMap = buildModelMapFromUids(snapshot.hiddenIds);
-      try {
-        await viewerRef.setObjectState(
-          {
-            modelObjectIds: Object.entries(hideModelMap).map(([modelId, ids]) => ({
-              modelId,
-              objectRuntimeIds: ids,
-            })),
-          },
-          { visible: false },
-        );
-      } catch (e) {
-        console.warn("[UndoRedo] Hide restore failed:", e);
-      }
-    }
-  }
-
-  // Update dedup key to restored state
-  _lastPushedStateKey = _buildStateKey();
-
-  // Notify statistics module (without triggering another push)
-  window.dispatchEvent(
-    new CustomEvent("selection-changed", {
-      detail: { selectedIds: Array.from(selectedIds), count: selectedIds.size },
-    }),
-  );
-}
-
-async function undoAction() {
-  if (undoStack.length === 0) return;
-  // Cancel any pending debounced push
-  if (_pendingSnapshotTimer) {
-    clearTimeout(_pendingSnapshotTimer);
-    _pendingSnapshotTimer = null;
-  }
-  // Save current state to redo stack
-  const currentSnapshot = captureStateSnapshot("redo-point");
-  redoStack.push(currentSnapshot);
-  // Pop previous state from undo stack
-  const prevSnapshot = undoStack.pop();
-  isUndoRedoAction = true;
-  await restoreStateSnapshot(prevSnapshot);
-  isUndoRedoAction = false;
-  updateUndoRedoButtons();
-  console.log(
-    `[UndoRedo] ⟲ Undo "${prevSnapshot.label}" → ` +
-    `${prevSnapshot.selectedIds.length} selected` +
-    ` | isolate=${prevSnapshot.isolateActive}` +
-    ` | hidden=${prevSnapshot.hiddenIds.length}`
-  );
-}
-
-async function redoAction() {
-  if (redoStack.length === 0) return;
-  // Cancel any pending debounced push
-  if (_pendingSnapshotTimer) {
-    clearTimeout(_pendingSnapshotTimer);
-    _pendingSnapshotTimer = null;
-  }
-  // Save current state to undo stack
-  const currentSnapshot = captureStateSnapshot("undo-point");
-  undoStack.push(currentSnapshot);
-  // Pop next state from redo stack
-  const nextSnapshot = redoStack.pop();
-  isUndoRedoAction = true;
-  await restoreStateSnapshot(nextSnapshot);
-  isUndoRedoAction = false;
-  updateUndoRedoButtons();
-  console.log(
-    `[UndoRedo] ⟳ Redo "${nextSnapshot.label}" → ` +
-    `${nextSnapshot.selectedIds.length} selected` +
-    ` | isolate=${nextSnapshot.isolateActive}` +
-    ` | hidden=${nextSnapshot.hiddenIds.length}`
-  );
-}
-
-function updateUndoRedoButtons() {
-  const undoBtn = document.getElementById("btn-undo");
-  const redoBtn = document.getElementById("btn-redo");
-  if (undoBtn) {
-    undoBtn.disabled = undoStack.length === 0;
-    if (undoStack.length > 0) {
-      const last = undoStack[undoStack.length - 1];
-      undoBtn.title = `Hoàn tác: ${last.label} (Ctrl+Z)`;
-    } else {
-      undoBtn.title = "Không có gì để hoàn tác (Ctrl+Z)";
-    }
-  }
-  if (redoBtn) {
-    redoBtn.disabled = redoStack.length === 0;
-    if (redoStack.length > 0) {
-      const next = redoStack[redoStack.length - 1];
-      redoBtn.title = `Làm lại: ${next.label} (Ctrl+Y)`;
-    } else {
-      redoBtn.title = "Không có gì để làm lại (Ctrl+Y)";
-    }
-  }
-}
 
 
 function updateTreeAndNotify() {
@@ -5007,103 +4717,11 @@ async function syncSelectionToViewer() {
   }
 }
 
-// ── Hide Selected Objects ──
-async function hideSelected() {
-  if (selectedIds.size === 0) return;
-  // Record state before hide action for undo
-  pushUndoImmediate("hide");
 
-  const modelMap = buildModelMap();
-  try {
-    await viewerRef.setObjectState(
-      {
-        modelObjectIds: Object.entries(modelMap).map(([modelId, ids]) => ({
-          modelId,
-          objectRuntimeIds: ids,
-        })),
-      },
-      { visible: false },
-    );
-    // Track hidden objects
-    for (const uid of selectedIds) {
-      hiddenIds.add(uid);
-    }
-    console.log(`[ObjectExplorer] Hidden ${selectedIds.size} objects`);
-  } catch (e) {
-    console.error("[ObjectExplorer] Hide failed:", e);
-  }
-}
 
-// ── Show All Objects ──
-async function showAll() {
-  if (hiddenIds.size === 0 && !isolateActive) return;
-  // Record state before show action for undo
-  pushUndoImmediate("show-all");
-  try {
-    await viewerRef.setObjectState(undefined, { visible: "reset" });
-    await viewerRef.setObjectState(undefined, { color: "reset" });
-    hiddenIds.clear();
-    isolateActive = false;
-    const isolateBtn = document.getElementById("btn-isolate");
-    if (isolateBtn) isolateBtn.classList.remove("active");
-    console.log("[ObjectExplorer] Show all — visibility reset");
-  } catch (e) {
-    console.error("[ObjectExplorer] Show all failed:", e);
-  }
-}
-
-// ── Zoom to Selection ──
-async function zoomToSelection() {
-  if (selectedIds.size === 0) return;
-  const modelMap = buildModelMap();
-  try {
-    // Use isolateEntities briefly then un-isolate to zoom
-    // Or use fitToView via the viewer API
-    const entities = Object.entries(modelMap).map(([modelId, ids]) => ({
-      modelId,
-      entityIds: ids,
-    }));
-    // If currently isolating, just zoom within isolated view
-    // Use isolateEntities as a zoom mechanism (it focuses the camera)
-    if (!isolateActive) {
-      // Temporarily isolate to zoom, then restore visibility
-      await viewerRef.isolateEntities(entities);
-      // Wait for camera to settle, then restore visibility
-      setTimeout(async () => {
-        try {
-          await viewerRef.setObjectState(undefined, { visible: "reset" });
-          await viewerRef.setObjectState(undefined, { color: "reset" });
-          // Re-apply hidden objects
-          if (hiddenIds.size > 0) {
-            const hideModelMap = buildModelMapFromUids(Array.from(hiddenIds));
-            await viewerRef.setObjectState(
-              {
-                modelObjectIds: Object.entries(hideModelMap).map(([modelId, ids]) => ({
-                  modelId,
-                  objectRuntimeIds: ids,
-                })),
-              },
-              { visible: false },
-            );
-          }
-        } catch (e) {
-          console.warn("[ObjectExplorer] Zoom restore failed:", e);
-        }
-      }, 500);
-    } else {
-      // Already isolated, just re-isolate with selected entities to zoom
-      await viewerRef.isolateEntities(entities);
-    }
-    console.log(`[ObjectExplorer] Zoomed to ${selectedIds.size} objects`);
-  } catch (e) {
-    console.error("[ObjectExplorer] Zoom failed:", e);
-  }
-}
 
 // ── Isolate ──
 async function toggleIsolate() {
-  // Record state BEFORE isolate action for undo (immediate)
-  pushUndoImmediate(isolateActive ? "un-isolate" : "isolate");
   const btn = document.getElementById("btn-isolate");
 
   if (isolateActive) {
@@ -5414,12 +5032,7 @@ function handleViewerSelectionChanged(data) {
       }
     }
 
-    // Step 6: Record state before change for undo (viewer → panel sync)
-    if (!isUndoRedoAction) {
-      pushStateHistory();
-    }
-
-    // Step 6b: Apply selection to panel
+    // Step 6: Apply selection to panel
     selectedIds.clear();
     for (const uid of matchedUids) {
       selectedIds.add(uid);
@@ -5531,10 +5144,7 @@ function createLabelSvgDataUrl(text) {
 
 // ── Reset ──
 async function resetAll() {
-  // Record state before reset for undo
-  pushUndoImmediate("reset");
   selectedIds.clear();
-  hiddenIds.clear();
   isolateActive = false;
   lastClickedItem = null;
   lastClickedGroupEl = null;
@@ -5670,9 +5280,7 @@ function escXml(str) {
 
 // ── Notify statistics module of selection change ──
 function notifySelectionChanged() {
-  // Note: pushStateHistory is called at the action site (before state change),
-  // NOT here, to avoid duplicate pushes and ensure correct pre-action snapshot.
-  
+
   window.dispatchEvent(
     new CustomEvent("selection-changed", {
       detail: { selectedIds: Array.from(selectedIds), count: selectedIds.size },
