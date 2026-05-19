@@ -285,56 +285,6 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     }
   }
 
-  // ── Last Sheet: Raw Properties (debug) ──
-  // Shows ALL raw properties for each object so user can identify exact ASSEMBLY_POS property name
-  try {
-    const rawRows = [
-      ["RAW PROPERTIES - TẤT CẢ THUỘC TÍNH IFC"],
-      ["Dùng sheet này để kiểm tra tên chính xác của ASSEMBLY_POS trong file IFC"],
-      [],
-      ["Object ID", "Object Name", "IFC Class", "Property Set", "Property Name", "Property Value"],
-    ];
-
-    for (const obj of data) {
-      const rawProps = obj.rawProperties || [];
-      if (rawProps.length === 0) continue;
-
-      // Add a separator row with object info
-      rawRows.push([]);
-      rawRows.push([`── Object: ${obj.name || obj.id} ──`, "", obj.ifcClass || "", "", "", ""]);
-
-      for (const rp of rawProps) {
-        rawRows.push([
-          obj.id,
-          obj.name || "",
-          obj.ifcClass || "",
-          rp.pset,
-          rp.name,
-          rp.value,
-        ]);
-      }
-    }
-
-    const wsRaw = XLSX.utils.aoa_to_sheet(rawRows);
-    wsRaw["!cols"] = [
-      { wch: 12 }, { wch: 25 }, { wch: 22 }, { wch: 25 }, { wch: 30 }, { wch: 30 },
-    ];
-    wsRaw["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
-    // Apply red pastel styling
-    styleRow(wsRaw, 0, 6, S.title);
-    styleRow(wsRaw, 1, 6, S.info);
-    styleRow(wsRaw, 3, 6, S.header);
-    // Style object separator rows
-    for (let i = 4; i < rawRows.length; i++) {
-      const row = rawRows[i];
-      if (!row || row.length === 0) continue;
-      const v0 = String(row[0] || "");
-      if (v0.startsWith("──")) styleRow(wsRaw, i, 6, S.grp1);
-    }
-    XLSX.utils.book_append_sheet(wb, wsRaw, "Raw Properties");
-  } catch (e) {
-    console.warn("[ExcelExport] Failed to create Raw Properties sheet:", e);
-  }
 
   // ── Assembly Hierarchy sheet — full 3-level structure ──
   try {
