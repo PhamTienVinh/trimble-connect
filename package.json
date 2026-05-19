@@ -1,0 +1,19 @@
+{
+  "name": "ddc-statistics",
+  "version": "1.0.0",
+  "description": "Trimble Connect 3D Extension - DDC Statistics",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "trimble-connect-workspace-api": "^0.3.34",
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

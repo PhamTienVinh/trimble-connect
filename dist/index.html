@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DDC Statistics</title>
+  <meta name="description" content="Trimble Connect Extension - DDC Statistics" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script type="module" crossorigin src="./assets/index-BRT3McEN.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DNHANyTI.css">
+</head>
+
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header id="app-header">
+      <h1 id="app-title">
+        <span class="icon">⚙️</span> DDC Statistics
+      </h1>
+      <div id="connection-status" class="status-badge disconnected">
+        <span class="status-dot"></span>
+        <span class="status-text">Đang kết nối...</span>
+      </div>
+    </header>
+
+    <!-- Tab Navigation -->
+    <nav id="tab-nav">
+      <button class="tab-btn active" data-tab="objects" id="tab-objects-btn">
+        <span class="tab-icon">📋</span>
+        <span class="tab-label">Objects</span>
+      </button>
+      <button class="tab-btn" data-tab="statistics" id="tab-statistics-btn">
+        <span class="tab-icon">📊</span>
+        <span class="tab-label">Thống kê</span>
+      </button>
+    </nav>
+
+    <!-- Objects Tab -->
+    <div id="tab-objects" class="tab-content active">
+      <!-- Search & Controls -->
+      <div class="control-bar" id="objects-control-bar">
+        <div class="search-wrapper" id="search-wrapper">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="search-input" placeholder="Tìm kiếm object..." autocomplete="off" />
+          <button id="search-clear-btn" class="icon-btn" title="Xóa tìm kiếm" style="display:none;">✕</button>
+        </div>
+        <div class="control-row">
+          <label for="group-by-select" class="control-label">Nhóm theo:</label>
+          <select id="group-by-select">
+            <option value="assemblyName">Assembly Name</option>
+            <option value="assemblyPos">Assembly Pos</option>
+            <option value="name">Tên</option>
+            <option value="profile">Profile Name</option>
+            <option value="referenceName">Reference Name</option>
+            <option value="group">Group</option>
+            <option value="objectType">Object Type</option>
+            <option value="ifcClass">IFC Class</option>
+            <option value="material">Vật liệu</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Action Bar -->
+      <div class="action-bar" id="objects-action-bar">
+        <button id="btn-undo" class="action-btn secondary" title="Hoàn tác lựa chọn (Ctrl+Z)" disabled>
+          <span>↩️</span> Undo
+        </button>
+        <button id="btn-redo" class="action-btn secondary" title="Làm lại lựa chọn (Ctrl+Y)" disabled>
+          <span>↪️</span> Redo
+        </button>
+        <button id="btn-isolate" class="action-btn warning" title="Chỉ hiển thị đối tượng đã chọn (ẩn tất cả trừ selected)">
+          <span>👁️</span> Isolate
+        </button>
+        <button id="btn-hide" class="action-btn danger" title="Ẩn các đối tượng đã chọn">
+          <span>🙈</span> Hide
+        </button>
+        <button id="btn-show-all" class="action-btn secondary" title="Hiện tất cả đối tượng (bỏ ẩn)">
+          <span>🔍</span> Show All
+        </button>
+        <button id="btn-zoom" class="action-btn secondary" title="Zoom tới đối tượng đã chọn">
+          <span>🎯</span> Zoom
+        </button>
+        <button id="btn-reset" class="action-btn secondary" title="Reset selection &amp; view">
+          <span>🔄</span> Reset
+        </button>
+        <button id="btn-refresh" class="action-btn secondary" title="Quét lại objects">
+          <span>♻️</span> Refresh
+        </button>
+        <button id="btn-collapse-all" class="action-btn secondary" title="Thu gọn tất cả nhóm">
+          <span>⏫</span> Thu gọn
+        </button>
+        <button id="btn-expand-all" class="action-btn secondary" title="Mở rộng tất cả nhóm">
+          <span>⏬</span> Mở rộng
+        </button>
+      </div>
+
+      <!-- Stats Summary -->
+      <div id="objects-summary" class="summary-bar">
+        <span id="total-objects-count">0 objects</span>
+        <span class="divider">|</span>
+        <span id="selected-objects-count">0 đã chọn</span>
+        <span class="divider">|</span>
+        <span id="groups-count">0 nhóm</span>
+        <span class="divider" id="stats-divider" style="display:none">|</span>
+        <span id="selected-stats" style="display:none; color: var(--accent); font-weight: 600;"></span>
+      </div>
+
+      <!-- Object Tree -->
+      <div id="object-tree" class="tree-container">
+        <div class="placeholder" id="tree-placeholder">
+          <div class="placeholder-icon">📦</div>
+          <p>Đang chờ model được load...</p>
+          <p class="placeholder-sub">Mở file IFC trong Trimble Connect 3D Viewer</p>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div id="loading-overlay" class="loading-overlay" style="display:none;">
+        <div class="spinner"></div>
+        <p>Đang quét objects...</p>
+      </div>
+    </div>
+
+    <!-- Statistics Tab -->
+    <div id="tab-statistics" class="tab-content">
+      <!-- Stats Controls -->
+      <div class="control-bar" id="stats-control-bar">
+        <div class="control-row">
+          <label for="stats-group-by" class="control-label">Nhóm theo:</label>
+          <select id="stats-group-by">
+            <option value="assemblyName">Assembly Name</option>
+            <option value="assemblyPos">Assembly Pos</option>
+            <option value="name">Tên</option>
+            <option value="profile">Profile Name</option>
+            <option value="referenceName">Reference Name</option>
+            <option value="group">Group</option>
+            <option value="objectType">Object Type</option>
+            <option value="ifcClass">IFC Class</option>
+            <option value="material">Vật liệu</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label class="toggle-label">
+            <input type="checkbox" id="stats-all-toggle" checked />
+            <span class="toggle-slider"></span>
+            <span>Toàn bộ dự án</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="stats-cards" id="stats-cards">
+        <div class="stat-card" id="card-total-objects">
+          <div class="stat-card-icon">📦</div>
+          <div class="stat-card-value" id="stat-total-objects">0</div>
+          <div class="stat-card-label">Tổng Objects</div>
+        </div>
+        <div class="stat-card" id="card-total-volume">
+          <div class="stat-card-icon">📐</div>
+          <div class="stat-card-value" id="stat-total-volume">0 m³</div>
+          <div class="stat-card-label">Tổng Thể tích</div>
+        </div>
+        <div class="stat-card" id="card-total-area">
+          <div class="stat-card-icon">📏</div>
+          <div class="stat-card-value" id="stat-total-area">0 m²</div>
+          <div class="stat-card-label">Tổng DT bề mặt</div>
+        </div>
+        <div class="stat-card" id="card-total-net-area">
+          <div class="stat-card-icon">📐</div>
+          <div class="stat-card-value" id="stat-total-net-area">0 m²</div>
+          <div class="stat-card-label">DT bề mặt Net</div>
+        </div>
+
+        <div class="stat-card" id="card-total-weight">
+          <div class="stat-card-icon">⚖️</div>
+          <div class="stat-card-value" id="stat-total-weight">0 kg</div>
+          <div class="stat-card-label">Tổng Khối lượng</div>
+        </div>
+        <div class="stat-card" id="card-total-groups">
+          <div class="stat-card-icon">📁</div>
+          <div class="stat-card-value" id="stat-total-groups">0</div>
+          <div class="stat-card-label">Số nhóm</div>
+        </div>
+      </div>
+
+      <!-- Export Buttons -->
+      <div class="action-bar" id="stats-action-bar">
+        <button id="btn-export-all" class="action-btn export" title="Xuất toàn bộ dự án ra Excel">
+          <span>📥</span> Xuất Excel (Tất cả)
+        </button>
+        <button id="btn-export-selected" class="action-btn export-secondary" title="Xuất đối tượng đã chọn ra Excel">
+          <span>📥</span> Xuất Excel (Đã chọn)
+        </button>
+      </div>
+
+      <!-- Stats Table -->
+      <div id="stats-table-container" class="table-container">
+        <table id="stats-table">
+          <thead>
+            <tr>
+              <th>Nhóm</th>
+              <th>Số lượng</th>
+              <th>Thể tích (m³)</th>
+              <th>DT bề mặt (m²)</th>
+              <th>DT Net (m²)</th>
+              <th>Khối lượng (kg)</th>
+            </tr>
+          </thead>
+          <tbody id="stats-table-body">
+          </tbody>
+          <tfoot id="stats-table-footer">
+          </tfoot>
+        </table>
+        <div class="placeholder" id="stats-placeholder">
+          <div class="placeholder-icon">📊</div>
+          <p>Chưa có dữ liệu thống kê</p>
+          <p class="placeholder-sub">Chuyển qua tab Objects và quét model trước</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+
+</html>
