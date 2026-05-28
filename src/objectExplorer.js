@@ -33,6 +33,98 @@ let lastViewerSelectionKey = ""; // dedup key for polling
 let selectionFromPanel = false; // true when selection originates from panel click
 let shouldScrollToTop = false; // flag to scroll to top after renderTree()
 
+// ── Undo/Redo State ──
+let selectionHistory = []; // Stack of Set snapshots (serialized as arrays)
+let selectionHistoryIndex = -1; // Current position in history
+const MAX_UNDO_HISTORY = 50; // Max number of undo steps
+let isUndoRedoAction = false; // Prevent pushing state during undo/redo
+
+// Save the current selection state to the undo history
+function pushSelectionState() {
+  if (isUndoRedoAction) return; // Don't save during undo/redo
+
+  // If we're not at the end of history, truncate forward history
+  if (selectionHistoryIndex < selectionHistory.length - 1) {
+    selectionHistory = selectionHistory.slice(0, selectionHistoryIndex + 1);
+  }
+
+  // Save current state as a snapshot
+  selectionHistory.push([...selectedIds]);
+
+  // Enforce max history limit
+  if (selectionHistory.length > MAX_UNDO_HISTORY) {
+    selectionHistory.shift();
+  }
+
+  selectionHistoryIndex = selectionHistory.length - 1;
+  updateUndoRedoButtons();
+}
+
+// Undo: restore previous selection state
+function undoSelection() {
+  if (selectionHistoryIndex <= 0) return; // Nothing to undo
+
+  selectionHistoryIndex--;
+  const snapshot = selectionHistory[selectionHistoryIndex];
+
+  isUndoRedoAction = true;
+  selectedIds.clear();
+  for (const uid of snapshot) {
+    selectedIds.add(uid);
+  }
+
+  // Update UI
+  renderTree();
+  updateSummary();
+  notifySelectionChanged();
+  applyHighlightColors();
+  syncSelectionToViewer();
+  isUndoRedoAction = false;
+
+  updateUndoRedoButtons();
+  console.log(`[ObjectExplorer] Undo → ${selectedIds.size} selected (step ${selectionHistoryIndex + 1}/${selectionHistory.length})`);
+}
+
+// Redo: restore next selection state
+function redoSelection() {
+  if (selectionHistoryIndex >= selectionHistory.length - 1) return; // Nothing to redo
+
+  selectionHistoryIndex++;
+  const snapshot = selectionHistory[selectionHistoryIndex];
+
+  isUndoRedoAction = true;
+  selectedIds.clear();
+  for (const uid of snapshot) {
+    selectedIds.add(uid);
+  }
+
+  // Update UI
+  renderTree();
+  updateSummary();
+  notifySelectionChanged();
+  applyHighlightColors();
+  syncSelectionToViewer();
+  isUndoRedoAction = false;
+
+  updateUndoRedoButtons();
+  console.log(`[ObjectExplorer] Redo → ${selectedIds.size} selected (step ${selectionHistoryIndex + 1}/${selectionHistory.length})`);
+}
+
+// Update undo/redo button states (enabled/disabled)
+function updateUndoRedoButtons() {
+  const undoBtn = document.getElementById("btn-undo");
+  const redoBtn = document.getElementById("btn-redo");
+  if (undoBtn) {
+    undoBtn.disabled = selectionHistoryIndex <= 0;
+    undoBtn.classList.toggle("disabled", selectionHistoryIndex <= 0);
+  }
+  if (redoBtn) {
+    redoBtn.disabled = selectionHistoryIndex >= selectionHistory.length - 1;
+    redoBtn.classList.toggle("disabled", selectionHistoryIndex >= selectionHistory.length - 1);
+  }
+}
+
+
 
 
 // ── Init ──
@@ -113,6 +205,30 @@ export function initObjectExplorer(api, viewer) {
     expandBtn.addEventListener("click", expandAll);
   }
 
+  // Undo/Redo buttons
+  const undoBtn = document.getElementById("btn-undo");
+  if (undoBtn) {
+    undoBtn.addEventListener("click", undoSelection);
+  }
+  const redoBtn = document.getElementById("btn-redo");
+  if (redoBtn) {
+    redoBtn.addEventListener("click", redoSelection);
+  }
+
+  // Keyboard shortcuts: Ctrl+Z = Undo, Ctrl+Y / Ctrl+Shift+Z = Redo
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      undoSelection();
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+      e.preventDefault();
+      redoSelection();
+    }
+  });
+
+  // Initialize undo/redo button states
+  updateUndoRedoButtons();
 }
 
 // ── Export data for statistics module ──
@@ -871,6 +987,10 @@ async function scanObjects() {
     filteredObjects = [...allObjects];
 
     selectedIds.clear();
+    // Initialize undo history with empty selection
+    selectionHistory = [[]];
+    selectionHistoryIndex = 0;
+    updateUndoRedoButtons();
     updateSummary();
     renderTree();
     hidePlaceholder();
@@ -3303,6 +3423,7 @@ function renderTree() {
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
 
+      pushSelectionState(); // Save state for undo
       const doSelect = groupCb.checked;
 
       if (e.shiftKey && lastClickedGroupEl !== null) {
@@ -3387,6 +3508,7 @@ function renderTree() {
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
 
+      pushSelectionState(); // Save state for undo
       const doSelect = subCb.checked;
 
       if (e.shiftKey && lastClickedSubgroupEl !== null) {
@@ -3469,6 +3591,7 @@ function renderTree() {
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
 
+      pushSelectionState(); // Save state for undo
       const doSelect = sub2Cb.checked;
 
       if (e.shiftKey && lastClickedSub2groupEl !== null) {
@@ -3548,6 +3671,7 @@ function renderTree() {
       const treeContainer = document.getElementById("object-tree");
       const savedScroll = treeContainer.scrollTop;
 
+      pushSelectionState(); // Save state for undo
       const isCheckboxClick = e.target.classList.contains("tree-item-checkbox");
 
       // ── Shift+click range selection ──
@@ -3677,6 +3801,8 @@ function updateGroupCheckboxStates() {
 function toggleSelection(uid, el) {
   const treeContainer = document.getElementById("object-tree");
   const savedScroll = treeContainer ? treeContainer.scrollTop : 0;
+
+  pushSelectionState(); // Save state for undo
 
   if (selectedIds.has(uid)) {
     selectedIds.delete(uid);
@@ -4286,6 +4412,7 @@ function handleViewerSelectionChanged(data) {
     // Decide which UID we should scroll to:
     // - Ctrl-add selection: scroll to the last newly-added object (relative to previous selection).
     // - Other selection types: fallback to last matched UID by incoming event order.
+    pushSelectionState(); // Save state for undo
     const prevSelectedUids = new Set(selectedIds);
     const newlyAddedUids = new Set();
     for (const uid of matchedUids) {
