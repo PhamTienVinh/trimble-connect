@@ -3755,11 +3755,142 @@ function buildModelMapWithAssemblyContainers() {
     }
   }
 
-  // Step 3: Convert Sets to Arrays for API compatibility
+  // Step 3: Property-based assembly matching
+  // For selected objects that have assemblyPos/assemblyName but are NOT in
+  // assemblyMembershipMap, find other objects in the SAME assembly by
+  // matching property values, and include their assembly containers.
+  const selectedAssemblyPosValues = new Set();
+  const selectedAssemblyNameValues = new Set();
+
+  // Build lookup map for O(1) access
+  const objLookup = new Map();
+  for (const obj of allObjects) {
+    objLookup.set(`${obj.modelId}:${obj.id}`, obj);
+  }
+
+  for (const uid of selectedIds) {
+    const obj = objLookup.get(uid);
+    if (!obj) continue;
+
+    // Collect assembly values from ALL selected objects (not just unmapped ones)
+    // This ensures we match assembly siblings even when some are mapped and some aren't
+    if (obj.assemblyPos && obj.assemblyPos !== "(Không xác định)") {
+      selectedAssemblyPosValues.add(obj.assemblyPos);
+    }
+    if (obj.assemblyName && obj.assemblyName !== "(Không xác định)") {
+      selectedAssemblyNameValues.add(obj.assemblyName);
+    }
+  }
+
+
+  // For each unmatched assembly value, find ALL other objects with the same value
+  // AND find matching assembly containers from assemblyNodeInfoMap
+  if (selectedAssemblyPosValues.size > 0 || selectedAssemblyNameValues.size > 0) {
+    // Add matching objects from allObjects
+    for (const obj of allObjects) {
+      const uid = `${obj.modelId}:${obj.id}`;
+      if (selectedIds.has(uid)) continue; // already added
+
+      const posMatch = obj.assemblyPos && selectedAssemblyPosValues.has(obj.assemblyPos);
+      const nameMatch = obj.assemblyName && selectedAssemblyNameValues.has(obj.assemblyName);
+
+      if (posMatch || nameMatch) {
+        addToMap(obj.modelId, obj.id);
+
+        // Also include the assembly container for this matched object
+        const asmKey = assemblyMembershipMap.get(uid);
+        if (asmKey) {
+          touchedAssemblyKeys.add(asmKey);
+          const asmIdx2 = asmKey.indexOf(":");
+          addToMap(asmKey.substring(0, asmIdx2), parseInt(asmKey.substring(asmIdx2 + 1)));
+        }
+      }
+    }
+
+    // Add matching assembly containers from assemblyNodeInfoMap
+    for (const [containerKey, nodeInfo] of assemblyNodeInfoMap) {
+      const posMatch = nodeInfo.assemblyPos && selectedAssemblyPosValues.has(nodeInfo.assemblyPos);
+      const nameMatch = nodeInfo.assemblyName && selectedAssemblyNameValues.has(nodeInfo.assemblyName);
+
+      if (posMatch || nameMatch) {
+        addToMap(nodeInfo.modelId, nodeInfo.id);
+        touchedAssemblyKeys.add(containerKey);
+
+        // Also add ALL children of this matching container
+        const childIds = assemblyChildrenMap.get(containerKey);
+        if (childIds) {
+          for (const childId of childIds) {
+            addToMap(nodeInfo.modelId, childId);
+          }
+        }
+      }
+    }
+  }
+
+  // Step 4: Reverse lookup — check ALL assembly containers to see if any
+  // of their children are selected (catches cases missed by Step 1)
+  for (const [containerKey, childIds] of assemblyChildrenMap) {
+    if (touchedAssemblyKeys.has(containerKey)) continue; // already processed
+
+    let hasSelectedChild = false;
+    const nodeInfo = assemblyNodeInfoMap.get(containerKey);
+    const containerModelId = nodeInfo ? nodeInfo.modelId : "";
+
+    for (const childId of childIds) {
+      const childUid = `${containerModelId}:${childId}`;
+      if (selectedIds.has(childUid)) {
+        hasSelectedChild = true;
+        break;
+      }
+    }
+
+    if (hasSelectedChild && containerModelId) {
+      // Add the container itself
+      const containerIdx = containerKey.indexOf(":");
+      const containerId = parseInt(containerKey.substring(containerIdx + 1));
+      addToMap(containerModelId, containerId);
+
+      // Add ALL children of this container
+      for (const childId of childIds) {
+        addToMap(containerModelId, childId);
+      }
+    }
+  }
+
+  // Step 5: Include saved assembly containers that match by assembly properties
+  // These IfcElementAssembly entities were removed from allObjects but their
+  // entity IDs are still valid in the viewer — needed for isolate to work correctly
+  for (const container of savedAssemblyContainers) {
+    const containerUid = `${container.modelId}:${container.id}`;
+
+    // Check if any selected object belongs to this container
+    const containerChildIds = assemblyChildrenMap.get(containerUid);
+    if (containerChildIds) {
+      for (const childId of containerChildIds) {
+        if (selectedIds.has(`${container.modelId}:${childId}`)) {
+          addToMap(container.modelId, container.id);
+          break;
+        }
+      }
+    }
+
+    // Also check by matching assemblyPos/assemblyName
+    if (container.assemblyPos && selectedAssemblyPosValues.has(container.assemblyPos)) {
+      addToMap(container.modelId, container.id);
+    }
+    if (container.assemblyName && selectedAssemblyNameValues.has(container.assemblyName)) {
+      addToMap(container.modelId, container.id);
+    }
+  }
+
+  // Step 6: Convert Sets to Arrays for API compatibility
   const result = {};
   for (const [modelId, idSet] of Object.entries(map)) {
     result[modelId] = Array.from(idSet);
   }
+
+  console.log(`[ObjectExplorer] buildModelMapWithAssemblyContainers: ${selectedIds.size} selected → ${Object.values(result).reduce((s, a) => s + a.length, 0)} total IDs (${touchedAssemblyKeys.size} assembly containers touched)`);
+
   return result;
 }
 
@@ -3790,24 +3921,32 @@ async function toggleIsolate() {
 
   if (selectedIds.size === 0) return;
 
-  // Use expanded model map that includes assembly containers
+  // Use expanded model map that includes assembly containers + all assembly siblings
   const modelMap = buildModelMapWithAssemblyContainers();
   const totalIds = Object.values(modelMap).reduce((sum, ids) => sum + ids.length, 0);
 
+  if (totalIds === 0) {
+    console.warn("[ObjectExplorer] No valid entity IDs to isolate");
+    return;
+  }
+
+  const modelEntities = Object.entries(modelMap).map(([modelId, ids]) => ({
+    modelId,
+    entityIds: ids,
+  }));
+
+  console.log(`[ObjectExplorer] Attempting isolate: ${selectedIds.size} selected → ${totalIds} total entities across ${modelEntities.length} model(s)`);
+
   try {
-    // isolateEntities uses IModelEntities[] with { modelId, entityIds }
-    await viewerRef.isolateEntities(
-      Object.entries(modelMap).map(([modelId, ids]) => ({
-        modelId,
-        entityIds: ids,
-      })),
-    );
+    // Primary: isolateEntities uses IModelEntities[] with { modelId, entityIds }
+    await viewerRef.isolateEntities(modelEntities);
     isolateActive = true;
     btn.classList.add("active");
-    console.log(`[ObjectExplorer] Isolated ${selectedIds.size} selected + ${totalIds - selectedIds.size} assembly containers = ${totalIds} total entities`);
+    console.log(`[ObjectExplorer] ✓ Isolated successfully: ${totalIds} entities (${selectedIds.size} selected + ${totalIds - selectedIds.size} assembly-related)`);
   } catch (e) {
-    console.error("[ObjectExplorer] Isolate failed:", e);
-    // Fallback: hide all, show selected + assembly containers
+    console.warn("[ObjectExplorer] isolateEntities failed, trying fallback 1 (setObjectState):", e);
+
+    // Fallback 1: hide all, then show selected + assembly containers using objectRuntimeIds
     try {
       await viewerRef.setObjectState(undefined, { visible: false });
       await viewerRef.setObjectState(
@@ -3821,11 +3960,27 @@ async function toggleIsolate() {
       );
       isolateActive = true;
       btn.classList.add("active");
+      console.log(`[ObjectExplorer] ✓ Fallback 1 isolate succeeded: ${totalIds} entities`);
     } catch (e2) {
-      console.error("[ObjectExplorer] Fallback isolate failed:", e2);
+      console.warn("[ObjectExplorer] Fallback 1 failed, trying fallback 2 (entityIds):", e2);
+
+      // Fallback 2: try using entityIds format for setObjectState
+      try {
+        await viewerRef.setObjectState(undefined, { visible: false });
+        await viewerRef.setObjectState(
+          { modelObjectIds: modelEntities },
+          { visible: true },
+        );
+        isolateActive = true;
+        btn.classList.add("active");
+        console.log(`[ObjectExplorer] ✓ Fallback 2 isolate succeeded: ${totalIds} entities`);
+      } catch (e3) {
+        console.error("[ObjectExplorer] All isolate methods failed:", e3);
+      }
     }
   }
 }
+
 
 // ── IFC Class Badge Mapping ──
 // Returns a short emoji+label badge for recognized IFC element types
