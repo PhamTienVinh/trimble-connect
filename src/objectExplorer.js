@@ -3707,6 +3707,62 @@ async function syncSelectionToViewer() {
 
 
 // ── Isolate ──
+// Build an expanded model map that includes BOTH selected objects
+// AND their parent IfcElementAssembly containers (for assembly selection).
+// When any child of an assembly is selected, ALL siblings in the same
+// assembly are also included — giving full "assembly selection" isolation.
+function buildModelMapWithAssemblyContainers() {
+  const map = {};
+
+  // Helper to add an ID to the map
+  function addToMap(modelId, objectId) {
+    if (!map[modelId]) map[modelId] = new Set();
+    if (!isNaN(objectId)) map[modelId].add(objectId);
+  }
+
+  // Collect all assembly container keys that have at least one selected child
+  const touchedAssemblyKeys = new Set();
+
+  // Step 1: Add all selected child object IDs + detect touched assemblies
+  for (const uid of selectedIds) {
+    const idx = uid.indexOf(":");
+    const modelId = uid.substring(0, idx);
+    const objectId = parseInt(uid.substring(idx + 1));
+    addToMap(modelId, objectId);
+
+    // If this child belongs to an assembly, mark the assembly as touched
+    const assemblyKey = assemblyMembershipMap.get(uid);
+    if (assemblyKey) {
+      touchedAssemblyKeys.add(assemblyKey);
+    }
+  }
+
+  // Step 2: For each touched assembly, add the container ID + ALL child IDs
+  for (const assemblyKey of touchedAssemblyKeys) {
+    const asmIdx = assemblyKey.indexOf(":");
+    const asmModelId = assemblyKey.substring(0, asmIdx);
+    const asmObjectId = parseInt(assemblyKey.substring(asmIdx + 1));
+
+    // Add the assembly container itself
+    addToMap(asmModelId, asmObjectId);
+
+    // Add ALL children of this assembly (siblings of the selected child)
+    const childIds = assemblyChildrenMap.get(assemblyKey);
+    if (childIds) {
+      for (const childId of childIds) {
+        addToMap(asmModelId, childId);
+      }
+    }
+  }
+
+  // Step 3: Convert Sets to Arrays for API compatibility
+  const result = {};
+  for (const [modelId, idSet] of Object.entries(map)) {
+    result[modelId] = Array.from(idSet);
+  }
+  return result;
+}
+
 async function toggleIsolate() {
   const btn = document.getElementById("btn-isolate");
 
@@ -3734,7 +3790,9 @@ async function toggleIsolate() {
 
   if (selectedIds.size === 0) return;
 
-  const modelMap = buildModelMap();
+  // Use expanded model map that includes assembly containers
+  const modelMap = buildModelMapWithAssemblyContainers();
+  const totalIds = Object.values(modelMap).reduce((sum, ids) => sum + ids.length, 0);
 
   try {
     // isolateEntities uses IModelEntities[] with { modelId, entityIds }
@@ -3746,10 +3804,10 @@ async function toggleIsolate() {
     );
     isolateActive = true;
     btn.classList.add("active");
-    console.log(`[ObjectExplorer] Isolated ${selectedIds.size} objects`);
+    console.log(`[ObjectExplorer] Isolated ${selectedIds.size} selected + ${totalIds - selectedIds.size} assembly containers = ${totalIds} total entities`);
   } catch (e) {
     console.error("[ObjectExplorer] Isolate failed:", e);
-    // Fallback: hide all, show selected
+    // Fallback: hide all, show selected + assembly containers
     try {
       await viewerRef.setObjectState(undefined, { visible: false });
       await viewerRef.setObjectState(
