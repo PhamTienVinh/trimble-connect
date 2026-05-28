@@ -94,12 +94,16 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
         assemblyPos: container.assemblyPos || "",
         assemblyName: container.assemblyName || "",
         assemblyPosCode: container.assemblyPosCode || "",
+        assemblyWeight: container.assemblyWeight || container.weight || 0,
       });
     } else {
       const existing = containerInfoMap.get(containerKey);
       if (!existing.assemblyPos && container.assemblyPos) existing.assemblyPos = container.assemblyPos;
       if (!existing.assemblyName && container.assemblyName) existing.assemblyName = container.assemblyName;
       if (!existing.assemblyPosCode && container.assemblyPosCode) existing.assemblyPosCode = container.assemblyPosCode;
+      if (!existing.assemblyWeight && (container.assemblyWeight || container.weight)) {
+        existing.assemblyWeight = container.assemblyWeight || container.weight || 0;
+      }
     }
   }
 
@@ -135,6 +139,7 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
           totalWeight: 0,
           totalArea: 0,
           totalNetArea: 0,
+          assemblyWeight: cInfo.assemblyWeight || 0,
         });
       }
       const containerEntry = group.containers.get(containerKey);
@@ -279,11 +284,46 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
   const tbody = document.getElementById("stats-table-body");
   const tfoot = document.getElementById("stats-table-footer");
 
+  // Check if any group has assembly weight data
+  let hasAsmWeight = false;
+  for (const group of assemblyGroups) {
+    for (const [, containerEntry] of group.containers) {
+      if (containerEntry.assemblyWeight > 0) {
+        hasAsmWeight = true;
+        break;
+      }
+    }
+    if (hasAsmWeight) break;
+  }
+
+  // Update table header to include assembly weight column if data exists
+  const thead = document.querySelector("#stats-table thead tr");
+  if (thead && hasAsmWeight) {
+    const existingHeaders = thead.querySelectorAll("th");
+    const lastTh = existingHeaders[existingHeaders.length - 1];
+    if (!thead.querySelector(".asm-weight-header")) {
+      const th = document.createElement("th");
+      th.className = "asm-weight-header";
+      th.textContent = "Asm Weight (kg)";
+      lastTh.after(th);
+    }
+  }
+
   let bodyHtml = "";
   let totalCount = 0;
+  let totalAsmWeight = 0;
 
   for (const group of assemblyGroups) {
     totalCount += group.totalCount;
+
+    // Calculate group-level assembly weight
+    let groupAsmWeight = 0;
+    for (const [, containerEntry] of group.containers) {
+      if (containerEntry.assemblyWeight > 0) {
+        groupAsmWeight += containerEntry.assemblyWeight;
+      }
+    }
+    totalAsmWeight += groupAsmWeight;
 
     // Level 1: Assembly value header row
     bodyHtml += `<tr class="stats-group-header" data-assembly-group="${escHtml(group.name)}">`;
@@ -296,6 +336,9 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
     bodyHtml += `<td><strong>${formatArea(group.totalArea)}</strong></td>`;
     bodyHtml += `<td><strong>${formatArea(group.totalNetArea)}</strong></td>`;
     bodyHtml += `<td><strong>${formatWeight(group.totalWeight)}</strong></td>`;
+    if (hasAsmWeight) {
+      bodyHtml += `<td><strong>${groupAsmWeight > 0 ? formatWeight(groupAsmWeight) : "—"}</strong></td>`;
+    }
     bodyHtml += `</tr>`;
 
     // Level 2: IfcElementAssembly containers
@@ -313,6 +356,9 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
       bodyHtml += `<td>${formatArea(containerEntry.totalArea)}</td>`;
       bodyHtml += `<td>${formatArea(containerEntry.totalNetArea)}</td>`;
       bodyHtml += `<td>${formatWeight(containerEntry.totalWeight)}</td>`;
+      if (hasAsmWeight) {
+        bodyHtml += `<td>${containerEntry.assemblyWeight > 0 ? formatWeight(containerEntry.assemblyWeight) : "—"}</td>`;
+      }
       bodyHtml += `</tr>`;
 
       // Level 3: Children
@@ -324,6 +370,9 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
         bodyHtml += `<td>${formatArea(child.area)}</td>`;
         bodyHtml += `<td>${formatArea(child.netArea || 0)}</td>`;
         bodyHtml += `<td>${formatWeight(child.weight)}</td>`;
+        if (hasAsmWeight) {
+          bodyHtml += `<td>${child.assemblyWeight > 0 ? formatWeight(child.assemblyWeight) : "—"}</td>`;
+        }
         bodyHtml += `</tr>`;
       }
     }
@@ -337,22 +386,28 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
       bodyHtml += `<td>${formatArea(child.area)}</td>`;
       bodyHtml += `<td>${formatArea(child.netArea || 0)}</td>`;
       bodyHtml += `<td>${formatWeight(child.weight)}</td>`;
+      if (hasAsmWeight) {
+        bodyHtml += `<td>${child.assemblyWeight > 0 ? formatWeight(child.assemblyWeight) : "—"}</td>`;
+      }
       bodyHtml += `</tr>`;
     }
   }
 
   tbody.innerHTML = bodyHtml;
 
-  tfoot.innerHTML = `
+  let footerHtml = `
     <tr>
       <td>TỔNG CỘNG</td>
       <td>${formatNumber(totalCount)}</td>
       <td>${formatVolume(totalVolume)}</td>
       <td>${formatArea(totalArea)}</td>
       <td>${formatArea(totalNetArea)}</td>
-      <td>${formatWeight(totalWeight)}</td>
-    </tr>
-  `;
+      <td>${formatWeight(totalWeight)}</td>`;
+  if (hasAsmWeight) {
+    footerHtml += `<td>${totalAsmWeight > 0 ? formatWeight(totalAsmWeight) : "—"}</td>`;
+  }
+  footerHtml += `</tr>`;
+  tfoot.innerHTML = footerHtml;
 }
 
 // ── Global toggle helpers for assembly hierarchy ──

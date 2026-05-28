@@ -482,6 +482,18 @@ select:focus {
   border-radius: 10px;
 }
 
+.tree-group-weight {
+  font-size: 10px;
+  color: var(--warning);
+  font-weight: 500;
+  background: rgba(210, 153, 34, 0.12);
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(210, 153, 34, 0.25);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .tree-items {
   overflow: hidden;
   transition: max-height 0.3s ease;

@@ -16,7 +16,7 @@ let selectedIds = new Set(); // Set of "modelId:objectId"
 // Assembly hierarchy maps (built during scan)
 let assemblyMembershipMap = new Map(); // "modelId:objectId" -> "modelId:assemblyParentId"
 let assemblyChildrenMap = new Map(); // "modelId:assemblyParentId" -> Set([objectId1, objectId2, ...])
-let assemblyNodeInfoMap = new Map(); // "modelId:assemblyNodeId" -> { id, name, class, modelId }
+let assemblyNodeInfoMap = new Map(); // "modelId:assemblyNodeId" -> { id, name, class, modelId, assemblyWeight }
 let savedAssemblyContainers = []; // Full IfcElementAssembly objects saved before removal (for display)
 let isolateActive = false;
 let searchTimeout = null;
@@ -164,6 +164,7 @@ export function getAssemblyContainerForObject(obj) {
     assemblyPos: nodeInfo.assemblyPos,
     assemblyName: nodeInfo.assemblyName,
     assemblyPosCode: nodeInfo.assemblyPosCode,
+    assemblyWeight: nodeInfo.assemblyWeight || 0,
   };
 }
 
@@ -206,6 +207,7 @@ export function getAssemblyContainers() {
       assemblyPos: nodeInfo.assemblyPos,
       assemblyName: nodeInfo.assemblyName,
       assemblyPosCode: nodeInfo.assemblyPosCode,
+      assemblyWeight: nodeInfo.assemblyWeight || 0,
       childCount: (assemblyChildrenMap.get(key) || new Set()).size,
     });
   }
@@ -663,7 +665,13 @@ async function scanObjects() {
         if (containerObj.assemblyPos) nodeInfo.assemblyPos = containerObj.assemblyPos;
         if (containerObj.assemblyName) nodeInfo.assemblyName = containerObj.assemblyName;
         if (containerObj.assemblyPosCode) nodeInfo.assemblyPosCode = containerObj.assemblyPosCode;
-
+        if (containerObj.assemblyWeight > 0 && (!nodeInfo.assemblyWeight || containerObj.assemblyWeight > nodeInfo.assemblyWeight)) {
+          nodeInfo.assemblyWeight = containerObj.assemblyWeight;
+        }
+        // Also use the container's own weight as assembly weight if not already set
+        if (!nodeInfo.assemblyWeight && containerObj.weight > 0) {
+          nodeInfo.assemblyWeight = containerObj.weight;
+        }
       }
     }
 
@@ -1030,6 +1038,24 @@ function classifyAssemblyProperty(rawPropName) {
     return "code";
   }
 
+  // ── Assembly Weight detection ──
+  // Tekla exports: WEIGHT_NET, ASSEMBLY.WEIGHT, CAST_UNIT_WEIGHT, ASSEMBLY_WEIGHT
+  if (
+    norm === "weightnet" ||
+    norm === "netweight" ||
+    norm === "assemblyweight" ||
+    norm === "castunitweight" ||
+    norm === "castunitweightnet" ||
+    norm === "assemblyweightnet" ||
+    norm === "assemblynetweight" ||
+    norm === "asmweight" ||
+    norm === "asmweightnet" ||
+    norm === "totalassemblyweight" ||
+    norm === "assemblygrossweight"
+  ) {
+    return "weight";
+  }
+
   // ── Generic assembly fallback ──
   if (
     norm === "assembly" ||
@@ -1145,6 +1171,14 @@ function classifyAssemblyProperty(rawPropName) {
   if (/^(?:ass?e?m(?:bly)?[\s_./\\-]?)?cast[\s_.-]?unit[\s_.-]?pos(?:it?ion)?[\s_.-]?code$/i.test(cleanName)) return "code";
   // Typo fallback: POSTION (missing I) in any pattern
   if (/^ass?e?m(?:bly)?[\s_.-]?post?ion[\s_.-]?code$/i.test(cleanName)) return "code";
+
+  // ── Assembly Weight patterns (Tekla) ──
+  if (/^weight[\s_.-]?net$/i.test(cleanName)) return "weight";
+  if (/^net[\s_.-]?weight$/i.test(cleanName)) return "weight";
+  if (/^ass?e?m(?:bly)?[\s_.-]?weight(?:[\s_.-]?net)?$/i.test(cleanName)) return "weight";
+  if (/^cast[\s_.-]?unit[\s_.-]?weight(?:[\s_.-]?net)?$/i.test(cleanName)) return "weight";
+  if (/^(?:ass?e?m(?:bly)?[\s_./\\-]?)?cast[\s_.-]?unit[\s_.-]?weight$/i.test(cleanName)) return "weight";
+  if (/^total[\s_.-]?(?:assembly[\s_.-]?)?weight$/i.test(cleanName)) return "weight";
 
   // ── Classification system patterns (any software) ──
   if (/^classification[\s_.-]?(?:code|number|ref)$/i.test(cleanName)) return "code";
@@ -1278,6 +1312,7 @@ async function buildAssemblyHierarchyMap(models) {
               assemblyPos: "",
               assemblyName: "",
               assemblyPosCode: "",
+              assemblyWeight: 0,    // WEIGHT_NET / CAST_UNIT_WEIGHT (kg)
             });
 
             function collectChildren(childNodes) {
@@ -1406,6 +1441,32 @@ async function fetchAssemblyContainerProperties() {
                 entry.nodeInfo.assemblyPosCode = propValue;
                 withCode++;
                 foundAny = true;
+              }
+              if (asmClass === "weight") {
+                const asmW = parseQuantityNumber(propValue);
+                if (!isNaN(asmW) && asmW > 0 && asmW > (entry.nodeInfo.assemblyWeight || 0)) {
+                  entry.nodeInfo.assemblyWeight = asmW;
+                  foundAny = true;
+                }
+              }
+
+              // Also check for weight properties by direct name matching
+              // (catches WEIGHT_NET, NetWeight, GrossWeight on assembly containers)
+              const propNameLower = rawPropName.toLowerCase().replace(/[\s_.\-]/g, "");
+              if (!asmClass && (
+                propNameLower === "weightnet" ||
+                propNameLower === "netweight" ||
+                propNameLower === "grossweight" ||
+                propNameLower === "weight" ||
+                propNameLower === "mass" ||
+                propNameLower === "netmass" ||
+                propNameLower === "grossmass"
+              )) {
+                const w = parseQuantityNumber(propValue);
+                if (!isNaN(w) && w > 0 && w > (entry.nodeInfo.assemblyWeight || 0)) {
+                  entry.nodeInfo.assemblyWeight = w;
+                  foundAny = true;
+                }
               }
             }
           }
@@ -1997,6 +2058,8 @@ function parseObjectProperties(props, modelId) {
     assemblyName: "",     // ASSEMBLY_NAME from Tekla
     assemblyPos: "",      // ASSEMBLY_POS from Tekla (unique per assembly instance)
     assemblyPosCode: "",  // ASSEMBLY_POSITION_CODE from Tekla
+    assemblyWeight: 0,    // WEIGHT_NET / CAST_UNIT_WEIGHT / ASSEMBLY.WEIGHT from Tekla (kg)
+    assemblyWeightSource: "", // "ifc" = from IFC property on assembly container
     group: "",
     type: "",
     material: "",
@@ -2279,6 +2342,12 @@ function parseObjectProperties(props, modelId) {
           result.assemblyName = asmVal;
         } else if (asmClass === "code" && !result.assemblyPosCode) {
           result.assemblyPosCode = asmVal;
+        } else if (asmClass === "weight") {
+          const asmW = parseQuantityNumber(asmVal);
+          if (!isNaN(asmW) && asmW > 0 && asmW > result.assemblyWeight) {
+            result.assemblyWeight = asmW;
+            result.assemblyWeightSource = "ifc";
+          }
         } else if (asmClass === "generic" && !result.assembly) {
           result.assembly = asmVal;
         }
@@ -2872,6 +2941,7 @@ function buildAssemblyContainerGroupsForTree(objects, groupBy) {
         assemblyPos: nodeInfo.assemblyPos || "",
         assemblyName: nodeInfo.assemblyName || "",
         assemblyPosCode: nodeInfo.assemblyPosCode || "",
+        assemblyWeight: nodeInfo.assemblyWeight || 0,
       });
     }
   }
@@ -3097,6 +3167,26 @@ function renderTree() {
       const allChecked = allGroupUids.length > 0 && allGroupUids.every(uid => selectedIds.has(uid));
       const someChecked = allGroupUids.some(uid => selectedIds.has(uid));
 
+      // Calculate group weight (sum of children)
+      let groupWeight = 0;
+      for (const item of allGroupItems) {
+        groupWeight += item.weight || 0;
+      }
+
+      // Find assembly-level weight from containers (WEIGHT_NET / CAST_UNIT_WEIGHT)
+      let assemblyContainerWeight = 0;
+      for (const [, containerEntry] of group.containers) {
+        if (containerEntry.info && containerEntry.info.assemblyWeight > 0) {
+          assemblyContainerWeight += containerEntry.info.assemblyWeight;
+        }
+      }
+
+      const fmtW = (w) => w >= 1000 ? (w / 1000).toFixed(2) + " tấn" : w.toFixed(2) + " kg";
+      let weightLabel = fmtW(groupWeight);
+      if (assemblyContainerWeight > 0 && Math.abs(assemblyContainerWeight - groupWeight) > 0.01) {
+        weightLabel += ` (Asm: ${fmtW(assemblyContainerWeight)})`;
+      }
+
       // Level 1: Assembly value header
       html += `<div class="tree-group" data-group="${escHtml(groupKey)}">`;
       html += `<div class="tree-group-header">`;
@@ -3104,6 +3194,7 @@ function renderTree() {
       html += `<span class="tree-toggle" onclick="_cascadeToggle(this,'tree-group')">▼</span>`;
       html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">${groupIcon} ${escHtml(groupKey)}</span>`;
       html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${allGroupItems.length}</span>`;
+      html += `<span class="tree-group-weight" onclick="_cascadeToggle(this,'tree-group')" title="Tổng khối lượng nhóm">⚖️ ${weightLabel}</span>`;
       html += `</div>`;
       html += `<div class="tree-items">`;
 
@@ -3129,6 +3220,12 @@ function renderTree() {
         html += `<span class="tree-subgroup-toggle" onclick="_cascadeToggle(this,'tree-subgroup')">▼</span>`;
         html += `<span class="tree-subgroup-name" onclick="_cascadeToggle(this,'tree-subgroup')">📦 ${escHtml(containerName)}</span>`;
         html += `<span class="tree-subgroup-count" onclick="_cascadeToggle(this,'tree-subgroup')">${children.length}</span>`;
+        // Show assembly weight from container if available
+        if (containerEntry.info && containerEntry.info.assemblyWeight > 0) {
+          const cw = containerEntry.info.assemblyWeight;
+          const cwLabel = cw >= 1000 ? (cw / 1000).toFixed(2) + " tấn" : cw.toFixed(2) + " kg";
+          html += `<span class="tree-group-weight" onclick="_cascadeToggle(this,'tree-subgroup')" title="Khối lượng assembly (WEIGHT_NET)">⚖️ ${cwLabel}</span>`;
+        }
         html += `</div>`;
         html += `<div class="tree-subitems">`;
 
