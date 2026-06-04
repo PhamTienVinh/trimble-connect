@@ -3,34 +3,34 @@
    ============================== */
 
 :root {
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-tertiary: #21262d;
-  --bg-card: #1c2333;
-  --bg-hover: #292e3b;
-  --bg-active: #1f6feb22;
-  --border: #30363d;
-  --border-light: #3d444d;
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --text-muted: #6e7681;
-  --accent: #58a6ff;
-  --accent-dark: #1f6feb;
-  --accent-glow: #58a6ff33;
-  --success: #3fb950;
-  --warning: #d29922;
-  --danger: #f85149;
-  --info: #79c0ff;
-  --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --gradient-2: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  --gradient-3: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  --gradient-4: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-  --glass: rgba(22, 27, 34, 0.85);
-  --glass-border: rgba(88, 166, 255, 0.15);
+  --bg-primary: #191614;       /* Deep warm dark brown (chocolate dark) */
+  --bg-secondary: #211e1c;     /* Soft warm coffee dark */
+  --bg-tertiary: #2a2522;      /* Warm taupe dark */
+  --bg-card: #26211e;          /* Creamy espresso card bg */
+  --bg-hover: #332d29;         /* Lighter warm brown on hover */
+  --bg-active: rgba(232, 167, 167, 0.12); /* Soft pastel pink active background */
+  --border: #3b3430;           /* Soft clay border */
+  --border-light: #4c433e;     /* Light clay border */
+  --text-primary: #f5ede8;     /* Warm milk-white */
+  --text-secondary: #c9bbae;   /* Warm sandy gray */
+  --text-muted: #94867c;       /* Muted brown-gray */
+  --accent: #e8a7a7;           /* Pastel pink / soft rose */
+  --accent-dark: #cc8b8b;      /* Dark pastel rose */
+  --accent-glow: rgba(232, 167, 167, 0.25);
+  --success: #a0cfa4;          /* Pastel green / sage */
+  --warning: #e6c8a3;          /* Pastel orange-brown / amber */
+  --danger: #e28e8e;           /* Pastel red / coral */
+  --info: #a7ccd1;             /* Pastel light blue/teal */
+  --gradient-1: linear-gradient(135deg, #a0cfa4 0%, #7db982 100%);
+  --gradient-2: linear-gradient(135deg, #e8a7a7 0%, #e28e8e 100%);
+  --gradient-3: linear-gradient(135deg, #c7a998 0%, #a48674 100%);
+  --gradient-4: linear-gradient(135deg, #a7ccd1 0%, #82b2b9 100%);
+  --glass: rgba(33, 30, 28, 0.85);
+  --glass-border: rgba(232, 167, 167, 0.15);
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.5);
-  --shadow-glow: 0 0 20px rgba(88, 166, 255, 0.15);
+  --shadow-glow: 0 0 20px rgba(232, 167, 167, 0.15);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -339,9 +339,9 @@ select:focus {
 
 .action-btn.primary.active {
   background: var(--accent);
-  border-color: #79c0ff;
-  box-shadow: 0 0 16px rgba(88, 166, 255, 0.4);
-  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(232, 167, 167, 0.4);
+  color: #191614;
 }
 
 .action-btn.warning {
@@ -383,17 +383,17 @@ select:focus {
 }
 
 .action-btn.export {
-  background: linear-gradient(135deg, #238636, #2ea043);
-  border-color: #3fb950;
-  color: #fff;
+  background: linear-gradient(135deg, #82b987, #a0cfa4);
+  border-color: var(--success);
+  color: #191614;
 }
 
 .action-btn.export:hover {
-  box-shadow: 0 0 12px rgba(63, 185, 80, 0.3);
+  box-shadow: 0 0 12px rgba(160, 207, 164, 0.4);
 }
 
 .action-btn.export-secondary {
-  background: rgba(63, 185, 80, 0.1);
+  background: rgba(160, 207, 164, 0.15);
   border-color: var(--success);
   color: var(--success);
 }
@@ -431,7 +431,7 @@ select:focus {
 .summary-row.summary-stats {
   padding: 4px 12px;
   border-top: 1px solid var(--border);
-  background: rgba(88, 166, 255, 0.03);
+  background: rgba(232, 167, 167, 0.03);
 }
 
 .summary-stats-grid {
@@ -614,15 +614,15 @@ select:focus {
 }
 
 .tree-item-badge.profile {
-  background: rgba(88, 166, 255, 0.15);
+  background: rgba(232, 167, 167, 0.15);
   color: var(--accent);
   border: 1px solid var(--accent-dark);
 }
 
 .tree-item-badge.tekla {
-  background: rgba(0, 191, 165, 0.15);
-  color: #00bfa5;
-  border: 1px solid rgba(0, 191, 165, 0.4);
+  background: rgba(160, 207, 164, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(160, 207, 164, 0.4);
   font-size: 11px;
   padding: 0 4px;
 }
@@ -637,9 +637,9 @@ select:focus {
 }
 
 .tree-item-badge.bolt {
-  background: rgba(248, 81, 73, 0.15);
-  color: #f85149;
-  border: 1px solid rgba(248, 81, 73, 0.4);
+  background: rgba(226, 142, 142, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(226, 142, 142, 0.4);
   font-size: 10px;
 }
 
@@ -740,15 +740,15 @@ select:focus {
 }
 
 .strip-tag.gross {
-  background: rgba(88, 166, 255, 0.15);
+  background: rgba(232, 167, 167, 0.15);
   color: var(--accent);
-  border: 1px solid rgba(88, 166, 255, 0.25);
+  border: 1px solid rgba(232, 167, 167, 0.25);
 }
 
 .strip-tag.net {
-  background: rgba(63, 185, 80, 0.15);
+  background: rgba(160, 207, 164, 0.15);
   color: var(--success);
-  border: 1px solid rgba(63, 185, 80, 0.25);
+  border: 1px solid rgba(160, 207, 164, 0.25);
 }
 
 .strip-val {
@@ -842,7 +842,7 @@ select:focus {
 
 #stats-table th.col-net {
   color: var(--success);
-  border-bottom-color: rgba(63, 185, 80, 0.4);
+  border-bottom-color: rgba(160, 207, 164, 0.4);
 }
 
 
@@ -1287,9 +1287,9 @@ select:focus {
 }
 
 .tree-item-badge.asm-code {
-  background: rgba(63, 185, 80, 0.12);
+  background: rgba(160, 207, 164, 0.12);
   color: var(--success);
-  border: 1px solid rgba(63, 185, 80, 0.3);
+  border: 1px solid rgba(160, 207, 164, 0.3);
   font-size: 9px;
   padding: 0px 5px;
   letter-spacing: 0.2px;
@@ -1318,15 +1318,15 @@ select:focus {
 }
 
 .density-cell .ws-calc {
-  background: rgba(88, 166, 255, 0.15);
+  background: rgba(232, 167, 167, 0.15);
   color: var(--accent);
-  border: 1px solid rgba(88, 166, 255, 0.3);
+  border: 1px solid rgba(232, 167, 167, 0.3);
 }
 
 .density-cell .ws-ifc {
-  background: rgba(63, 185, 80, 0.15);
+  background: rgba(160, 207, 164, 0.15);
   color: var(--success);
-  border: 1px solid rgba(63, 185, 80, 0.3);
+  border: 1px solid rgba(160, 207, 164, 0.3);
 }
 
 .density-cell .ws-mixed {
@@ -1452,9 +1452,9 @@ select:focus {
 
 /* Assembly container badge in tree items */
 .tree-item-badge.asm-container {
-  background: rgba(88, 166, 255, 0.10);
+  background: rgba(232, 167, 167, 0.10);
   color: var(--accent);
-  border: 1px solid rgba(88, 166, 255, 0.25);
+  border: 1px solid rgba(232, 167, 167, 0.25);
   font-size: 9px;
   padding: 0px 5px;
   letter-spacing: 0.2px;
