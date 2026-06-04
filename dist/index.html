@@ -10,8 +10,8 @@
   <title>DDC Statistics</title>
   <meta name="description" content="Trimble Connect Extension - DDC Statistics" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <script type="module" crossorigin src="./assets/index-Bulmn_I0.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-B4MhKgx0.css">
+  <script type="module" crossorigin src="./assets/index-DKthpxaJ.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DX08nA_t.css">
 </head>
 
 <body>
@@ -41,75 +41,79 @@
 
     <!-- Objects Tab -->
     <div id="tab-objects" class="tab-content active">
-      <!-- Search & Controls -->
-      <div class="control-bar" id="objects-control-bar">
-        <div class="search-wrapper" id="search-wrapper">
-          <span class="search-icon">🔍</span>
-          <input type="text" id="search-input" placeholder="Tìm kiếm object..." autocomplete="off" />
-          <button id="search-clear-btn" class="icon-btn" title="Xóa tìm kiếm" style="display:none;">✕</button>
+      <div class="card">
+        <!-- Search & Controls -->
+        <div class="control-bar" id="objects-control-bar">
+          <div class="search-wrapper" id="search-wrapper">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-input" placeholder="Tìm kiếm object..." autocomplete="off" />
+            <button id="search-clear-btn" class="icon-btn" title="Xóa tìm kiếm" style="display:none;">✕</button>
+          </div>
+          <div class="control-row">
+            <label for="group-by-select" class="control-label">Nhóm theo:</label>
+            <select id="group-by-select">
+              <option value="assemblyName">Assembly Name</option>
+              <option value="assemblyPos">Assembly Pos</option>
+              <option value="name">Tên</option>
+              <option value="profile">Profile Name</option>
+              <option value="referenceName">Reference Name</option>
+              <option value="group">Group</option>
+              <option value="objectType">Object Type</option>
+              <option value="ifcClass">IFC Class</option>
+              <option value="material">Vật liệu</option>
+            </select>
+          </div>
         </div>
-        <div class="control-row">
-          <label for="group-by-select" class="control-label">Nhóm theo:</label>
-          <select id="group-by-select">
-            <option value="assemblyName">Assembly Name</option>
-            <option value="assemblyPos">Assembly Pos</option>
-            <option value="name">Tên</option>
-            <option value="profile">Profile Name</option>
-            <option value="referenceName">Reference Name</option>
-            <option value="group">Group</option>
-            <option value="objectType">Object Type</option>
-            <option value="ifcClass">IFC Class</option>
-            <option value="material">Vật liệu</option>
-          </select>
+
+        <!-- Action Bar -->
+        <div class="action-bar" id="objects-action-bar">
+          <button id="btn-isolate" class="action-btn warning" title="Chỉ hiển thị đối tượng đã chọn (ẩn tất cả trừ selected)">
+            <span>👁️</span> Isolate
+          </button>
+          <button id="btn-reset" class="action-btn secondary" title="Reset selection &amp; view">
+            <span>🔄</span> Reset
+          </button>
+          <button id="btn-undo" class="action-btn info disabled" title="Hoàn tác (Ctrl+Z)" disabled>
+            <span>↩️</span> Undo
+          </button>
+          <button id="btn-redo" class="action-btn info disabled" title="Làm lại (Ctrl+Y)" disabled>
+            <span>↪️</span> Redo
+          </button>
+          <button id="btn-refresh" class="action-btn secondary" title="Quét lại objects">
+            <span>♻️</span> Refresh
+          </button>
+          <button id="btn-collapse-all" class="action-btn secondary" title="Thu gọn tất cả nhóm">
+            <span>⏫</span> Thu gọn
+          </button>
+          <button id="btn-expand-all" class="action-btn secondary" title="Mở rộng tất cả nhóm">
+            <span>⏬</span> Mở rộng
+          </button>
         </div>
       </div>
 
-      <!-- Action Bar -->
-      <div class="action-bar" id="objects-action-bar">
-        <button id="btn-isolate" class="action-btn warning" title="Chỉ hiển thị đối tượng đã chọn (ẩn tất cả trừ selected)">
-          <span>👁️</span> Isolate
-        </button>
-        <button id="btn-reset" class="action-btn secondary" title="Reset selection &amp; view">
-          <span>🔄</span> Reset
-        </button>
-        <button id="btn-undo" class="action-btn info disabled" title="Hoàn tác (Ctrl+Z)" disabled>
-          <span>↩️</span> Undo
-        </button>
-        <button id="btn-redo" class="action-btn info disabled" title="Làm lại (Ctrl+Y)" disabled>
-          <span>↪️</span> Redo
-        </button>
-        <button id="btn-refresh" class="action-btn secondary" title="Quét lại objects">
-          <span>♻️</span> Refresh
-        </button>
-        <button id="btn-collapse-all" class="action-btn secondary" title="Thu gọn tất cả nhóm">
-          <span>⏫</span> Thu gọn
-        </button>
-        <button id="btn-expand-all" class="action-btn secondary" title="Mở rộng tất cả nhóm">
-          <span>⏬</span> Mở rộng
-        </button>
-      </div>
-
-      <!-- Stats Summary -->
-      <div id="objects-summary" class="summary-bar">
-        <div class="summary-row summary-counts">
-          <span id="total-objects-count">0 objects</span>
-          <span class="divider">|</span>
-          <span id="selected-objects-count">0 đã chọn</span>
-          <span class="divider">|</span>
-          <span id="groups-count">0 nhóm</span>
+      <div class="card flex-1 tree-card">
+        <!-- Stats Summary -->
+        <div id="objects-summary" class="summary-bar">
+          <div class="summary-row summary-counts">
+            <span id="total-objects-count">0 objects</span>
+            <span class="divider">|</span>
+            <span id="selected-objects-count">0 đã chọn</span>
+            <span class="divider">|</span>
+            <span id="groups-count">0 nhóm</span>
+          </div>
+          <div class="summary-row summary-stats" id="summary-stats-row" style="display:none">
+            <span class="divider" id="stats-divider">|</span>
+            <span id="selected-stats" class="summary-stats-grid"></span>
+          </div>
         </div>
-        <div class="summary-row summary-stats" id="summary-stats-row" style="display:none">
-          <span class="divider" id="stats-divider">|</span>
-          <span id="selected-stats" class="summary-stats-grid"></span>
-        </div>
-      </div>
 
-      <!-- Object Tree -->
-      <div id="object-tree" class="tree-container">
-        <div class="placeholder" id="tree-placeholder">
-          <div class="placeholder-icon">📦</div>
-          <p>Đang chờ model được load...</p>
-          <p class="placeholder-sub">Mở file IFC trong Trimble Connect 3D Viewer</p>
+        <!-- Object Tree -->
+        <div id="object-tree" class="tree-container">
+          <div class="placeholder" id="tree-placeholder">
+            <div class="placeholder-icon">📦</div>
+            <p>Đang chờ model được load...</p>
+            <p class="placeholder-sub">Mở file IFC trong Trimble Connect 3D Viewer</p>
+          </div>
         </div>
       </div>
 
@@ -122,62 +126,64 @@
 
     <!-- Statistics Tab -->
     <div id="tab-statistics" class="tab-content">
-      <!-- Stats Controls -->
-      <div class="control-bar" id="stats-control-bar">
-        <div class="control-row">
-          <label for="stats-group-by" class="control-label">Nhóm theo:</label>
-          <select id="stats-group-by">
-            <option value="assemblyName">Assembly Name</option>
-            <option value="assemblyPos">Assembly Pos</option>
-            <option value="name">Tên</option>
-            <option value="profile">Profile Name</option>
-            <option value="referenceName">Reference Name</option>
-            <option value="group">Group</option>
-            <option value="objectType">Object Type</option>
-            <option value="ifcClass">IFC Class</option>
-            <option value="material">Vật liệu</option>
-          </select>
-        </div>
-        <div class="control-row">
-          <label class="toggle-label">
-            <input type="checkbox" id="stats-all-toggle" checked />
-            <span class="toggle-slider"></span>
-            <span>Toàn bộ dự án</span>
-          </label>
+      <div class="card">
+        <!-- Stats Controls -->
+        <div class="control-bar" id="stats-control-bar">
+          <div class="control-row">
+            <label for="stats-group-by" class="control-label">Nhóm theo:</label>
+            <select id="stats-group-by">
+              <option value="assemblyName">Assembly Name</option>
+              <option value="assemblyPos">Assembly Pos</option>
+              <option value="name">Tên</option>
+              <option value="profile">Profile Name</option>
+              <option value="referenceName">Reference Name</option>
+              <option value="group">Group</option>
+              <option value="objectType">Object Type</option>
+              <option value="ifcClass">IFC Class</option>
+              <option value="material">Vật liệu</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label class="toggle-label">
+              <input type="checkbox" id="stats-all-toggle" checked />
+              <span class="toggle-slider"></span>
+              <span>Toàn bộ dự án</span>
+            </label>
+          </div>
         </div>
       </div>
 
       <!-- Compact Stats Strip -->
       <div class="stats-strip" id="stats-cards">
         <div class="stats-strip-counters">
-          <div class="strip-count" id="card-total-objects">
+          <div class="strip-count bg-pastel-pink" id="card-total-objects" style="padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(199, 141, 141, 0.3);">
             <span class="strip-count-icon">📦</span>
             <span class="strip-count-val" id="stat-total-objects">0</span>
             <span class="strip-count-lbl">obj</span>
           </div>
           <div class="strip-sep"></div>
-          <div class="strip-count" id="card-total-groups">
+          <div class="strip-count bg-pastel-brown" id="card-total-groups" style="padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(217, 184, 145, 0.3);">
             <span class="strip-count-icon">📁</span>
             <span class="strip-count-val" id="stat-total-groups">0</span>
             <span class="strip-count-lbl">nhóm</span>
           </div>
         </div>
         <div class="stats-strip-metrics">
-          <div class="strip-metric" id="card-volume">
+          <div class="strip-metric bg-pastel-green" id="card-volume">
             <span class="strip-metric-label">📐 Thể tích</span>
             <div class="strip-metric-vals">
               <span class="strip-tag gross">G</span><span class="strip-val" id="stat-total-gross-volume">0 m³</span>
               <span class="strip-tag net">N</span><span class="strip-val" id="stat-total-net-volume">0 m³</span>
             </div>
           </div>
-          <div class="strip-metric" id="card-area">
+          <div class="strip-metric bg-pastel-blue" id="card-area">
             <span class="strip-metric-label">📏 Diện tích</span>
             <div class="strip-metric-vals">
               <span class="strip-tag gross">G</span><span class="strip-val" id="stat-total-gross-area">0 m²</span>
               <span class="strip-tag net">N</span><span class="strip-val" id="stat-total-net-area">0 m²</span>
             </div>
           </div>
-          <div class="strip-metric" id="card-weight">
+          <div class="strip-metric bg-pastel-red" id="card-weight">
             <span class="strip-metric-label">⚖️ Khối lượng</span>
             <div class="strip-metric-vals">
               <span class="strip-tag gross">G</span><span class="strip-val" id="stat-total-gross-weight">0 kg</span>
@@ -187,50 +193,52 @@
         </div>
       </div>
 
-      <!-- Export Buttons -->
-      <div class="action-bar" id="stats-action-bar">
-        <button id="btn-export-all" class="action-btn export" title="Xuất toàn bộ dự án ra Excel">
-          <span>📥</span> Xuất Excel (Tất cả)
-        </button>
-        <button id="btn-export-selected" class="action-btn export-secondary" title="Xuất đối tượng đã chọn ra Excel">
-          <span>📥</span> Xuất Excel (Đã chọn)
-        </button>
-      </div>
-
-      <!-- Table Column Toggle -->
-      <div class="table-toggle-bar" id="table-toggle-bar">
-        <span class="table-toggle-label">Hiển thị:</span>
-        <div class="table-toggle-group">
-          <button class="table-toggle-btn active" data-mode="all" id="toggle-all-cols">Tất cả</button>
-          <button class="table-toggle-btn" data-mode="gross" id="toggle-gross-cols">Gross</button>
-          <button class="table-toggle-btn" data-mode="net" id="toggle-net-cols">Net</button>
+      <div class="card flex-1 table-card">
+        <!-- Export Buttons -->
+        <div class="action-bar" id="stats-action-bar">
+          <button id="btn-export-all" class="action-btn export" title="Xuất toàn bộ dự án ra Excel">
+            <span>📥</span> Xuất Excel (Tất cả)
+          </button>
+          <button id="btn-export-selected" class="action-btn export-secondary" title="Xuất đối tượng đã chọn ra Excel">
+            <span>📥</span> Xuất Excel (Đã chọn)
+          </button>
         </div>
-      </div>
 
-      <!-- Stats Table -->
-      <div id="stats-table-container" class="table-container">
-        <table id="stats-table">
-          <thead>
-            <tr>
-              <th>Nhóm</th>
-              <th>SL</th>
-              <th class="col-gross">V Gross (m³)</th>
-              <th class="col-net">V Net (m³)</th>
-              <th class="col-gross">A Gross (m²)</th>
-              <th class="col-net">A Net (m²)</th>
-              <th class="col-gross">W Gross (kg)</th>
-              <th class="col-net">W Net (kg)</th>
-            </tr>
-          </thead>
-          <tbody id="stats-table-body">
-          </tbody>
-          <tfoot id="stats-table-footer">
-          </tfoot>
-        </table>
-        <div class="placeholder" id="stats-placeholder">
-          <div class="placeholder-icon">📊</div>
-          <p>Chưa có dữ liệu thống kê</p>
-          <p class="placeholder-sub">Chuyển qua tab Objects và quét model trước</p>
+        <!-- Table Column Toggle -->
+        <div class="table-toggle-bar" id="table-toggle-bar">
+          <span class="table-toggle-label">Hiển thị:</span>
+          <div class="table-toggle-group">
+            <button class="table-toggle-btn active" data-mode="all" id="toggle-all-cols">Tất cả</button>
+            <button class="table-toggle-btn" data-mode="gross" id="toggle-gross-cols">Gross</button>
+            <button class="table-toggle-btn" data-mode="net" id="toggle-net-cols">Net</button>
+          </div>
+        </div>
+
+        <!-- Stats Table -->
+        <div id="stats-table-container" class="table-container">
+          <table id="stats-table">
+            <thead>
+              <tr>
+                <th>Nhóm</th>
+                <th>SL</th>
+                <th class="col-gross">V Gross (m³)</th>
+                <th class="col-net">V Net (m³)</th>
+                <th class="col-gross">A Gross (m²)</th>
+                <th class="col-net">A Net (m²)</th>
+                <th class="col-gross">W Gross (kg)</th>
+                <th class="col-net">W Net (kg)</th>
+              </tr>
+            </thead>
+            <tbody id="stats-table-body">
+            </tbody>
+            <tfoot id="stats-table-footer">
+            </tfoot>
+          </table>
+          <div class="placeholder" id="stats-placeholder">
+            <div class="placeholder-icon">📊</div>
+            <p>Chưa có dữ liệu thống kê</p>
+            <p class="placeholder-sub">Chuyển qua tab Objects và quét model trước</p>
+          </div>
         </div>
       </div>
     </div>
