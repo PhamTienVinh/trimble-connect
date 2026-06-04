@@ -689,17 +689,18 @@ select:focus {
 }
 
 .strip-count-val {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.3px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--card-text-primary, var(--text-primary));
+  letter-spacing: -0.5px;
 }
 
 .strip-count-lbl {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: 500;
+  font-size: 11px;
+  color: var(--card-text-muted, var(--text-muted));
+  font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .strip-sep {
@@ -734,31 +735,41 @@ select:focus {
 /* Specific Pastel Colored Boxes with Vibrant Gradients */
 .bg-pastel-pink { 
   background: linear-gradient(135deg, #FFB6C1 0%, #FF9A9E 100%) !important; 
-  color: #5C2A2A !important;
+  --card-text-primary: #5C2A2A;
+  --card-text-muted: rgba(92, 42, 42, 0.75);
+  --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
   box-shadow: 0 4px 10px rgba(255, 154, 158, 0.25) !important;
 }
 .bg-pastel-brown { 
   background: linear-gradient(135deg, #EAD6C9 0%, #D8B49C 100%) !important; 
-  color: #4A3320 !important;
+  --card-text-primary: #4A3320;
+  --card-text-muted: rgba(74, 51, 32, 0.75);
+  --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
   box-shadow: 0 4px 10px rgba(216, 180, 156, 0.25) !important;
 }
 .bg-pastel-green { 
   background: linear-gradient(135deg, #C2E5D3 0%, #95D5B2 100%) !important; 
-  color: #1B4332 !important;
+  --card-text-primary: #1B4332;
+  --card-text-muted: rgba(27, 67, 50, 0.75);
+  --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
   box-shadow: 0 4px 10px rgba(149, 213, 178, 0.25) !important;
 }
 .bg-pastel-orange { 
   background: linear-gradient(135deg, #FFDAB9 0%, #FFB4A2 100%) !important; 
-  color: #5C2C16 !important;
+  --card-text-primary: #5C2C16;
+  --card-text-muted: rgba(92, 44, 22, 0.75);
+  --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
   box-shadow: 0 4px 10px rgba(255, 180, 162, 0.25) !important;
 }
 .bg-pastel-red { 
   background: linear-gradient(135deg, #FFC3A0 0%, #FFAFBD 100%) !important; 
-  color: #59242C !important;
+  --card-text-primary: #59242C;
+  --card-text-muted: rgba(89, 36, 44, 0.75);
+  --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
   box-shadow: 0 4px 10px rgba(255, 175, 189, 0.25) !important;
 }
@@ -774,51 +785,43 @@ select:focus {
 }
 
 .strip-metric-label {
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--card-text-muted, var(--text-muted));
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.5px;
   white-space: nowrap;
 }
 
 .strip-metric-vals {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 
 .strip-tag {
-  font-size: 8px;
-  font-weight: 700;
-  width: 15px;
-  height: 15px;
+  font-size: 9px;
+  font-weight: 800;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: 4px;
   flex-shrink: 0;
-}
-
-.strip-tag.gross {
-  background: rgba(232, 167, 167, 0.15);
-  color: var(--accent);
-  border: 1px solid rgba(232, 167, 167, 0.25);
-}
-
-.strip-tag.net {
-  background: rgba(160, 207, 164, 0.15);
-  color: var(--success);
-  border: 1px solid rgba(160, 207, 164, 0.25);
+  background: var(--card-tag-bg, rgba(255, 255, 255, 0.6));
+  color: var(--card-text-primary, var(--text-primary));
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .strip-val {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--card-text-primary, var(--text-primary));
   letter-spacing: -0.2px;
-  margin-right: 4px;
+  margin-right: 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
