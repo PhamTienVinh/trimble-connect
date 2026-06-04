@@ -1,5 +1,5 @@
 /* ==============================
-   DDC Statistics - Premium Pastel Theme
+   DDC Statistics - Premium Pastel Light Theme
    ============================== */
 
 :root {
@@ -1462,4 +1462,9 @@ select:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Redeploy trigger */
+.redeploy-trigger-v3 {
+  content: "redeploy-v3";
 }
