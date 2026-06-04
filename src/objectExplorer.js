@@ -4668,16 +4668,21 @@ function updateSummary() {
   const fmtVol = (v) => v.toFixed(6) + " m³";
   const fmtArea = (a) => a.toFixed(4) + " m²";
   const fmtWeight = (w) => w >= 1000 ? (w / 1000).toFixed(2) + " tấn" : w.toFixed(2) + " kg";
-  // Display total objects count + project totals
+
+  // Helper to build a stat badge HTML
+  const statBadge = (label, gVal, nVal) =>
+    `<span class="sbadge"><b>${label}</b> <span class="sbadge-g">G:${gVal}</span> <span class="sbadge-n">N:${nVal}</span></span>`;
+
+  // Display total objects count (simple)
   document.getElementById("total-objects-count").textContent =
-    `${filteredObjects.length} objects | V(G/N): ${fmtVol(projectGrossVolume)}/${fmtVol(projectNetVolume)} | W(G/N): ${fmtWeight(projectGrossWeight)}/${fmtWeight(projectNetWeight)} | A(G/N): ${fmtArea(projectGrossArea)}/${fmtArea(projectNetArea)}`;
+    `${filteredObjects.length} objects`;
 
   document.getElementById("selected-objects-count").textContent =
     `${selectedIds.size} đã chọn`;
 
   // Calculate and display stats for selected objects
   const selStatsEl = document.getElementById("selected-stats");
-  const statsDivider = document.getElementById("stats-divider");
+  const statsRow = document.getElementById("summary-stats-row");
 
   if (selectedIds.size > 0) {
     let totalGrossVolume = 0, totalNetVolume = 0;
@@ -4697,21 +4702,23 @@ function updateSummary() {
       }
     }
 
-    const statsText = `V(G/N): ${fmtVol(totalGrossVolume)}/${fmtVol(totalNetVolume)} | W(G/N): ${fmtWeight(totalGrossWeight)}/${fmtWeight(totalNetWeight)} | A(G/N): ${fmtArea(totalGrossArea)}/${fmtArea(totalNetArea)}`;
+    const statsHtml =
+      statBadge("V", fmtVol(totalGrossVolume), fmtVol(totalNetVolume)) +
+      statBadge("W", fmtWeight(totalGrossWeight), fmtWeight(totalNetWeight)) +
+      statBadge("A", fmtArea(totalGrossArea), fmtArea(totalNetArea));
 
     if (selStatsEl) {
-      selStatsEl.textContent = statsText;
-      selStatsEl.style.display = "inline";
+      selStatsEl.innerHTML = statsHtml;
     }
-    if (statsDivider) statsDivider.style.display = "inline";
+    if (statsRow) statsRow.style.display = "flex";
   } else {
     if (selStatsEl) {
-      selStatsEl.textContent = "";
-      selStatsEl.style.display = "none";
+      selStatsEl.innerHTML = "";
     }
-    if (statsDivider) statsDivider.style.display = "none";
+    if (statsRow) statsRow.style.display = "none";
   }
 }
+
 
 
 function showLoading(show) {
