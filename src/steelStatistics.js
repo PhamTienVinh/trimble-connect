@@ -118,9 +118,11 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
         containers: new Map(),
         orphans: [],
         totalCount: 0,
-        totalVolume: 0,
-        totalWeight: 0,
-        totalArea: 0,
+        totalNetVolume: 0,
+        totalGrossVolume: 0,
+        totalNetWeight: 0,
+        totalGrossWeight: 0,
+        totalGrossArea: 0,
         totalNetArea: 0,
       };
     }
@@ -135,27 +137,33 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
         group.containers.set(containerKey, {
           info: cInfo,
           children: [],
-          totalVolume: 0,
-          totalWeight: 0,
-          totalArea: 0,
+          totalNetVolume: 0,
+          totalGrossVolume: 0,
+          totalNetWeight: 0,
+          totalGrossWeight: 0,
+          totalGrossArea: 0,
           totalNetArea: 0,
           assemblyWeight: cInfo.assemblyWeight || 0,
         });
       }
       const containerEntry = group.containers.get(containerKey);
       containerEntry.children.push(obj);
-      containerEntry.totalVolume += obj.volume;
-      containerEntry.totalWeight += obj.weight;
-      containerEntry.totalArea += obj.area;
+      containerEntry.totalNetVolume += obj.netVolume || 0;
+      containerEntry.totalGrossVolume += obj.grossVolume || 0;
+      containerEntry.totalNetWeight += obj.netWeight || 0;
+      containerEntry.totalGrossWeight += obj.grossWeight || 0;
+      containerEntry.totalGrossArea += obj.grossArea || 0;
       containerEntry.totalNetArea += obj.netArea || 0;
     } else {
       group.orphans.push(obj);
     }
 
     group.totalCount++;
-    group.totalVolume += obj.volume;
-    group.totalWeight += obj.weight;
-    group.totalArea += obj.area;
+    group.totalNetVolume += obj.netVolume || 0;
+    group.totalGrossVolume += obj.grossVolume || 0;
+    group.totalNetWeight += obj.netWeight || 0;
+    group.totalGrossWeight += obj.grossWeight || 0;
+    group.totalGrossArea += obj.grossArea || 0;
     group.totalNetArea += obj.netArea || 0;
   }
 
@@ -187,34 +195,46 @@ function updateStatistics() {
   }
 
   // Calculate totals
-  let totalVolume = 0;
-  let totalWeight = 0;
-  let totalArea = 0;
-  let totalNetArea = 0;
+  let totalNetVolume = 0, totalGrossVolume = 0;
+  let totalNetWeight = 0, totalGrossWeight = 0;
+  let totalGrossArea = 0, totalNetArea = 0;
 
   const enriched = objects.map((obj) => {
-    let vol = obj.volume || 0;
-    let wt = obj.weight || 0;
-    let area = obj.area || 0;
+    let netVol = obj.netVolume || obj.volume || 0;
+    let grossVol = obj.grossVolume || obj.volume || 0;
+    let netWt = obj.netWeight || obj.weight || 0;
+    let grossWt = obj.grossWeight || obj.weight || 0;
+    let grossArea = obj.grossArea || obj.area || 0;
     let netArea = obj.netArea || 0;
 
-    if (wt === 0 && vol > 0) {
-      wt = vol * STEEL_DENSITY;
+    if (netWt === 0 && netVol > 0) {
+      netWt = netVol * STEEL_DENSITY;
+    }
+    if (grossWt === 0 && grossVol > 0) {
+      grossWt = grossVol * STEEL_DENSITY;
     }
 
-    totalVolume += vol;
-    totalWeight += wt;
-    totalArea += area;
+    totalNetVolume += netVol;
+    totalGrossVolume += grossVol;
+    totalNetWeight += netWt;
+    totalGrossWeight += grossWt;
+    totalGrossArea += grossArea;
     totalNetArea += netArea;
 
     return {
       ...obj,
-      volume: vol,
-      weight: wt,
-      area,
+      netVolume: netVol,
+      grossVolume: grossVol,
+      netWeight: netWt,
+      grossWeight: grossWt,
+      grossArea,
       netArea,
+      // legacy support
+      volume: netVol,
+      weight: netWt,
+      area: grossArea,
       density: obj.density || STEEL_DENSITY,
-      weightSource: obj.weightSource || (wt > 0 && obj.weight === 0 ? "calculated" : (wt > 0 ? "ifc" : "")),
+      weightSource: obj.weightSource || (netWt > 0 && obj.weight === 0 ? "calculated" : (netWt > 0 ? "ifc" : "")),
     };
   });
 
@@ -222,18 +242,19 @@ function updateStatistics() {
 
   // Update summary cards
   document.getElementById("stat-total-objects").textContent = formatNumber(objects.length);
-  document.getElementById("stat-total-volume").textContent = formatVolume(totalVolume);
-  document.getElementById("stat-total-weight").textContent = formatWeight(totalWeight);
-  document.getElementById("stat-total-area").textContent = formatArea(totalArea);
-  const netAreaEl = document.getElementById("stat-total-net-area");
-  if (netAreaEl) netAreaEl.textContent = formatArea(totalNetArea);
+  if (document.getElementById("stat-total-gross-volume")) document.getElementById("stat-total-gross-volume").textContent = formatVolume(totalGrossVolume);
+  if (document.getElementById("stat-total-net-volume")) document.getElementById("stat-total-net-volume").textContent = formatVolume(totalNetVolume);
+  if (document.getElementById("stat-total-gross-area")) document.getElementById("stat-total-gross-area").textContent = formatArea(totalGrossArea);
+  if (document.getElementById("stat-total-net-area")) document.getElementById("stat-total-net-area").textContent = formatArea(totalNetArea);
+  if (document.getElementById("stat-total-gross-weight")) document.getElementById("stat-total-gross-weight").textContent = formatWeight(totalGrossWeight);
+  if (document.getElementById("stat-total-net-weight")) document.getElementById("stat-total-net-weight").textContent = formatWeight(totalNetWeight);
 
   // ── Assembly grouping: 3-level hierarchy ──
   if (isAssemblyGrouping(groupBy)) {
     const assemblyGroups = buildAssemblyGroupedData(enriched, groupBy);
     if (assemblyGroups) {
-      const sortedGroups = Object.values(assemblyGroups).sort((a, b) => b.totalWeight - a.totalWeight);
-      renderAssemblyStatsTable(sortedGroups, totalVolume, totalWeight, totalArea, totalNetArea, groupBy);
+      const sortedGroups = Object.values(assemblyGroups).sort((a, b) => b.totalNetWeight - a.totalNetWeight);
+      renderAssemblyStatsTable(sortedGroups, totalNetVolume, totalGrossVolume, totalNetWeight, totalGrossWeight, totalGrossArea, totalNetArea, groupBy);
 
       const groupCount = sortedGroups.length;
       const el = document.getElementById("stat-total-groups");
@@ -252,24 +273,28 @@ function updateStatistics() {
       groups[key] = {
         name: key,
         count: 0,
-        volume: 0,
-        weight: 0,
-        area: 0,
+        netVolume: 0,
+        grossVolume: 0,
+        netWeight: 0,
+        grossWeight: 0,
+        grossArea: 0,
         netArea: 0,
         weightSources: new Set(),
       };
     }
     groups[key].count++;
-    groups[key].volume += obj.volume;
-    groups[key].weight += obj.weight;
-    groups[key].area += obj.area;
+    groups[key].netVolume += obj.netVolume || 0;
+    groups[key].grossVolume += obj.grossVolume || 0;
+    groups[key].netWeight += obj.netWeight || 0;
+    groups[key].grossWeight += obj.grossWeight || 0;
+    groups[key].grossArea += obj.grossArea || 0;
     groups[key].netArea += obj.netArea || 0;
     if (obj.weightSource) groups[key].weightSources.add(obj.weightSource);
   }
 
-  const sortedGroups = Object.values(groups).sort((a, b) => b.weight - a.weight);
+  const sortedGroups = Object.values(groups).sort((a, b) => b.netWeight - a.netWeight);
 
-  renderStatsTable(sortedGroups, totalVolume, totalWeight, totalArea, totalNetArea);
+  renderStatsTable(sortedGroups, totalNetVolume, totalGrossVolume, totalNetWeight, totalGrossWeight, totalGrossArea, totalNetArea);
 
   const el = document.getElementById("stat-total-groups");
   if (el) el.textContent = formatNumber(sortedGroups.length);
@@ -280,7 +305,7 @@ function updateStatistics() {
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Render Assembly Stats Table (3-level hierarchy) ──
 // ══════════════════════════════════════════════════════════════════════════════
-function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, totalArea, totalNetArea, groupBy) {
+function renderAssemblyStatsTable(assemblyGroups, totalNetVolume, totalGrossVolume, totalNetWeight, totalGrossWeight, totalGrossArea, totalNetArea, groupBy) {
   const tbody = document.getElementById("stats-table-body");
   const tfoot = document.getElementById("stats-table-footer");
 
@@ -298,14 +323,18 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
 
   // Update table header to include assembly weight column if data exists
   const thead = document.querySelector("#stats-table thead tr");
-  if (thead && hasAsmWeight) {
-    const existingHeaders = thead.querySelectorAll("th");
-    const lastTh = existingHeaders[existingHeaders.length - 1];
-    if (!thead.querySelector(".asm-weight-header")) {
-      const th = document.createElement("th");
-      th.className = "asm-weight-header";
-      th.textContent = "Asm Weight (kg)";
-      lastTh.after(th);
+  if (thead) {
+    const asmHeader = thead.querySelector(".asm-weight-header");
+    if (hasAsmWeight) {
+      if (!asmHeader) {
+        const th = document.createElement("th");
+        th.className = "asm-weight-header";
+        th.textContent = "Asm Weight (kg)";
+        const lastTh = thead.querySelectorAll("th");
+        lastTh[lastTh.length - 1].after(th);
+      }
+    } else if (asmHeader) {
+      asmHeader.remove();
     }
   }
 
@@ -332,10 +361,12 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
     bodyHtml += `<strong>🏗️ ${escHtml(group.name)}</strong>`;
     bodyHtml += `</td>`;
     bodyHtml += `<td><strong>${formatNumber(group.totalCount)}</strong></td>`;
-    bodyHtml += `<td><strong>${formatVolume(group.totalVolume)}</strong></td>`;
-    bodyHtml += `<td><strong>${formatArea(group.totalArea)}</strong></td>`;
+    bodyHtml += `<td><strong>${formatVolume(group.totalGrossVolume)}</strong></td>`;
+    bodyHtml += `<td><strong>${formatVolume(group.totalNetVolume)}</strong></td>`;
+    bodyHtml += `<td><strong>${formatArea(group.totalGrossArea)}</strong></td>`;
     bodyHtml += `<td><strong>${formatArea(group.totalNetArea)}</strong></td>`;
-    bodyHtml += `<td><strong>${formatWeight(group.totalWeight)}</strong></td>`;
+    bodyHtml += `<td><strong>${formatWeight(group.totalGrossWeight)}</strong></td>`;
+    bodyHtml += `<td><strong>${formatWeight(group.totalNetWeight)}</strong></td>`;
     if (hasAsmWeight) {
       bodyHtml += `<td><strong>${groupAsmWeight > 0 ? formatWeight(groupAsmWeight) : "—"}</strong></td>`;
     }
@@ -352,10 +383,12 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
       bodyHtml += `📦 <em>${escHtml(containerName)}</em>`;
       bodyHtml += `</td>`;
       bodyHtml += `<td>${formatNumber(containerChildCount)}</td>`;
-      bodyHtml += `<td>${formatVolume(containerEntry.totalVolume)}</td>`;
-      bodyHtml += `<td>${formatArea(containerEntry.totalArea)}</td>`;
+      bodyHtml += `<td>${formatVolume(containerEntry.totalGrossVolume)}</td>`;
+      bodyHtml += `<td>${formatVolume(containerEntry.totalNetVolume)}</td>`;
+      bodyHtml += `<td>${formatArea(containerEntry.totalGrossArea)}</td>`;
       bodyHtml += `<td>${formatArea(containerEntry.totalNetArea)}</td>`;
-      bodyHtml += `<td>${formatWeight(containerEntry.totalWeight)}</td>`;
+      bodyHtml += `<td>${formatWeight(containerEntry.totalGrossWeight)}</td>`;
+      bodyHtml += `<td>${formatWeight(containerEntry.totalNetWeight)}</td>`;
       if (hasAsmWeight) {
         bodyHtml += `<td>${containerEntry.assemblyWeight > 0 ? formatWeight(containerEntry.assemblyWeight) : "—"}</td>`;
       }
@@ -366,10 +399,12 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
         bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(group.name)}" data-container="${escHtml(containerKey)}">`;
         bodyHtml += `<td class="stats-child-name">─ ${escHtml(child.name || "(Không tên)")}</td>`;
         bodyHtml += `<td>1</td>`;
-        bodyHtml += `<td>${formatVolume(child.volume)}</td>`;
-        bodyHtml += `<td>${formatArea(child.area)}</td>`;
+        bodyHtml += `<td>${formatVolume(child.grossVolume)}</td>`;
+        bodyHtml += `<td>${formatVolume(child.netVolume)}</td>`;
+        bodyHtml += `<td>${formatArea(child.grossArea)}</td>`;
         bodyHtml += `<td>${formatArea(child.netArea || 0)}</td>`;
-        bodyHtml += `<td>${formatWeight(child.weight)}</td>`;
+        bodyHtml += `<td>${formatWeight(child.grossWeight)}</td>`;
+        bodyHtml += `<td>${formatWeight(child.netWeight)}</td>`;
         if (hasAsmWeight) {
           bodyHtml += `<td>${child.assemblyWeight > 0 ? formatWeight(child.assemblyWeight) : "—"}</td>`;
         }
@@ -382,10 +417,12 @@ function renderAssemblyStatsTable(assemblyGroups, totalVolume, totalWeight, tota
       bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(group.name)}" data-container="direct">`;
       bodyHtml += `<td class="stats-child-name">─ ${escHtml(child.name || "(Không tên)")}</td>`;
       bodyHtml += `<td>1</td>`;
-      bodyHtml += `<td>${formatVolume(child.volume)}</td>`;
-      bodyHtml += `<td>${formatArea(child.area)}</td>`;
+      bodyHtml += `<td>${formatVolume(child.grossVolume)}</td>`;
+      bodyHtml += `<td>${formatVolume(child.netVolume)}</td>`;
+      bodyHtml += `<td>${formatArea(child.grossArea)}</td>`;
       bodyHtml += `<td>${formatArea(child.netArea || 0)}</td>`;
-      bodyHtml += `<td>${formatWeight(child.weight)}</td>`;
+      bodyHtml += `<td>${formatWeight(child.grossWeight)}</td>`;
+      bodyHtml += `<td>${formatWeight(child.netWeight)}</td>`;
       if (hasAsmWeight) {
         bodyHtml += `<td>${child.assemblyWeight > 0 ? formatWeight(child.assemblyWeight) : "—"}</td>`;
       }
@@ -442,19 +479,30 @@ window._toggleContainerChildren = function(el) {
 };
 
 // ── Render Standard Table (flat grouping) ──
-function renderStatsTable(groups, totalVolume, totalWeight, totalArea, totalNetArea) {
+function renderStatsTable(groups, totalNetVolume, totalGrossVolume, totalNetWeight, totalGrossWeight, totalGrossArea, totalNetArea) {
   const tbody = document.getElementById("stats-table-body");
   const tfoot = document.getElementById("stats-table-footer");
+
+  // Remove assembly weight header from table header if it exists
+  const thead = document.querySelector("#stats-table thead tr");
+  if (thead) {
+    const asmHeader = thead.querySelector(".asm-weight-header");
+    if (asmHeader) {
+      asmHeader.remove();
+    }
+  }
 
   let bodyHtml = "";
   for (const g of groups) {
     bodyHtml += `<tr>`;
     bodyHtml += `<td>${escHtml(g.name)}</td>`;
     bodyHtml += `<td>${formatNumber(g.count)}</td>`;
-    bodyHtml += `<td>${formatVolume(g.volume)}</td>`;
-    bodyHtml += `<td>${formatArea(g.area)}</td>`;
+    bodyHtml += `<td>${formatVolume(g.grossVolume)}</td>`;
+    bodyHtml += `<td>${formatVolume(g.netVolume)}</td>`;
+    bodyHtml += `<td>${formatArea(g.grossArea)}</td>`;
     bodyHtml += `<td>${formatArea(g.netArea)}</td>`;
-    bodyHtml += `<td>${formatWeight(g.weight)}</td>`;
+    bodyHtml += `<td>${formatWeight(g.grossWeight)}</td>`;
+    bodyHtml += `<td>${formatWeight(g.netWeight)}</td>`;
     bodyHtml += `</tr>`;
   }
   tbody.innerHTML = bodyHtml;
@@ -463,10 +511,12 @@ function renderStatsTable(groups, totalVolume, totalWeight, totalArea, totalNetA
     <tr>
       <td>TỔNG CỘNG</td>
       <td>${formatNumber(groups.reduce((s, g) => s + g.count, 0))}</td>
-      <td>${formatVolume(totalVolume)}</td>
-      <td>${formatArea(totalArea)}</td>
+      <td>${formatVolume(totalGrossVolume)}</td>
+      <td>${formatVolume(totalNetVolume)}</td>
+      <td>${formatArea(totalGrossArea)}</td>
       <td>${formatArea(totalNetArea)}</td>
-      <td>${formatWeight(totalWeight)}</td>
+      <td>${formatWeight(totalGrossWeight)}</td>
+      <td>${formatWeight(totalNetWeight)}</td>
     </tr>
   `;
 }
@@ -525,11 +575,15 @@ function getGroupKey(obj, groupBy) {
 
 function clearStats() {
   document.getElementById("stat-total-objects").textContent = "0";
-  document.getElementById("stat-total-volume").textContent = "0 m³";
-  document.getElementById("stat-total-weight").textContent = "0 kg";
-  document.getElementById("stat-total-area").textContent = "0 m²";
-  const netAreaEl = document.getElementById("stat-total-net-area");
-  if (netAreaEl) netAreaEl.textContent = "0 m²";
+  document.getElementById("stat-total-groups").textContent = "0";
+
+  if (document.getElementById("stat-total-gross-volume")) document.getElementById("stat-total-gross-volume").textContent = "0 m³";
+  if (document.getElementById("stat-total-net-volume")) document.getElementById("stat-total-net-volume").textContent = "0 m³";
+  if (document.getElementById("stat-total-gross-area")) document.getElementById("stat-total-gross-area").textContent = "0 m²";
+  if (document.getElementById("stat-total-net-area")) document.getElementById("stat-total-net-area").textContent = "0 m²";
+  if (document.getElementById("stat-total-gross-weight")) document.getElementById("stat-total-gross-weight").textContent = "0 kg";
+  if (document.getElementById("stat-total-net-weight")) document.getElementById("stat-total-net-weight").textContent = "0 kg";
+
   document.getElementById("stats-table-body").innerHTML = "";
   const tfoot = document.getElementById("stats-table-footer");
   if (tfoot) {

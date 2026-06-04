@@ -7,8 +7,8 @@
   <title>DDC Statistics</title>
   <meta name="description" content="Trimble Connect Extension - DDC Statistics" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <script type="module" crossorigin src="./assets/index-doq2fkJk.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-CUEJq8dA.css">
+  <script type="module" crossorigin src="./assets/index-CImiiV_n.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-B24kvV4Y.css">
 </head>
 
 <body>
@@ -147,31 +147,40 @@
           <div class="stat-card-value" id="stat-total-objects">0</div>
           <div class="stat-card-label">Tổng Objects</div>
         </div>
-        <div class="stat-card" id="card-total-volume">
-          <div class="stat-card-icon">📐</div>
-          <div class="stat-card-value" id="stat-total-volume">0 m³</div>
-          <div class="stat-card-label">Tổng Thể tích</div>
+        <div class="stat-card" id="card-total-groups">
+          <div class="stat-card-icon">📁</div>
+          <div class="stat-card-value" id="stat-total-groups">0</div>
+          <div class="stat-card-label">Số nhóm</div>
         </div>
-        <div class="stat-card" id="card-total-area">
+        <div class="stat-card" id="card-total-gross-volume">
+          <div class="stat-card-icon">📐</div>
+          <div class="stat-card-value" id="stat-total-gross-volume">0 m³</div>
+          <div class="stat-card-label">Thể tích Gross</div>
+        </div>
+        <div class="stat-card" id="card-total-net-volume">
+          <div class="stat-card-icon">🧪</div>
+          <div class="stat-card-value" id="stat-total-net-volume">0 m³</div>
+          <div class="stat-card-label">Thể tích Net</div>
+        </div>
+        <div class="stat-card" id="card-total-gross-area">
           <div class="stat-card-icon">📏</div>
-          <div class="stat-card-value" id="stat-total-area">0 m²</div>
-          <div class="stat-card-label">Tổng DT bề mặt</div>
+          <div class="stat-card-value" id="stat-total-gross-area">0 m²</div>
+          <div class="stat-card-label">DT bề mặt Gross</div>
         </div>
         <div class="stat-card" id="card-total-net-area">
           <div class="stat-card-icon">📐</div>
           <div class="stat-card-value" id="stat-total-net-area">0 m²</div>
           <div class="stat-card-label">DT bề mặt Net</div>
         </div>
-
-        <div class="stat-card" id="card-total-weight">
+        <div class="stat-card" id="card-total-gross-weight">
           <div class="stat-card-icon">⚖️</div>
-          <div class="stat-card-value" id="stat-total-weight">0 kg</div>
-          <div class="stat-card-label">Tổng Khối lượng</div>
+          <div class="stat-card-value" id="stat-total-gross-weight">0 kg</div>
+          <div class="stat-card-label">Khối lượng Gross</div>
         </div>
-        <div class="stat-card" id="card-total-groups">
-          <div class="stat-card-icon">📁</div>
-          <div class="stat-card-value" id="stat-total-groups">0</div>
-          <div class="stat-card-label">Số nhóm</div>
+        <div class="stat-card" id="card-total-net-weight">
+          <div class="stat-card-icon">🏋️</div>
+          <div class="stat-card-value" id="stat-total-net-weight">0 kg</div>
+          <div class="stat-card-label">Khối lượng Net</div>
         </div>
       </div>
 
@@ -192,10 +201,12 @@
             <tr>
               <th>Nhóm</th>
               <th>Số lượng</th>
-              <th>Thể tích (m³)</th>
-              <th>DT bề mặt (m²)</th>
+              <th>Thể tích Gross (m³)</th>
+              <th>Thể tích Net (m³)</th>
+              <th>DT bề mặt Gross (m²)</th>
               <th>DT Net (m²)</th>
-              <th>Khối lượng (kg)</th>
+              <th>Khối lượng Gross (kg)</th>
+              <th>Khối lượng Net (kg)</th>
             </tr>
           </thead>
           <tbody id="stats-table-body">

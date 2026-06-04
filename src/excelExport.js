@@ -75,12 +75,14 @@ export function exportToExcel(data, groupBy, selectedOnly) {
   for (const obj of data) {
     const key = getGroupKey(obj, groupBy) || "(Không xác định)";
     if (!groups[key]) {
-      groups[key] = { count: 0, volume: 0, weight: 0, area: 0, netArea: 0, length: 0 };
+      groups[key] = { count: 0, netVolume: 0, grossVolume: 0, netWeight: 0, grossWeight: 0, grossArea: 0, netArea: 0 };
     }
     groups[key].count++;
-    groups[key].volume += obj.volume || 0;
-    groups[key].weight += obj.weight || 0;
-    groups[key].area += obj.area || 0;
+    groups[key].netVolume += obj.netVolume || obj.volume || 0;
+    groups[key].grossVolume += obj.grossVolume || obj.volume || 0;
+    groups[key].netWeight += obj.netWeight || obj.weight || 0;
+    groups[key].grossWeight += obj.grossWeight || obj.weight || 0;
+    groups[key].grossArea += obj.grossArea || obj.area || 0;
     groups[key].netArea += obj.netArea || 0;
   }
 
@@ -91,36 +93,60 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     [`Nhóm theo: ${getGroupLabel(groupBy)}`],
     [`Tổng số đối tượng: ${data.length}`],
     [],
-    [getGroupLabel(groupBy), "Số lượng", "Thể tích (m³)", "DT bề mặt (m²)", "DT Net (m²)", "Khối lượng (kg)"],
+    [getGroupLabel(groupBy), "Số lượng", "Thể tích Gross (m³)", "Thể tích Net (m³)", "DT bề mặt Gross (m²)", "DT Net (m²)", "Khối lượng Gross (kg)", "Khối lượng Net (kg)"],
   ];
 
-  let totalVolume = 0, totalWeight = 0, totalArea = 0, totalNetArea = 0;
+  let totalNetVolume = 0, totalGrossVolume = 0;
+  let totalNetWeight = 0, totalGrossWeight = 0;
+  let totalGrossArea = 0, totalNetArea = 0;
   const summaryRows = [];
 
   for (const key of Object.keys(groups).sort()) {
     const g = groups[key];
-    totalVolume += g.volume;
-    totalWeight += g.weight;
-    totalArea += g.area;
+    totalNetVolume += g.netVolume;
+    totalGrossVolume += g.grossVolume;
+    totalNetWeight += g.netWeight;
+    totalGrossWeight += g.grossWeight;
+    totalGrossArea += g.grossArea;
     totalNetArea += g.netArea;
-    summaryRows.push([key, g.count, r(g.volume, 6), r(g.area, 4), r(g.netArea, 4), r(g.weight, 2)]);
+    summaryRows.push([
+      key, 
+      g.count, 
+      r(g.grossVolume, 6), 
+      r(g.netVolume, 6), 
+      r(g.grossArea, 4), 
+      r(g.netArea, 4), 
+      r(g.grossWeight, 2), 
+      r(g.netWeight, 2)
+    ]);
   }
   summaryRows.push([]);
-  summaryRows.push(["TỔNG CỘNG", data.length, r(totalVolume, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalWeight, 2)]);
+  summaryRows.push([
+    "TỔNG CỘNG", 
+    data.length, 
+    r(totalGrossVolume, 6), 
+    r(totalNetVolume, 6), 
+    r(totalGrossArea, 4), 
+    r(totalNetArea, 4), 
+    r(totalGrossWeight, 2), 
+    r(totalNetWeight, 2)
+  ]);
 
   const wsSummary = XLSX.utils.aoa_to_sheet([...summaryHeader, ...summaryRows]);
-  wsSummary["!cols"] = [{ wch: 35 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
-  wsSummary["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
-  // Apply pastel styling
-  styleRow(wsSummary, 0, 6, S.title); // Title
-  for (let i=1;i<5;i++) styleRow(wsSummary, i, 6, S.info); // Info rows
-  styleRow(wsSummary, 6, 6, S.header); // Column headers
+  wsSummary["!cols"] = [
+    { wch: 35 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 22 }
+  ];
+  wsSummary["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+  // Apply styling
+  styleRow(wsSummary, 0, 8, S.title); // Title
+  for (let i=1;i<5;i++) styleRow(wsSummary, i, 8, S.info); // Info rows
+  styleRow(wsSummary, 6, 8, S.header); // Column headers
   const dataStart = 7;
   for (let i=0; i<summaryRows.length; i++) {
     const rowIdx = dataStart + i;
     if (summaryRows[i].length === 0) continue;
-    if (summaryRows[i][0] === "TỔNG CỘNG") { styleRow(wsSummary, rowIdx, 6, S.footer); }
-    else { styleRow(wsSummary, rowIdx, 6, i % 2 === 0 ? S.data : S.dataAlt); }
+    if (summaryRows[i][0] === "TỔNG CỘNG") { styleRow(wsSummary, rowIdx, 8, S.footer); }
+    else { styleRow(wsSummary, rowIdx, 8, i % 2 === 0 ? S.data : S.dataAlt); }
   }
   XLSX.utils.book_append_sheet(wb, wsSummary, "Tổng hợp");
 
@@ -133,13 +159,13 @@ export function exportToExcel(data, groupBy, selectedOnly) {
       "STT", "Tên", "Profile", "Reference", "IFC Class", "Object Type",
       "Assembly Pos", "Assembly Name", "Assembly Code",
       "Group", "Vật liệu",
-      "Thể tích (m³)", "DT bề mặt (m²)", "DT Net (m²)", "Khối lượng (kg)",
+      "Thể tích Gross (m³)", "Thể tích Net (m³)", "DT bề mặt Gross (m²)", "DT Net (m²)", "Khối lượng Gross (kg)", "Khối lượng Net (kg)",
       "Bolt Standard", "Bolt Size", "Bolt Length", "Bolt Grade",
       "Bolt Count", "Nut Type", "Nut Count", "Washer Type", "Washer Count",
     ],
   ];
 
-  // Sort data by ASSEMBLY_POSITION_CODE → ASSEMBLY_NAME → ASSEMBLY_POS → Name for grouped display
+  // Sort data
   const sortedData = [...data].sort((a, b) => {
     const codeA = (a.assemblyPosCode || "zzz").toLowerCase();
     const codeB = (b.assemblyPosCode || "zzz").toLowerCase();
@@ -153,7 +179,6 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     return (a.name || "").localeCompare(b.name || "");
   });
 
-  // Build detail rows with 3-level group headers (CODE > NAME > POS > children)
   const detailRows = [];
   let currentCode = null;
   let currentAsmName = null;
@@ -166,31 +191,31 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     const asmName = obj.assemblyName || "(Không có Assembly Name)";
     const pos = obj.assemblyPos || "(Không có Assembly Pos)";
 
-    // Insert ASSEMBLY_POSITION_CODE group header (Level 1)
+    // Level 1: Code
     if (code !== currentCode) {
       currentCode = code;
-      currentAsmName = null; // Reset sub-groups
+      currentAsmName = null;
       currentPos = null;
-      detailRows.push([]); // blank separator
+      detailRows.push([]);
       const headerRowIdx = detailHeader.length + detailRows.length;
-      detailRows.push([`▶ ASSEMBLY CODE: ${code}`, "", "", "", "", "", "", "", "", "", "", "", ""]);
+      detailRows.push([`▶ ASSEMBLY CODE: ${code}`, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
       mergeRows.push(headerRowIdx);
     }
 
-    // Insert ASSEMBLY_NAME subgroup header (Level 2)
+    // Level 2: Name
     if (asmName !== currentAsmName) {
       currentAsmName = asmName;
-      currentPos = null; // Reset sub-sub-group
+      currentPos = null;
       const headerRowIdx = detailHeader.length + detailRows.length;
-      detailRows.push([`   ▸ ASSEMBLY NAME: ${asmName}`, "", "", "", "", "", "", "", "", "", "", "", ""]);
+      detailRows.push([`   ▸ ASSEMBLY NAME: ${asmName}`, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
       mergeRows.push(headerRowIdx);
     }
 
-    // Insert ASSEMBLY_POS subgroup header (Level 3)
+    // Level 3: Pos
     if (pos !== currentPos) {
       currentPos = pos;
       const headerRowIdx = detailHeader.length + detailRows.length;
-      detailRows.push([`      ▹ ASSEMBLY POS: ${pos}`, "", "", "", "", "", "", "", "", "", "", "", ""]);
+      detailRows.push([`      ▹ ASSEMBLY POS: ${pos}`, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]);
       mergeRows.push(headerRowIdx);
     }
 
@@ -207,10 +232,12 @@ export function exportToExcel(data, groupBy, selectedOnly) {
       obj.assemblyPosCode || "",
       obj.group || "",
       obj.material || "",
-      r(obj.volume || 0, 6),
-      r(obj.area || 0, 4),
+      r(obj.grossVolume || obj.volume || 0, 6),
+      r(obj.netVolume || obj.volume || 0, 6),
+      r(obj.grossArea || obj.area || 0, 4),
       r(obj.netArea || 0, 4),
-      r(obj.weight || 0, 2),
+      r(obj.grossWeight || obj.weight || 0, 2),
+      r(obj.netWeight || obj.weight || 0, 2),
       obj.boltStandard || obj.boltFullName || "",
       obj.boltSize || "",
       obj.boltLength || "",
@@ -226,7 +253,7 @@ export function exportToExcel(data, groupBy, selectedOnly) {
   detailRows.push([]);
   detailRows.push([
     "", "TỔNG CỘNG", "", "", "", "", "", "", "", "", "",
-    r(totalVolume, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalWeight, 2),
+    r(totalGrossVolume, 6), r(totalNetVolume, 6), r(totalGrossArea, 4), r(totalNetArea, 4), r(totalGrossWeight, 2), r(totalNetWeight, 2),
     "", "", "", "", "", "", "", "", "",
   ]);
 
@@ -235,27 +262,24 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     { wch: 6 }, { wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 },
     { wch: 18 }, { wch: 22 }, { wch: 18 },
     { wch: 18 }, { wch: 15 },
-    { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
+    { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 22 },
     { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
     { wch: 10 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 10 },
   ];
 
-  // Merge: title row + all group header rows
-  const colCount = 23; // total columns
+  const colCount = 25;
   const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: colCount } }];
   for (const rowIdx of mergeRows) {
     merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: colCount } });
   }
   wsDetail["!merges"] = merges;
-  // Apply pastel styling to detail sheet
   const CC = colCount + 1;
   styleRow(wsDetail, 0, CC, S.title);
   styleRow(wsDetail, 1, CC, S.info);
-  styleRow(wsDetail, 3, CC, S.header); // header row at index 3
+  styleRow(wsDetail, 3, CC, S.header);
   for (const rowIdx of mergeRows) {
     styleRow(wsDetail, rowIdx, CC, S.grp1);
   }
-  // Style footer (last row)
   const totalRowIdx = detailHeader.length + detailRows.length - 1;
   styleRow(wsDetail, totalRowIdx, CC, S.footer);
   XLSX.utils.book_append_sheet(wb, wsDetail, "Chi tiết");
@@ -275,7 +299,6 @@ export function exportToExcel(data, groupBy, selectedOnly) {
   ];
 
   for (const gs of groupSheets) {
-    // Skip the sheet that matches the current summary grouping (already shown)
     if (gs.key === groupBy) continue;
     try {
       const ws = createGroupSheet(data, gs.key, gs.label);
@@ -285,17 +308,15 @@ export function exportToExcel(data, groupBy, selectedOnly) {
     }
   }
 
-
   // ── Assembly Hierarchy sheet — full 3-level structure ──
   try {
     const hierRows = [
       ["ASSEMBLY HIERARCHY — CẤU TRÚC PHÂN CẤP ĐẦY ĐỦ"],
       [`Ngày xuất: ${dateStr} | ${data.length} đối tượng`],
       [],
-      ["Assembly Code", "Assembly Name", "Assembly Pos", "Tên", "Profile", "IFC Class", "Thể tích (m³)", "DT bề mặt (m²)", "DT Net (m²)", "Khối lượng (kg)"],
+      ["Assembly Code", "Assembly Name", "Assembly Pos", "Tên", "Profile", "IFC Class", "Thể tích Gross (m³)", "Thể tích Net (m³)", "DT bề mặt Gross (m²)", "DT Net (m²)", "Khối lượng Gross (kg)", "Khối lượng Net (kg)"],
     ];
 
-    // Build 3-level map: code > name > pos > children
     const codeMap = {};
     for (const obj of data) {
       const code = obj.assemblyPosCode || "(Không có Code)";
@@ -307,59 +328,70 @@ export function exportToExcel(data, groupBy, selectedOnly) {
       codeMap[code][name][pos].push(obj);
     }
 
-    let grandVol = 0, grandWt = 0, grandArea = 0, grandNetArea = 0;
+    let grandNetVol = 0, grandGrossVol = 0;
+    let grandNetWt = 0, grandGrossWt = 0;
+    let grandArea = 0, grandNetArea = 0;
 
     for (const codeKey of Object.keys(codeMap).sort()) {
       const nameMap = codeMap[codeKey];
-      let codeVol = 0, codeWt = 0, codeArea = 0, codeNetArea = 0, codeCount = 0;
+      let codeNetVol = 0, codeGrossVol = 0;
+      let codeNetWt = 0, codeGrossWt = 0;
+      let codeArea = 0, codeNetArea = 0;
+      let codeCount = 0;
 
-      // Pre-calculate code-level totals
       for (const nMap of Object.values(nameMap)) {
         for (const items of Object.values(nMap)) {
           for (const o of items) {
-            codeVol += o.volume || 0;
-            codeWt += o.weight || 0;
-            codeArea += o.area || 0;
+            codeNetVol += o.netVolume || o.volume || 0;
+            codeGrossVol += o.grossVolume || o.volume || 0;
+            codeNetWt += o.netWeight || o.weight || 0;
+            codeGrossWt += o.grossWeight || o.weight || 0;
+            codeArea += o.grossArea || o.area || 0;
             codeNetArea += o.netArea || 0;
             codeCount++;
           }
         }
       }
-      grandVol += codeVol;
-      grandWt += codeWt;
+      grandNetVol += codeNetVol;
+      grandGrossVol += codeGrossVol;
+      grandNetWt += codeNetWt;
+      grandGrossWt += codeGrossWt;
       grandArea += codeArea;
       grandNetArea += codeNetArea;
 
-      // Code header (Level 1)
-      hierRows.push([`▶ ${codeKey} (${codeCount})`, "", "", "", "", "", r(codeVol, 6), r(codeArea, 4), r(codeNetArea, 4), r(codeWt, 2)]);
+      hierRows.push([`▶ ${codeKey} (${codeCount})`, "", "", "", "", "", r(codeGrossVol, 6), r(codeNetVol, 6), r(codeArea, 4), r(codeNetArea, 4), r(codeGrossWt, 2), r(codeNetWt, 2)]);
 
       for (const nameKey of Object.keys(nameMap).sort()) {
         const posMap = nameMap[nameKey];
-        let nameVol = 0, nameWt = 0, nameArea = 0, nameNetArea = 0, nameCount = 0;
+        let nameNetVol = 0, nameGrossVol = 0;
+        let nameNetWt = 0, nameGrossWt = 0;
+        let nameArea = 0, nameNetArea = 0;
+        let nameCount = 0;
         for (const items of Object.values(posMap)) {
           for (const o of items) {
-            nameVol += o.volume || 0;
-            nameWt += o.weight || 0;
-            nameArea += o.area || 0;
+            nameNetVol += o.netVolume || o.volume || 0;
+            nameGrossVol += o.grossVolume || o.volume || 0;
+            nameNetWt += o.netWeight || o.weight || 0;
+            nameGrossWt += o.grossWeight || o.weight || 0;
+            nameArea += o.grossArea || o.area || 0;
             nameNetArea += o.netArea || 0;
             nameCount++;
           }
         }
 
-        // Name header (Level 2)
-        hierRows.push(["", `▸ ${nameKey} (${nameCount})`, "", "", "", "", r(nameVol, 6), r(nameArea, 4), r(nameNetArea, 4), r(nameWt, 2)]);
+        hierRows.push(["", `▸ ${nameKey} (${nameCount})`, "", "", "", "", r(nameGrossVol, 6), r(nameNetVol, 6), r(nameArea, 4), r(nameNetArea, 4), r(nameGrossWt, 2), r(nameNetWt, 2)]);
 
         for (const posKey of Object.keys(posMap).sort()) {
           const items = posMap[posKey];
-          const posVol = items.reduce((s, o) => s + (o.volume || 0), 0);
-          const posWt = items.reduce((s, o) => s + (o.weight || 0), 0);
-          const posArea = items.reduce((s, o) => s + (o.area || 0), 0);
+          const posNetVol = items.reduce((s, o) => s + (o.netVolume || o.volume || 0), 0);
+          const posGrossVol = items.reduce((s, o) => s + (o.grossVolume || o.volume || 0), 0);
+          const posNetWt = items.reduce((s, o) => s + (o.netWeight || o.weight || 0), 0);
+          const posGrossWt = items.reduce((s, o) => s + (o.grossWeight || o.weight || 0), 0);
+          const posArea = items.reduce((s, o) => s + (o.grossArea || o.area || 0), 0);
           const posNetArea = items.reduce((s, o) => s + (o.netArea || 0), 0);
 
-          // Pos header (Level 3)
-          hierRows.push(["", "", `▹ ${posKey} (${items.length})`, "", "", "", r(posVol, 6), r(posArea, 4), r(posNetArea, 4), r(posWt, 2)]);
+          hierRows.push(["", "", `▹ ${posKey} (${items.length})`, "", "", "", r(posGrossVol, 6), r(posNetVol, 6), r(posArea, 4), r(posNetArea, 4), r(posGrossWt, 2), r(posNetWt, 2)]);
 
-          // Children
           const sorted = items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
           for (const child of sorted) {
             hierRows.push([
@@ -367,29 +399,30 @@ export function exportToExcel(data, groupBy, selectedOnly) {
               child.name || "",
               child.profile || "",
               child.ifcClass || "",
-              r(child.volume || 0, 6),
-              r(child.area || 0, 4),
+              r(child.grossVolume || child.volume || 0, 6),
+              r(child.netVolume || child.volume || 0, 6),
+              r(child.grossArea || child.area || 0, 4),
               r(child.netArea || 0, 4),
-              r(child.weight || 0, 2),
+              r(child.grossWeight || child.weight || 0, 2),
+              r(child.netWeight || child.weight || 0, 2),
             ]);
           }
         }
       }
-      hierRows.push([]); // separator after each code group
+      hierRows.push([]);
     }
 
-    hierRows.push(["TỔNG CỘNG", "", `${data.length} objects`, "", "", "", r(grandVol, 6), r(grandArea, 4), r(grandNetArea, 4), r(grandWt, 2)]);
+    hierRows.push(["TỔNG CỘNG", "", `${data.length} objects`, "", "", "", r(grandGrossVol, 6), r(grandNetVol, 6), r(grandArea, 4), r(grandNetArea, 4), r(grandGrossWt, 2), r(grandNetWt, 2)]);
 
     const wsHier = XLSX.utils.aoa_to_sheet(hierRows);
     wsHier["!cols"] = [
       { wch: 25 }, { wch: 30 }, { wch: 25 }, { wch: 28 }, { wch: 18 }, { wch: 22 },
-      { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 },
+      { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 22 },
     ];
-    wsHier["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
-    // Styling
-    styleRow(wsHier, 0, 10, S.title);
-    styleRow(wsHier, 1, 10, S.info);
-    styleRow(wsHier, 3, 10, S.header);
+    wsHier["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 11 } }];
+    styleRow(wsHier, 0, 12, S.title);
+    styleRow(wsHier, 1, 12, S.info);
+    styleRow(wsHier, 3, 12, S.header);
     let altIdx = 0;
     for (let i = 4; i < hierRows.length; i++) {
       const row = hierRows[i];
@@ -397,11 +430,11 @@ export function exportToExcel(data, groupBy, selectedOnly) {
       const v0 = String(row[0] || "");
       const v1 = String(row[1] || "");
       const v2 = String(row[2] || "");
-      if (v0 === "TỔNG CỘNG") styleRow(wsHier, i, 10, S.footer);
-      else if (v0.startsWith("▶")) styleRow(wsHier, i, 10, S.grp1);
-      else if (v1.startsWith("▸")) styleRow(wsHier, i, 10, S.grp2);
-      else if (v2.startsWith("▹")) styleRow(wsHier, i, 10, S.grp3);
-      else { styleRow(wsHier, i, 10, altIdx % 2 === 0 ? S.data : S.dataAlt); altIdx++; }
+      if (v0 === "TỔNG CỘNG") styleRow(wsHier, i, 12, S.footer);
+      else if (v0.startsWith("▶")) styleRow(wsHier, i, 12, S.grp1);
+      else if (v1.startsWith("▸")) styleRow(wsHier, i, 12, S.grp2);
+      else if (v2.startsWith("▹")) styleRow(wsHier, i, 12, S.grp3);
+      else { styleRow(wsHier, i, 12, altIdx % 2 === 0 ? S.data : S.dataAlt); altIdx++; }
     }
     XLSX.utils.book_append_sheet(wb, wsHier, "Assembly Hierarchy");
   } catch (e) {
@@ -416,40 +449,38 @@ export function exportToExcel(data, groupBy, selectedOnly) {
 
 function createGroupSheet(data, groupBy, label) {
   const groups = {};
-  const groupChildren = {}; // Store children per group for assembly sheets
+  const groupChildren = {};
   for (const obj of data) {
     const key = getGroupKey(obj, groupBy) || "(Không xác định)";
     if (!groups[key]) {
-      groups[key] = { count: 0, volume: 0, weight: 0, area: 0, netArea: 0 };
+      groups[key] = { count: 0, netVolume: 0, grossVolume: 0, netWeight: 0, grossWeight: 0, grossArea: 0, netArea: 0 };
       groupChildren[key] = [];
     }
     groups[key].count++;
-    groups[key].volume += obj.volume || 0;
-    groups[key].weight += obj.weight || 0;
-    groups[key].area += obj.area || 0;
+    groups[key].netVolume += obj.netVolume || obj.volume || 0;
+    groups[key].grossVolume += obj.grossVolume || obj.volume || 0;
+    groups[key].netWeight += obj.netWeight || obj.weight || 0;
+    groups[key].grossWeight += obj.grossWeight || obj.weight || 0;
+    groups[key].grossArea += obj.grossArea || obj.area || 0;
     groups[key].netArea += obj.netArea || 0;
     groupChildren[key].push(obj);
   }
 
-  // For assembly-type groupings, show hierarchical children detail
   const isAssemblyGroup = ["assemblyPos", "assemblyName", "assemblyPosCode"].includes(groupBy);
 
   if (isAssemblyGroup) {
-    // Build hierarchical structure: for assemblyPos, group by assemblyName > assemblyPos
-    // For assemblyName, show children directly
-    // For assemblyPosCode, group by code > assemblyName
     const rows = [
       [`THỐNG KÊ THEO ${label.toUpperCase()} — CHI TIẾT CHILDREN (HIERARCHICAL)`],
       [],
     ];
 
-    let totalVol = 0, totalWt = 0, totalArea = 0, totalNetArea = 0;
+    let totalNetVol = 0, totalGrossVol = 0;
+    let totalNetWt = 0, totalGrossWt = 0;
+    let totalArea = 0, totalNetArea = 0;
 
     if (groupBy === "assemblyPos") {
-      // Hierarchical: ASSEMBLY_NAME > ASSEMBLY_POS > children
-      rows.push(["Assembly Name", "Assembly Pos", "Tên", "Profile", "IFC Class", "Thể tích (m³)", "DT bề mặt (m²)", "DT Net (m²)", "Khối lượng (kg)"]);
+      rows.push(["Assembly Name", "Assembly Pos", "Tên", "Profile", "IFC Class", "Thể tích Gross (m³)", "Thể tích Net (m³)", "DT bề mặt Gross (m²)", "DT Net (m²)", "Khối lượng Gross (kg)", "Khối lượng Net (kg)"]);
 
-      // Build 2-level map: assemblyName > assemblyPos > children
       const nameGroups = {};
       for (const obj of data) {
         const asmName = obj.assemblyName || obj.assembly || "(Không xác định)";
@@ -461,67 +492,70 @@ function createGroupSheet(data, groupBy, label) {
 
       for (const namKey of Object.keys(nameGroups).sort()) {
         const posGroups = nameGroups[namKey];
-        // Calculate name-level totals
-        let nameVol = 0, nameWt = 0, nameArea = 0, nameNetArea = 0, nameCount = 0;
+        let nameNetVol = 0, nameGrossVol = 0;
+        let nameNetWt = 0, nameGrossWt = 0;
+        let nameArea = 0, nameNetArea = 0;
+        let nameCount = 0;
         for (const items of Object.values(posGroups)) {
           for (const o of items) {
-            nameVol += o.volume || 0;
-            nameWt += o.weight || 0;
-            nameArea += o.area || 0;
+            nameNetVol += o.netVolume || o.volume || 0;
+            nameGrossVol += o.grossVolume || o.volume || 0;
+            nameNetWt += o.netWeight || o.weight || 0;
+            nameGrossWt += o.grossWeight || o.weight || 0;
+            nameArea += o.grossArea || o.area || 0;
             nameNetArea += o.netArea || 0;
             nameCount++;
           }
         }
-        totalVol += nameVol;
-        totalWt += nameWt;
+        totalNetVol += nameNetVol;
+        totalGrossVol += nameGrossVol;
+        totalNetWt += nameNetWt;
+        totalGrossWt += nameGrossWt;
         totalArea += nameArea;
         totalNetArea += nameNetArea;
 
-        // Name group header
-        rows.push([`▶ ${namKey} (${nameCount} items)`, "", "", "", "", r(nameVol, 6), r(nameArea, 4), r(nameNetArea, 4), r(nameWt, 2)]);
+        rows.push([`▶ ${namKey} (${nameCount} items)`, "", "", "", "", r(nameGrossVol, 6), r(nameNetVol, 6), r(nameArea, 4), r(nameNetArea, 4), r(nameGrossWt, 2), r(nameNetWt, 2)]);
 
         for (const posKey of Object.keys(posGroups).sort()) {
           const items = posGroups[posKey];
-          const posVol = items.reduce((s, o) => s + (o.volume || 0), 0);
-          const posWt = items.reduce((s, o) => s + (o.weight || 0), 0);
-          const posArea = items.reduce((s, o) => s + (o.area || 0), 0);
+          const posNetVol = items.reduce((s, o) => s + (o.netVolume || o.volume || 0), 0);
+          const posGrossVol = items.reduce((s, o) => s + (o.grossVolume || o.volume || 0), 0);
+          const posNetWt = items.reduce((s, o) => s + (o.netWeight || o.weight || 0), 0);
+          const posGrossWt = items.reduce((s, o) => s + (o.grossWeight || o.weight || 0), 0);
+          const posArea = items.reduce((s, o) => s + (o.grossArea || o.area || 0), 0);
           const posNetArea = items.reduce((s, o) => s + (o.netArea || 0), 0);
 
-          // Pos sub-header
-          rows.push(["", `▸ ${posKey} (${items.length})`, "", "", "", r(posVol, 6), r(posArea, 4), r(posNetArea, 4), r(posWt, 2)]);
+          rows.push(["", `▸ ${posKey} (${items.length})`, "", "", "", r(posGrossVol, 6), r(posNetVol, 6), r(posArea, 4), r(posNetArea, 4), r(posGrossWt, 2), r(posNetWt, 2)]);
 
-          // Children
           const sorted = items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
           for (const child of sorted) {
             rows.push(["", "", child.name || "", child.profile || "", child.ifcClass || "",
-              r(child.volume || 0, 6), r(child.area || 0, 4), r(child.netArea || 0, 4), r(child.weight || 0, 2)]);
+              r(child.grossVolume || child.volume || 0, 6), r(child.netVolume || child.volume || 0, 6), r(child.grossArea || child.area || 0, 4), r(child.netArea || 0, 4), r(child.grossWeight || child.weight || 0, 2), r(child.netWeight || child.weight || 0, 2)]);
           }
         }
-        rows.push([]); // separator
+        rows.push([]);
       }
 
-      rows.push(["TỔNG CỘNG", `${data.length} objects`, "", "", "", r(totalVol, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalWt, 2)]);
+      rows.push(["TỔNG CỘNG", `${data.length} objects`, "", "", "", r(totalGrossVol, 6), r(totalNetVol, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalGrossWt, 2), r(totalNetWt, 2)]);
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws["!cols"] = [{ wch: 30 }, { wch: 25 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
-      ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
-      styleRow(ws, 0, 9, S.title); styleRow(ws, 2, 9, S.header);
-      // Style all data/group rows
+      ws["!cols"] = [{ wch: 30 }, { wch: 25 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 22 }];
+      ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }];
+      styleRow(ws, 0, 11, S.title); styleRow(ws, 2, 11, S.header);
       { let alt = 0;
         for (let i = 3; i < rows.length; i++) {
           const row = rows[i];
           if (!row || row.length === 0) continue;
           const v0 = String(row[0] || ""); const v1 = String(row[1] || "");
-          if (v0 === "TỔNG CỘNG") styleRow(ws, i, 9, S.footer);
-          else if (v0.startsWith("▶")) styleRow(ws, i, 9, S.grp1);
-          else if (v1.startsWith("▸")) styleRow(ws, i, 9, S.grp2);
-          else { styleRow(ws, i, 9, alt % 2 === 0 ? S.data : S.dataAlt); alt++; }
+          if (v0 === "TỔNG CỘNG") styleRow(ws, i, 11, S.footer);
+          else if (v0.startsWith("▶")) styleRow(ws, i, 11, S.grp1);
+          else if (v1.startsWith("▸")) styleRow(ws, i, 11, S.grp2);
+          else { styleRow(ws, i, 11, alt % 2 === 0 ? S.data : S.dataAlt); alt++; }
         }
       }
       return ws;
 
     } else if (groupBy === "assemblyPosCode") {
-      // Hierarchical: ASSEMBLY_CODE > ASSEMBLY_NAME > children
-      rows.push(["Assembly Code", "Assembly Name", "Tên", "Profile", "IFC Class", "Thể tích (m³)", "DT bề mặt (m²)", "DT Net (m²)", "Khối lượng (kg)"]);
+      rows.push(["Assembly Code", "Assembly Name", "Tên", "Profile", "IFC Class", "Thể tích Gross (m³)", "Thể tích Net (m³)", "DT bề mặt Gross (m²)", "DT Net (m²)", "Khối lượng Gross (kg)", "Khối lượng Net (kg)"]);
 
       const codeGroups = {};
       for (const obj of data) {
@@ -534,74 +568,85 @@ function createGroupSheet(data, groupBy, label) {
 
       for (const codeKey of Object.keys(codeGroups).sort()) {
         const nameGroups = codeGroups[codeKey];
-        let codeVol = 0, codeWt = 0, cArea = 0, cNetArea = 0, codeCount = 0;
+        let codeNetVol = 0, codeGrossVol = 0;
+        let codeNetWt = 0, codeGrossWt = 0;
+        let cArea = 0, cNetArea = 0;
+        let codeCount = 0;
         for (const items of Object.values(nameGroups)) {
           for (const o of items) {
-            codeVol += o.volume || 0;
-            codeWt += o.weight || 0;
-            cArea += o.area || 0;
+            codeNetVol += o.netVolume || o.volume || 0;
+            codeGrossVol += o.grossVolume || o.volume || 0;
+            codeNetWt += o.netWeight || o.weight || 0;
+            codeGrossWt += o.grossWeight || o.weight || 0;
+            cArea += o.grossArea || o.area || 0;
             cNetArea += o.netArea || 0;
             codeCount++;
           }
         }
-        totalVol += codeVol;
-        totalWt += codeWt;
+        totalNetVol += codeNetVol;
+        totalGrossVol += codeGrossVol;
+        totalNetWt += codeNetWt;
+        totalGrossWt += codeGrossWt;
         totalArea += cArea;
         totalNetArea += cNetArea;
 
-        rows.push([`▶ ${codeKey} (${codeCount} items)`, "", "", "", "", r(codeVol, 6), r(cArea, 4), r(cNetArea, 4), r(codeWt, 2)]);
+        rows.push([`▶ ${codeKey} (${codeCount} items)`, "", "", "", "", r(codeGrossVol, 6), r(codeNetVol, 6), r(cArea, 4), r(cNetArea, 4), r(codeGrossWt, 2), r(codeNetWt, 2)]);
 
         for (const namKey of Object.keys(nameGroups).sort()) {
           const items = nameGroups[namKey];
-          const nVol = items.reduce((s, o) => s + (o.volume || 0), 0);
-          const nWt = items.reduce((s, o) => s + (o.weight || 0), 0);
-          const nArea = items.reduce((s, o) => s + (o.area || 0), 0);
+          const nNetVol = items.reduce((s, o) => s + (o.netVolume || o.volume || 0), 0);
+          const nGrossVol = items.reduce((s, o) => s + (o.grossVolume || o.volume || 0), 0);
+          const nNetWt = items.reduce((s, o) => s + (o.netWeight || o.weight || 0), 0);
+          const nGrossWt = items.reduce((s, o) => s + (o.grossWeight || o.weight || 0), 0);
+          const nArea = items.reduce((s, o) => s + (o.grossArea || o.area || 0), 0);
           const nNetArea = items.reduce((s, o) => s + (o.netArea || 0), 0);
 
-          rows.push(["", `▸ ${namKey} (${items.length})`, "", "", "", r(nVol, 6), r(nArea, 4), r(nNetArea, 4), r(nWt, 2)]);
+          rows.push(["", `▸ ${namKey} (${items.length})`, "", "", "", r(nGrossVol, 6), r(nNetVol, 6), r(nArea, 4), r(nNetArea, 4), r(nGrossWt, 2), r(nNetWt, 2)]);
 
           const sorted = items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
           for (const child of sorted) {
             rows.push(["", "", child.name || "", child.profile || "", child.ifcClass || "",
-              r(child.volume || 0, 6), r(child.area || 0, 4), r(child.netArea || 0, 4), r(child.weight || 0, 2)]);
+              r(child.grossVolume || child.volume || 0, 6), r(child.netVolume || child.volume || 0, 6), r(child.grossArea || child.area || 0, 4), r(child.netArea || 0, 4), r(child.grossWeight || child.weight || 0, 2), r(child.netWeight || child.weight || 0, 2)]);
           }
         }
         rows.push([]);
       }
 
-      rows.push(["TỔNG CỘNG", `${data.length} objects`, "", "", "", r(totalVol, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalWt, 2)]);
+      rows.push(["TỔNG CỘNG", `${data.length} objects`, "", "", "", r(totalGrossVol, 6), r(totalNetVol, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalGrossWt, 2), r(totalNetWt, 2)]);
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws["!cols"] = [{ wch: 25 }, { wch: 30 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
-      ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
-      styleRow(ws, 0, 9, S.title); styleRow(ws, 2, 9, S.header);
-      // Style all data/group rows
+      ws["!cols"] = [{ wch: 25 }, { wch: 30 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 22 }];
+      ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }];
+      styleRow(ws, 0, 11, S.title); styleRow(ws, 2, 11, S.header);
       { let alt = 0;
         for (let i = 3; i < rows.length; i++) {
           const row = rows[i];
           if (!row || row.length === 0) continue;
           const v0 = String(row[0] || ""); const v1 = String(row[1] || "");
-          if (v0 === "TỔNG CỘNG") styleRow(ws, i, 9, S.footer);
-          else if (v0.startsWith("▶")) styleRow(ws, i, 9, S.grp1);
-          else if (v1.startsWith("▸")) styleRow(ws, i, 9, S.grp2);
-          else { styleRow(ws, i, 9, alt % 2 === 0 ? S.data : S.dataAlt); alt++; }
+          if (v0 === "TỔNG CỘNG") styleRow(ws, i, 11, S.footer);
+          else if (v0.startsWith("▶")) styleRow(ws, i, 11, S.grp1);
+          else if (v1.startsWith("▸")) styleRow(ws, i, 11, S.grp2);
+          else { styleRow(ws, i, 11, alt % 2 === 0 ? S.data : S.dataAlt); alt++; }
         }
       }
       return ws;
 
     } else {
       // assemblyName — flat with children detail
-      rows.push([label, "Tên", "Profile", "IFC Class", "Assembly Pos", "Assembly Code", "Thể tích (m³)", "DT bề mặt (m²)", "DT Net (m²)", "Khối lượng (kg)"]);
+      rows.push([label, "Tên", "Profile", "IFC Class", "Assembly Pos", "Assembly Code", "Thể tích Gross (m³)", "Thể tích Net (m³)", "DT bề mặt Gross (m²)", "DT Net (m²)", "Khối lượng Gross (kg)", "Khối lượng Net (kg)"]);
 
       const sortedKeys = Object.keys(groups).sort();
       for (const key of sortedKeys) {
         const g = groups[key];
-        totalVol += g.volume;
-        totalWt += g.weight;
-        totalArea += g.area;
+        totalNetVol += g.netVolume;
+        totalGrossVol += g.grossVolume;
+        totalNetWt += g.netWeight;
+        totalGrossWt += g.grossWeight;
+        totalArea += g.grossArea;
+        totalNetArea += g.netArea;
 
         rows.push([
           `▶ ${key} (${g.count} items)`, "", "", "", "", "",
-          r(g.volume, 6), r(g.area, 4), r(g.netArea || 0, 4), r(g.weight, 2),
+          r(g.grossVolume, 6), r(g.netVolume, 6), r(g.grossArea, 4), r(g.netArea || 0, 4), r(g.grossWeight, 2), r(g.netWeight, 2),
         ]);
 
         const children = groupChildren[key].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -613,29 +658,30 @@ function createGroupSheet(data, groupBy, label) {
             child.ifcClass || "",
             child.assemblyPos || "",
             child.assemblyPosCode || "",
-            r(child.volume || 0, 6),
-            r(child.area || 0, 4),
+            r(child.grossVolume || child.volume || 0, 6),
+            r(child.netVolume || child.volume || 0, 6),
+            r(child.grossArea || child.area || 0, 4),
             r(child.netArea || 0, 4),
-            r(child.weight || 0, 2),
+            r(child.grossWeight || child.weight || 0, 2),
+            r(child.netWeight || child.weight || 0, 2),
           ]);
         }
         rows.push([]);
       }
 
-      rows.push(["TỔNG CỘNG", `${data.length} objects`, "", "", "", "", r(totalVol, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalWt, 2)]);
+      rows.push(["TỔNG CỘNG", `${data.length} objects`, "", "", "", "", r(totalGrossVol, 6), r(totalNetVol, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalGrossWt, 2), r(totalNetWt, 2)]);
       const ws = XLSX.utils.aoa_to_sheet(rows);
-      ws["!cols"] = [{ wch: 35 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
-      ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
-      styleRow(ws, 0, 10, S.title); styleRow(ws, 2, 10, S.header);
-      // Style all data/group rows
+      ws["!cols"] = [{ wch: 35 }, { wch: 28 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 22 }];
+      ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 11 } }];
+      styleRow(ws, 0, 12, S.title); styleRow(ws, 2, 12, S.header);
       { let alt = 0;
         for (let i = 3; i < rows.length; i++) {
           const row = rows[i];
           if (!row || row.length === 0) continue;
           const v0 = String(row[0] || "");
-          if (v0 === "TỔNG CỘNG") styleRow(ws, i, 10, S.footer);
-          else if (v0.startsWith("▶")) styleRow(ws, i, 10, S.grp1);
-          else { styleRow(ws, i, 10, alt % 2 === 0 ? S.data : S.dataAlt); alt++; }
+          if (v0 === "TỔNG CỘNG") styleRow(ws, i, 12, S.footer);
+          else if (v0.startsWith("▶")) styleRow(ws, i, 12, S.grp1);
+          else { styleRow(ws, i, 12, alt % 2 === 0 ? S.data : S.dataAlt); alt++; }
         }
       }
       return ws;
@@ -646,35 +692,38 @@ function createGroupSheet(data, groupBy, label) {
   const rows = [
     [`THỐNG KÊ THEO ${label.toUpperCase()}`],
     [],
-    [label, "Số lượng", "Thể tích (m³)", "DT bề mặt (m²)", "DT Net (m²)", "Khối lượng (kg)"],
+    [label, "Số lượng", "Thể tích Gross (m³)", "Thể tích Net (m³)", "DT bề mặt Gross (m²)", "DT Net (m²)", "Khối lượng Gross (kg)", "Khối lượng Net (kg)"],
   ];
 
-  let totalVol = 0, totalWt = 0, totalArea = 0, totalNetArea = 0;
+  let totalNetVol = 0, totalGrossVol = 0;
+  let totalNetWt = 0, totalGrossWt = 0;
+  let totalArea = 0, totalNetArea = 0;
 
   for (const key of Object.keys(groups).sort()) {
     const g = groups[key];
-    totalVol += g.volume;
-    totalWt += g.weight;
-    totalArea += g.area;
+    totalNetVol += g.netVolume;
+    totalGrossVol += g.grossVolume;
+    totalNetWt += g.netWeight;
+    totalGrossWt += g.grossWeight;
+    totalArea += g.grossArea;
     totalNetArea += g.netArea || 0;
-    rows.push([key, g.count, r(g.volume, 6), r(g.area, 4), r(g.netArea || 0, 4), r(g.weight, 2)]);
+    rows.push([key, g.count, r(g.grossVolume, 6), r(g.netVolume, 6), r(g.grossArea, 4), r(g.netArea || 0, 4), r(g.grossWeight, 2), r(g.netWeight, 2)]);
   }
 
   rows.push([]);
-  rows.push(["TỔNG CỘNG", data.length, r(totalVol, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalWt, 2)]);
+  rows.push(["TỔNG CỘNG", data.length, r(totalGrossVol, 6), r(totalNetVol, 6), r(totalArea, 4), r(totalNetArea, 4), r(totalGrossWt, 2), r(totalNetWt, 2)]);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws["!cols"] = [{ wch: 35 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }];
-  ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
-  styleRow(ws, 0, 6, S.title); styleRow(ws, 2, 6, S.header);
-  // Style all data rows
+  ws["!cols"] = [{ wch: 35 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 22 }];
+  ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+  styleRow(ws, 0, 8, S.title); styleRow(ws, 2, 8, S.header);
   { let alt = 0;
     for (let i = 3; i < rows.length; i++) {
       const row = rows[i];
       if (!row || row.length === 0) continue;
       const v0 = String(row[0] || "");
-      if (v0 === "TỔNG CỘNG") styleRow(ws, i, 6, S.footer);
-      else { styleRow(ws, i, 6, alt % 2 === 0 ? S.data : S.dataAlt); alt++; }
+      if (v0 === "TỔNG CỘNG") styleRow(ws, i, 8, S.footer);
+      else { styleRow(ws, i, 8, alt % 2 === 0 ? S.data : S.dataAlt); alt++; }
     }
   }
   return ws;

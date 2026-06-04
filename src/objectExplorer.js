@@ -2184,8 +2184,13 @@ function parseObjectProperties(props, modelId) {
     type: "",
     material: "",
     volume: 0,
+    netVolume: 0,
+    grossVolume: 0,
     weight: 0,
+    netWeight: 0,
+    grossWeight: 0,
     area: 0,
+    grossArea: 0,
     netArea: 0,            // Net surface area (excludes openings/cuts)
     length: 0,
     profile: "",
@@ -2516,7 +2521,13 @@ function parseObjectProperties(props, modelId) {
         normalizedVolume === "nominalvolume"
       ) {
         const v = parseQuantityNumber(propValue);
-        if (!isNaN(v) && v > result.volume) result.volume = v;
+        if (!isNaN(v)) {
+          if (v > result.volume) result.volume = v;
+          const isNet = normalizedVolume.includes("net") || propName.includes("net");
+          const isGross = normalizedVolume.includes("gross") || normalizedVolume.includes("nominal") || propName.includes("gross") || propName.includes("nominal");
+          if (isNet && v > result.netVolume) result.netVolume = v;
+          if (isGross && v > result.grossVolume) result.grossVolume = v;
+        }
       }
 
       // Weight (PropertyType.MassMeasure = 3, value in kg)
@@ -2540,9 +2551,15 @@ function parseObjectProperties(props, modelId) {
         normalizedWeight === "totalweight"
       ) {
         const w = parseQuantityNumber(propValue);
-        if (!isNaN(w) && w > 0 && w > result.weight) {
-          result.weight = w;
-          result.weightSource = "ifc";
+        if (!isNaN(w) && w > 0) {
+          if (w > result.weight) {
+            result.weight = w;
+            result.weightSource = "ifc";
+          }
+          const isNet = normalizedWeight.includes("net") || propName.includes("net");
+          const isGross = normalizedWeight.includes("gross") || normalizedWeight.includes("nominal") || propName.includes("gross") || propName.includes("nominal");
+          if (isNet && w > result.netWeight) result.netWeight = w;
+          if (isGross && w > result.grossWeight) result.grossWeight = w;
         }
       }
 
@@ -2596,14 +2613,23 @@ function parseObjectProperties(props, modelId) {
         )
       ) {
         const a = parseQuantityNumber(propValue);
-        if (!isNaN(a) && a > result.area) result.area = a;
-        // Track net area separately (property names containing "net")
-        const isNetArea = normalizedArea.startsWith("net") ||
-          propName.startsWith("net") ||
-          propName === "net surface area" ||
-          propName === "net area";
-        if (isNetArea && !isNaN(a) && a > result.netArea) {
-          result.netArea = a;
+        if (!isNaN(a)) {
+          if (a > result.area) result.area = a;
+          // Track net area separately (property names containing "net")
+          const isNetArea = normalizedArea.startsWith("net") ||
+            propName.startsWith("net") ||
+            propName === "net surface area" ||
+            propName === "net area";
+          const isGrossArea = normalizedArea.startsWith("gross") ||
+            propName.startsWith("gross") ||
+            propName === "gross surface area" ||
+            propName === "gross area";
+          if (isNetArea && a > result.netArea) {
+            result.netArea = a;
+          }
+          if (isGrossArea && a > result.grossArea) {
+            result.grossArea = a;
+          }
         }
       }
 
@@ -2803,14 +2829,22 @@ function parseObjectProperties(props, modelId) {
         // Volume from Qto_ sets (e.g., Qto_BeamBaseQuantities/NetVolume)
         if (propNameNorm === "netvolume" || propNameNorm === "grossvolume" || propNameNorm === "volume") {
           const v = parseQuantityNumber(propValue);
-          if (!isNaN(v) && v > result.volume) result.volume = v;
+          if (!isNaN(v)) {
+            if (v > result.volume) result.volume = v;
+            if (propNameNorm === "netvolume" && v > result.netVolume) result.netVolume = v;
+            if (propNameNorm === "grossvolume" && v > result.grossVolume) result.grossVolume = v;
+          }
         }
         // Weight from Qto_ sets
         if (propNameNorm === "netweight" || propNameNorm === "grossweight" || propNameNorm === "weight" || propNameNorm === "mass") {
           const w = parseQuantityNumber(propValue);
-          if (!isNaN(w) && w > 0 && w > result.weight) {
-            result.weight = w;
-            result.weightSource = "ifc";
+          if (!isNaN(w) && w > 0) {
+            if (w > result.weight) {
+              result.weight = w;
+              result.weightSource = "ifc";
+            }
+            if ((propNameNorm === "netweight" || propNameNorm === "netmass") && w > result.netWeight) result.netWeight = w;
+            if ((propNameNorm === "grossweight" || propNameNorm === "grossmass") && w > result.grossWeight) result.grossWeight = w;
           }
         }
         // Area from Qto_ sets
@@ -2820,10 +2854,15 @@ function parseObjectProperties(props, modelId) {
             propNameNorm === "netsidearea" || propNameNorm === "grosssidearea" ||
             propNameNorm === "netfloorarea" || propNameNorm === "grossfloorarea") {
           const a = parseQuantityNumber(propValue);
-          if (!isNaN(a) && a > result.area) result.area = a;
-          // Track net area separately from Qto_ sets
-          if (propNameNorm.startsWith("net") && !isNaN(a) && a > result.netArea) {
-            result.netArea = a;
+          if (!isNaN(a)) {
+            if (a > result.area) result.area = a;
+            // Track net/gross area separately from Qto_ sets
+            if (propNameNorm.startsWith("net") && a > result.netArea) {
+              result.netArea = a;
+            }
+            if (propNameNorm.startsWith("gross") && a > result.grossArea) {
+              result.grossArea = a;
+            }
           }
         }
         // Length from Qto_ sets
@@ -2917,10 +2956,45 @@ function parseObjectProperties(props, modelId) {
     // Store density info on every object for transparency
     result.density = density;
     result.densityLabel = densityLabel;
+
+    // Fallbacks for volume
+    if (result.volume === 0) {
+      result.volume = Math.max(result.netVolume, result.grossVolume);
+    }
+    if (result.netVolume === 0 && result.volume > 0) result.netVolume = result.volume;
+    if (result.grossVolume === 0 && result.volume > 0) result.grossVolume = result.volume;
+    if (result.netVolume > 0 && result.grossVolume === 0) result.grossVolume = result.netVolume;
+    if (result.grossVolume > 0 && result.netVolume === 0) result.netVolume = result.grossVolume;
+
+    // Fallbacks for weight
+    if (result.weight === 0) {
+      result.weight = Math.max(result.netWeight, result.grossWeight);
+    }
+    if (result.netWeight === 0 && result.weight > 0) result.netWeight = result.weight;
+    if (result.grossWeight === 0 && result.weight > 0) result.grossWeight = result.weight;
+    if (result.netWeight > 0 && result.grossWeight === 0) result.grossWeight = result.netWeight;
+    if (result.grossWeight > 0 && result.netWeight === 0) result.netWeight = result.grossWeight;
+
+    // Fallbacks for area
+    if (result.area === 0) {
+      result.area = Math.max(result.netArea, result.grossArea);
+    }
+    if (result.netArea === 0 && result.area > 0) result.netArea = result.area;
+    if (result.grossArea === 0 && result.area > 0) result.grossArea = result.area;
+    if (result.netArea > 0 && result.grossArea === 0) result.grossArea = result.netArea;
+    if (result.grossArea > 0 && result.netArea === 0) result.netArea = result.grossArea;
+
     if (result.weight === 0 && result.volume > 0) {
       result.weight = result.volume * density;
       result.weightSource = "calculated";
     }
+    if (result.netWeight === 0 && result.netVolume > 0) {
+      result.netWeight = result.netVolume * density;
+    }
+    if (result.grossWeight === 0 && result.grossVolume > 0) {
+      result.grossWeight = result.grossVolume * density;
+    }
+
     // If weight came from IFC but no weightSource set yet, mark it
     if (result.weight > 0 && !result.weightSource) {
       result.weightSource = "ifc";
@@ -4578,11 +4652,16 @@ function buildModelMap() {
 
 function updateSummary() {
   // Calculate total project stats from ALL filtered objects
-  let projectVolume = 0, projectWeight = 0, projectArea = 0;
+  let projectGrossVolume = 0, projectNetVolume = 0;
+  let projectGrossWeight = 0, projectNetWeight = 0;
+  let projectGrossArea = 0, projectNetArea = 0;
   for (const obj of filteredObjects) {
-    projectVolume += obj.volume || 0;
-    projectWeight += obj.weight || 0;
-    projectArea += obj.area || 0;
+    projectGrossVolume += obj.grossVolume || obj.volume || 0;
+    projectNetVolume += obj.netVolume || obj.volume || 0;
+    projectGrossWeight += obj.grossWeight || obj.weight || 0;
+    projectNetWeight += obj.netWeight || obj.weight || 0;
+    projectGrossArea += obj.grossArea || obj.area || 0;
+    projectNetArea += obj.netArea || 0;
   }
 
   // Format functions — same as steelStatistics.js
@@ -4591,7 +4670,7 @@ function updateSummary() {
   const fmtWeight = (w) => w >= 1000 ? (w / 1000).toFixed(2) + " tấn" : w.toFixed(2) + " kg";
   // Display total objects count + project totals
   document.getElementById("total-objects-count").textContent =
-    `${filteredObjects.length} objects | V: ${fmtVol(projectVolume)} | W: ${fmtWeight(projectWeight)} | A: ${fmtArea(projectArea)}`;
+    `${filteredObjects.length} objects | V(G/N): ${fmtVol(projectGrossVolume)}/${fmtVol(projectNetVolume)} | W(G/N): ${fmtWeight(projectGrossWeight)}/${fmtWeight(projectNetWeight)} | A(G/N): ${fmtArea(projectGrossArea)}/${fmtArea(projectNetArea)}`;
 
   document.getElementById("selected-objects-count").textContent =
     `${selectedIds.size} đã chọn`;
@@ -4601,19 +4680,24 @@ function updateSummary() {
   const statsDivider = document.getElementById("stats-divider");
 
   if (selectedIds.size > 0) {
-    let totalVolume = 0, totalWeight = 0, totalArea = 0;
+    let totalGrossVolume = 0, totalNetVolume = 0;
+    let totalGrossWeight = 0, totalNetWeight = 0;
+    let totalGrossArea = 0, totalNetArea = 0;
     let matchCount = 0;
     for (const obj of allObjects) {
       const uid = `${obj.modelId}:${obj.id}`;
       if (selectedIds.has(uid)) {
-        totalVolume += obj.volume || 0;
-        totalWeight += obj.weight || 0;
-        totalArea += obj.area || 0;
+        totalGrossVolume += obj.grossVolume || obj.volume || 0;
+        totalNetVolume += obj.netVolume || obj.volume || 0;
+        totalGrossWeight += obj.grossWeight || obj.weight || 0;
+        totalNetWeight += obj.netWeight || obj.weight || 0;
+        totalGrossArea += obj.grossArea || obj.area || 0;
+        totalNetArea += obj.netArea || 0;
         matchCount++;
       }
     }
 
-    const statsText = `V: ${fmtVol(totalVolume)} | W: ${fmtWeight(totalWeight)} | A: ${fmtArea(totalArea)}`;
+    const statsText = `V(G/N): ${fmtVol(totalGrossVolume)}/${fmtVol(totalNetVolume)} | W(G/N): ${fmtWeight(totalGrossWeight)}/${fmtWeight(totalNetWeight)} | A(G/N): ${fmtArea(totalGrossArea)}/${fmtArea(totalNetArea)}`;
 
     if (selStatsEl) {
       selStatsEl.textContent = statsText;
@@ -4627,7 +4711,6 @@ function updateSummary() {
     }
     if (statsDivider) statsDivider.style.display = "none";
   }
-
 }
 
 

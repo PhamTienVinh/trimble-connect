@@ -593,7 +593,7 @@ select:focus {
 /* ===== STAT CARDS ===== */
 .stats-cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 8px;
   padding: 12px;
   flex-shrink: 0;
@@ -621,11 +621,13 @@ select:focus {
 }
 
 .stat-card:nth-child(1)::before { background: var(--gradient-1); }
-.stat-card:nth-child(2)::before { background: var(--gradient-3); }
-.stat-card:nth-child(3)::before { background: linear-gradient(135deg, #f5af19 0%, #f12711 100%); }
-.stat-card:nth-child(4)::before { background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); }
-.stat-card:nth-child(5)::before { background: var(--gradient-2); }
-.stat-card:nth-child(6)::before { background: var(--gradient-4); }
+.stat-card:nth-child(2)::before { background: var(--gradient-4); }
+.stat-card:nth-child(3)::before { background: var(--gradient-3); }
+.stat-card:nth-child(4)::before { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+.stat-card:nth-child(5)::before { background: linear-gradient(135deg, #f5af19 0%, #f12711 100%); }
+.stat-card:nth-child(6)::before { background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); }
+.stat-card:nth-child(7)::before { background: var(--gradient-2); }
+.stat-card:nth-child(8)::before { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); }
 
 .stat-card:hover {
   transform: translateY(-2px);
