@@ -21,7 +21,7 @@
   --warning: #D9B891;          /* Warm pastel amber/brown */
   --danger: #E28E8E;           /* Pastel coral red */
   --info: #8bbec4;             /* Pastel light blue/teal */
-  --header-bg: linear-gradient(135deg, #9e0000 0%, #6b0000 100%);
+  --header-bg: linear-gradient(135deg, #CD7E6D 0%, #9C4B5A 100%); /* Dusty wine red / copper gradient */
   --header-text: #FFFFFF;
   --gradient-1: linear-gradient(135deg, #a8d5ad 0%, #82b987 100%);
   --gradient-2: linear-gradient(135deg, #f0c2c2 0%, #e29e9e 100%);
