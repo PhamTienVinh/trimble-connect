@@ -11,9 +11,9 @@
   --bg-active: rgba(220, 167, 167, 0.15); /* Soft pastel pink active background */
   --border: #E8DCCF;           /* Soft clay border */
   --border-light: #F0E6DA;     /* Medium clay border */
-  --text-primary: #5C4A42;     /* Deep dark cocoa - highly readable and soft */
-  --text-secondary: #8A7365;   /* Elegant medium cocoa brown */
-  --text-muted: #A69082;       /* Warm muted sand brown */
+  --text-primary: #2C1610;     /* Very dark espresso brown for maximum contrast */
+  --text-secondary: #4A2E24;   /* Dark roasted brown */
+  --text-muted: #785B50;       /* Medium earthy brown */
   --accent: #C78D8D;           /* Pastel pink / soft rose */
   --accent-dark: #B57474;      /* Dark pastel rose */
   --accent-glow: rgba(199, 141, 141, 0.25);
