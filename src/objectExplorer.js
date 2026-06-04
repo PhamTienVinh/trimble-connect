@@ -112,16 +112,7 @@ function redoSelection() {
 
 // Update undo/redo button states (enabled/disabled)
 function updateUndoRedoButtons() {
-  const undoBtn = document.getElementById("btn-undo");
-  const redoBtn = document.getElementById("btn-redo");
-  if (undoBtn) {
-    undoBtn.disabled = selectionHistoryIndex <= 0;
-    undoBtn.classList.toggle("disabled", selectionHistoryIndex <= 0);
-  }
-  if (redoBtn) {
-    redoBtn.disabled = selectionHistoryIndex >= selectionHistory.length - 1;
-    redoBtn.classList.toggle("disabled", selectionHistoryIndex >= selectionHistory.length - 1);
-  }
+  // Undo/Redo removed as per user request
 }
 
 
@@ -205,27 +196,7 @@ export function initObjectExplorer(api, viewer) {
     expandBtn.addEventListener("click", expandAll);
   }
 
-  // Undo/Redo buttons
-  const undoBtn = document.getElementById("btn-undo");
-  if (undoBtn) {
-    undoBtn.addEventListener("click", undoSelection);
-  }
-  const redoBtn = document.getElementById("btn-redo");
-  if (redoBtn) {
-    redoBtn.addEventListener("click", redoSelection);
-  }
-
-  // Keyboard shortcuts: Ctrl+Z = Undo, Ctrl+Y / Ctrl+Shift+Z = Redo
-  document.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
-      e.preventDefault();
-      undoSelection();
-    }
-    if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
-      e.preventDefault();
-      redoSelection();
-    }
-  });
+  // Undo/Redo removed
 
   // Initialize undo/redo button states
   updateUndoRedoButtons();
