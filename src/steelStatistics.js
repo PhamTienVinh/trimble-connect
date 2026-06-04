@@ -32,6 +32,9 @@ export function initSteelStatistics(api, viewer) {
   document.getElementById("btn-export-all").addEventListener("click", () => exportExcel(false));
   document.getElementById("btn-export-selected").addEventListener("click", () => exportExcel(true));
 
+  // Column toggle (Tất cả / Gross / Net)
+  setupColumnToggle();
+
   // Listen for real-time selection changes
   window.addEventListener("selection-changed", (e) => {
     const detail = e.detail || {};
@@ -361,12 +364,12 @@ function renderAssemblyStatsTable(assemblyGroups, totalNetVolume, totalGrossVolu
     bodyHtml += `<strong>🏗️ ${escHtml(group.name)}</strong>`;
     bodyHtml += `</td>`;
     bodyHtml += `<td><strong>${formatNumber(group.totalCount)}</strong></td>`;
-    bodyHtml += `<td><strong>${formatVolume(group.totalGrossVolume)}</strong></td>`;
-    bodyHtml += `<td><strong>${formatVolume(group.totalNetVolume)}</strong></td>`;
-    bodyHtml += `<td><strong>${formatArea(group.totalGrossArea)}</strong></td>`;
-    bodyHtml += `<td><strong>${formatArea(group.totalNetArea)}</strong></td>`;
-    bodyHtml += `<td><strong>${formatWeight(group.totalGrossWeight)}</strong></td>`;
-    bodyHtml += `<td><strong>${formatWeight(group.totalNetWeight)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatVolume(group.totalGrossVolume)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatVolume(group.totalNetVolume)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatArea(group.totalGrossArea)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatArea(group.totalNetArea)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatWeight(group.totalGrossWeight)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatWeight(group.totalNetWeight)}</strong></td>`;
     if (hasAsmWeight) {
       bodyHtml += `<td><strong>${groupAsmWeight > 0 ? formatWeight(groupAsmWeight) : "—"}</strong></td>`;
     }
@@ -383,12 +386,12 @@ function renderAssemblyStatsTable(assemblyGroups, totalNetVolume, totalGrossVolu
       bodyHtml += `📦 <em>${escHtml(containerName)}</em>`;
       bodyHtml += `</td>`;
       bodyHtml += `<td>${formatNumber(containerChildCount)}</td>`;
-      bodyHtml += `<td>${formatVolume(containerEntry.totalGrossVolume)}</td>`;
-      bodyHtml += `<td>${formatVolume(containerEntry.totalNetVolume)}</td>`;
-      bodyHtml += `<td>${formatArea(containerEntry.totalGrossArea)}</td>`;
-      bodyHtml += `<td>${formatArea(containerEntry.totalNetArea)}</td>`;
-      bodyHtml += `<td>${formatWeight(containerEntry.totalGrossWeight)}</td>`;
-      bodyHtml += `<td>${formatWeight(containerEntry.totalNetWeight)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatVolume(containerEntry.totalGrossVolume)}</td>`;
+      bodyHtml += `<td class="col-net">${formatVolume(containerEntry.totalNetVolume)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatArea(containerEntry.totalGrossArea)}</td>`;
+      bodyHtml += `<td class="col-net">${formatArea(containerEntry.totalNetArea)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatWeight(containerEntry.totalGrossWeight)}</td>`;
+      bodyHtml += `<td class="col-net">${formatWeight(containerEntry.totalNetWeight)}</td>`;
       if (hasAsmWeight) {
         bodyHtml += `<td>${containerEntry.assemblyWeight > 0 ? formatWeight(containerEntry.assemblyWeight) : "—"}</td>`;
       }
@@ -399,12 +402,12 @@ function renderAssemblyStatsTable(assemblyGroups, totalNetVolume, totalGrossVolu
         bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(group.name)}" data-container="${escHtml(containerKey)}">`;
         bodyHtml += `<td class="stats-child-name">─ ${escHtml(child.name || "(Không tên)")}</td>`;
         bodyHtml += `<td>1</td>`;
-        bodyHtml += `<td>${formatVolume(child.grossVolume)}</td>`;
-        bodyHtml += `<td>${formatVolume(child.netVolume)}</td>`;
-        bodyHtml += `<td>${formatArea(child.grossArea)}</td>`;
-        bodyHtml += `<td>${formatArea(child.netArea || 0)}</td>`;
-        bodyHtml += `<td>${formatWeight(child.grossWeight)}</td>`;
-        bodyHtml += `<td>${formatWeight(child.netWeight)}</td>`;
+        bodyHtml += `<td class="col-gross">${formatVolume(child.grossVolume)}</td>`;
+        bodyHtml += `<td class="col-net">${formatVolume(child.netVolume)}</td>`;
+        bodyHtml += `<td class="col-gross">${formatArea(child.grossArea)}</td>`;
+        bodyHtml += `<td class="col-net">${formatArea(child.netArea || 0)}</td>`;
+        bodyHtml += `<td class="col-gross">${formatWeight(child.grossWeight)}</td>`;
+        bodyHtml += `<td class="col-net">${formatWeight(child.netWeight)}</td>`;
         if (hasAsmWeight) {
           bodyHtml += `<td>${child.assemblyWeight > 0 ? formatWeight(child.assemblyWeight) : "—"}</td>`;
         }
@@ -417,12 +420,12 @@ function renderAssemblyStatsTable(assemblyGroups, totalNetVolume, totalGrossVolu
       bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(group.name)}" data-container="direct">`;
       bodyHtml += `<td class="stats-child-name">─ ${escHtml(child.name || "(Không tên)")}</td>`;
       bodyHtml += `<td>1</td>`;
-      bodyHtml += `<td>${formatVolume(child.grossVolume)}</td>`;
-      bodyHtml += `<td>${formatVolume(child.netVolume)}</td>`;
-      bodyHtml += `<td>${formatArea(child.grossArea)}</td>`;
-      bodyHtml += `<td>${formatArea(child.netArea || 0)}</td>`;
-      bodyHtml += `<td>${formatWeight(child.grossWeight)}</td>`;
-      bodyHtml += `<td>${formatWeight(child.netWeight)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatVolume(child.grossVolume)}</td>`;
+      bodyHtml += `<td class="col-net">${formatVolume(child.netVolume)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatArea(child.grossArea)}</td>`;
+      bodyHtml += `<td class="col-net">${formatArea(child.netArea || 0)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatWeight(child.grossWeight)}</td>`;
+      bodyHtml += `<td class="col-net">${formatWeight(child.netWeight)}</td>`;
       if (hasAsmWeight) {
         bodyHtml += `<td>${child.assemblyWeight > 0 ? formatWeight(child.assemblyWeight) : "—"}</td>`;
       }
@@ -436,10 +439,12 @@ function renderAssemblyStatsTable(assemblyGroups, totalNetVolume, totalGrossVolu
     <tr>
       <td>TỔNG CỘNG</td>
       <td>${formatNumber(totalCount)}</td>
-      <td>${formatVolume(totalVolume)}</td>
-      <td>${formatArea(totalArea)}</td>
-      <td>${formatArea(totalNetArea)}</td>
-      <td>${formatWeight(totalWeight)}</td>`;
+      <td class="col-gross">${formatVolume(totalGrossVolume)}</td>
+      <td class="col-net">${formatVolume(totalNetVolume)}</td>
+      <td class="col-gross">${formatArea(totalGrossArea)}</td>
+      <td class="col-net">${formatArea(totalNetArea)}</td>
+      <td class="col-gross">${formatWeight(totalGrossWeight)}</td>
+      <td class="col-net">${formatWeight(totalNetWeight)}</td>`;
   if (hasAsmWeight) {
     footerHtml += `<td>${totalAsmWeight > 0 ? formatWeight(totalAsmWeight) : "—"}</td>`;
   }
@@ -497,12 +502,12 @@ function renderStatsTable(groups, totalNetVolume, totalGrossVolume, totalNetWeig
     bodyHtml += `<tr>`;
     bodyHtml += `<td>${escHtml(g.name)}</td>`;
     bodyHtml += `<td>${formatNumber(g.count)}</td>`;
-    bodyHtml += `<td>${formatVolume(g.grossVolume)}</td>`;
-    bodyHtml += `<td>${formatVolume(g.netVolume)}</td>`;
-    bodyHtml += `<td>${formatArea(g.grossArea)}</td>`;
-    bodyHtml += `<td>${formatArea(g.netArea)}</td>`;
-    bodyHtml += `<td>${formatWeight(g.grossWeight)}</td>`;
-    bodyHtml += `<td>${formatWeight(g.netWeight)}</td>`;
+    bodyHtml += `<td class="col-gross">${formatVolume(g.grossVolume)}</td>`;
+    bodyHtml += `<td class="col-net">${formatVolume(g.netVolume)}</td>`;
+    bodyHtml += `<td class="col-gross">${formatArea(g.grossArea)}</td>`;
+    bodyHtml += `<td class="col-net">${formatArea(g.netArea)}</td>`;
+    bodyHtml += `<td class="col-gross">${formatWeight(g.grossWeight)}</td>`;
+    bodyHtml += `<td class="col-net">${formatWeight(g.netWeight)}</td>`;
     bodyHtml += `</tr>`;
   }
   tbody.innerHTML = bodyHtml;
@@ -511,12 +516,12 @@ function renderStatsTable(groups, totalNetVolume, totalGrossVolume, totalNetWeig
     <tr>
       <td>TỔNG CỘNG</td>
       <td>${formatNumber(groups.reduce((s, g) => s + g.count, 0))}</td>
-      <td>${formatVolume(totalGrossVolume)}</td>
-      <td>${formatVolume(totalNetVolume)}</td>
-      <td>${formatArea(totalGrossArea)}</td>
-      <td>${formatArea(totalNetArea)}</td>
-      <td>${formatWeight(totalGrossWeight)}</td>
-      <td>${formatWeight(totalNetWeight)}</td>
+      <td class="col-gross">${formatVolume(totalGrossVolume)}</td>
+      <td class="col-net">${formatVolume(totalNetVolume)}</td>
+      <td class="col-gross">${formatArea(totalGrossArea)}</td>
+      <td class="col-net">${formatArea(totalNetArea)}</td>
+      <td class="col-gross">${formatWeight(totalGrossWeight)}</td>
+      <td class="col-net">${formatWeight(totalNetWeight)}</td>
     </tr>
   `;
 }
@@ -619,4 +624,32 @@ function escHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ── Column Toggle (Tất cả / Gross / Net) ──
+function setupColumnToggle() {
+  const toggleBar = document.getElementById("table-toggle-bar");
+  if (!toggleBar) return;
+
+  const buttons = toggleBar.querySelectorAll(".table-toggle-btn");
+  const table = document.getElementById("stats-table");
+  if (!table) return;
+
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      // Update active state
+      buttons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      const mode = btn.dataset.mode;
+      table.classList.remove("hide-net", "hide-gross");
+
+      if (mode === "gross") {
+        table.classList.add("hide-net");
+      } else if (mode === "net") {
+        table.classList.add("hide-gross");
+      }
+      // mode === "all" → no class needed, show everything
+    });
+  });
 }

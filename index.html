@@ -139,47 +139,76 @@
         </div>
       </div>
 
-      <!-- Summary Cards -->
-      <div class="stats-cards" id="stats-cards">
-        <div class="stat-card" id="card-total-objects">
-          <div class="stat-card-icon">📦</div>
-          <div class="stat-card-value" id="stat-total-objects">0</div>
-          <div class="stat-card-label">Tổng Objects</div>
+      <!-- Overview Cards -->
+      <div class="stats-overview" id="stats-cards">
+        <div class="stats-overview-row">
+          <div class="stat-mini-card" id="card-total-objects">
+            <span class="stat-mini-icon">📦</span>
+            <span class="stat-mini-value" id="stat-total-objects">0</span>
+            <span class="stat-mini-label">Objects</span>
+          </div>
+          <div class="stat-mini-card" id="card-total-groups">
+            <span class="stat-mini-icon">📁</span>
+            <span class="stat-mini-value" id="stat-total-groups">0</span>
+            <span class="stat-mini-label">Nhóm</span>
+          </div>
         </div>
-        <div class="stat-card" id="card-total-groups">
-          <div class="stat-card-icon">📁</div>
-          <div class="stat-card-value" id="stat-total-groups">0</div>
-          <div class="stat-card-label">Số nhóm</div>
+
+        <!-- Paired Cards: Volume -->
+        <div class="stat-pair-card" id="card-volume">
+          <div class="stat-pair-header">
+            <span class="stat-pair-icon">📐</span>
+            <span class="stat-pair-title">Thể tích</span>
+          </div>
+          <div class="stat-pair-body">
+            <div class="stat-pair-item gross">
+              <span class="stat-pair-tag">G</span>
+              <span class="stat-pair-value" id="stat-total-gross-volume">0 m³</span>
+            </div>
+            <div class="stat-pair-divider"></div>
+            <div class="stat-pair-item net">
+              <span class="stat-pair-tag">N</span>
+              <span class="stat-pair-value" id="stat-total-net-volume">0 m³</span>
+            </div>
+          </div>
         </div>
-        <div class="stat-card" id="card-total-gross-volume">
-          <div class="stat-card-icon">📐</div>
-          <div class="stat-card-value" id="stat-total-gross-volume">0 m³</div>
-          <div class="stat-card-label">Thể tích Gross</div>
+
+        <!-- Paired Cards: Area -->
+        <div class="stat-pair-card" id="card-area">
+          <div class="stat-pair-header">
+            <span class="stat-pair-icon">📏</span>
+            <span class="stat-pair-title">Diện tích bề mặt</span>
+          </div>
+          <div class="stat-pair-body">
+            <div class="stat-pair-item gross">
+              <span class="stat-pair-tag">G</span>
+              <span class="stat-pair-value" id="stat-total-gross-area">0 m²</span>
+            </div>
+            <div class="stat-pair-divider"></div>
+            <div class="stat-pair-item net">
+              <span class="stat-pair-tag">N</span>
+              <span class="stat-pair-value" id="stat-total-net-area">0 m²</span>
+            </div>
+          </div>
         </div>
-        <div class="stat-card" id="card-total-net-volume">
-          <div class="stat-card-icon">🧪</div>
-          <div class="stat-card-value" id="stat-total-net-volume">0 m³</div>
-          <div class="stat-card-label">Thể tích Net</div>
-        </div>
-        <div class="stat-card" id="card-total-gross-area">
-          <div class="stat-card-icon">📏</div>
-          <div class="stat-card-value" id="stat-total-gross-area">0 m²</div>
-          <div class="stat-card-label">DT bề mặt Gross</div>
-        </div>
-        <div class="stat-card" id="card-total-net-area">
-          <div class="stat-card-icon">📐</div>
-          <div class="stat-card-value" id="stat-total-net-area">0 m²</div>
-          <div class="stat-card-label">DT bề mặt Net</div>
-        </div>
-        <div class="stat-card" id="card-total-gross-weight">
-          <div class="stat-card-icon">⚖️</div>
-          <div class="stat-card-value" id="stat-total-gross-weight">0 kg</div>
-          <div class="stat-card-label">Khối lượng Gross</div>
-        </div>
-        <div class="stat-card" id="card-total-net-weight">
-          <div class="stat-card-icon">🏋️</div>
-          <div class="stat-card-value" id="stat-total-net-weight">0 kg</div>
-          <div class="stat-card-label">Khối lượng Net</div>
+
+        <!-- Paired Cards: Weight -->
+        <div class="stat-pair-card" id="card-weight">
+          <div class="stat-pair-header">
+            <span class="stat-pair-icon">⚖️</span>
+            <span class="stat-pair-title">Khối lượng</span>
+          </div>
+          <div class="stat-pair-body">
+            <div class="stat-pair-item gross">
+              <span class="stat-pair-tag">G</span>
+              <span class="stat-pair-value" id="stat-total-gross-weight">0 kg</span>
+            </div>
+            <div class="stat-pair-divider"></div>
+            <div class="stat-pair-item net">
+              <span class="stat-pair-tag">N</span>
+              <span class="stat-pair-value" id="stat-total-net-weight">0 kg</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -193,19 +222,29 @@
         </button>
       </div>
 
+      <!-- Table Column Toggle -->
+      <div class="table-toggle-bar" id="table-toggle-bar">
+        <span class="table-toggle-label">Hiển thị:</span>
+        <div class="table-toggle-group">
+          <button class="table-toggle-btn active" data-mode="all" id="toggle-all-cols">Tất cả</button>
+          <button class="table-toggle-btn" data-mode="gross" id="toggle-gross-cols">Gross</button>
+          <button class="table-toggle-btn" data-mode="net" id="toggle-net-cols">Net</button>
+        </div>
+      </div>
+
       <!-- Stats Table -->
       <div id="stats-table-container" class="table-container">
         <table id="stats-table">
           <thead>
             <tr>
               <th>Nhóm</th>
-              <th>Số lượng</th>
-              <th>Thể tích Gross (m³)</th>
-              <th>Thể tích Net (m³)</th>
-              <th>DT bề mặt Gross (m²)</th>
-              <th>DT Net (m²)</th>
-              <th>Khối lượng Gross (kg)</th>
-              <th>Khối lượng Net (kg)</th>
+              <th>SL</th>
+              <th class="col-gross">V Gross (m³)</th>
+              <th class="col-net">V Net (m³)</th>
+              <th class="col-gross">A Gross (m²)</th>
+              <th class="col-net">A Net (m²)</th>
+              <th class="col-gross">W Gross (kg)</th>
+              <th class="col-net">W Net (kg)</th>
             </tr>
           </thead>
           <tbody id="stats-table-body">
