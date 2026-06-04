@@ -596,7 +596,7 @@ select:focus {
 }
 
 .tree-item:hover {
-  background: var(--bg-active); /* Pastel pink highlight */
+  background: linear-gradient(90deg, rgba(255, 154, 158, 0.15) 0%, rgba(255, 154, 158, 0.05) 100%) !important;
   color: var(--text-primary);
 }
 
@@ -726,16 +726,52 @@ select:focus {
 }
 
 .strip-metric:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  z-index: 2;
 }
 
-/* Specific Pastel Colored Boxes */
-.bg-pastel-pink { background: rgba(199, 141, 141, 0.12) !important; border-color: rgba(199, 141, 141, 0.3) !important; }
-.bg-pastel-brown { background: rgba(217, 184, 145, 0.15) !important; border-color: rgba(217, 184, 145, 0.3) !important; }
-.bg-pastel-green { background: rgba(152, 196, 159, 0.15) !important; border-color: rgba(152, 196, 159, 0.3) !important; }
-.bg-pastel-red { background: rgba(226, 142, 142, 0.15) !important; border-color: rgba(226, 142, 142, 0.3) !important; }
-.bg-pastel-blue { background: rgba(139, 190, 196, 0.15) !important; border-color: rgba(139, 190, 196, 0.3) !important; }
+/* Specific Pastel Colored Boxes with Vibrant Gradients */
+.bg-pastel-pink { 
+  background: linear-gradient(135deg, #FFB6C1 0%, #FF9A9E 100%) !important; 
+  color: #5C2A2A !important;
+  border: none !important;
+  box-shadow: 0 4px 10px rgba(255, 154, 158, 0.25) !important;
+}
+.bg-pastel-brown { 
+  background: linear-gradient(135deg, #EAD6C9 0%, #D8B49C 100%) !important; 
+  color: #4A3320 !important;
+  border: none !important;
+  box-shadow: 0 4px 10px rgba(216, 180, 156, 0.25) !important;
+}
+.bg-pastel-green { 
+  background: linear-gradient(135deg, #C2E5D3 0%, #95D5B2 100%) !important; 
+  color: #1B4332 !important;
+  border: none !important;
+  box-shadow: 0 4px 10px rgba(149, 213, 178, 0.25) !important;
+}
+.bg-pastel-orange { 
+  background: linear-gradient(135deg, #FFDAB9 0%, #FFB4A2 100%) !important; 
+  color: #5C2C16 !important;
+  border: none !important;
+  box-shadow: 0 4px 10px rgba(255, 180, 162, 0.25) !important;
+}
+.bg-pastel-red { 
+  background: linear-gradient(135deg, #FFC3A0 0%, #FFAFBD 100%) !important; 
+  color: #59242C !important;
+  border: none !important;
+  box-shadow: 0 4px 10px rgba(255, 175, 189, 0.25) !important;
+}
+
+/* Add hover scaling to strip-count too */
+.strip-count {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.strip-count:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1) !important;
+  z-index: 2;
+}
 
 .strip-metric-label {
   font-size: 9px;
@@ -911,7 +947,7 @@ select:focus {
 }
 
 #stats-table tbody tr:hover {
-  background: var(--bg-active) !important; /* Strong pastel pink highlight */
+  background: linear-gradient(90deg, rgba(255, 154, 158, 0.15) 0%, rgba(255, 154, 158, 0.05) 100%) !important;
 }
 
 #stats-table tfoot td {
