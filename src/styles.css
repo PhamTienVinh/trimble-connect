@@ -994,7 +994,7 @@ select:focus {
 #stats-table th {
   position: sticky;
   top: 0;
-  background: var(--bg-tertiary);
+  background: var(--bg-card);
   color: var(--text-secondary);
   font-weight: 600;
   font-size: 11px;
@@ -1003,7 +1003,7 @@ select:focus {
   padding: 10px 12px;
   text-align: left;
   border-bottom: 2px solid var(--border);
-  z-index: 1;
+  z-index: 10;
 }
 
 #stats-table td {
