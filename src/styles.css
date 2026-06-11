@@ -1,38 +1,56 @@
 /* ==============================
-   DDC Statistics - Premium Pastel Light Theme
+   DDC Statistics - Premium Warm Rose Theme
+   Based on Camera Settings UI palette
    ============================== */
 
 :root {
-  --bg-primary: linear-gradient(135deg, #d3816b 0%, #944053 100%); /* Main background gradient from image */
-  --bg-secondary: rgba(255, 255, 255, 0.4);     /* Semi-transparent white for containers */
-  --bg-tertiary: rgba(255, 255, 255, 0.6);      /* Semi-transparent white for cards/tabs */
-  --bg-card: #FFFFFF;          /* Pure white for popping elements/cards */
-  --bg-hover: #F2E4D8;         /* Soft warm hover */
-  --bg-active: rgba(220, 167, 167, 0.15); /* Soft pastel pink active background */
-  --border: #E8DCCF;           /* Soft clay border */
-  --border-light: #F0E6DA;     /* Medium clay border */
-  --text-primary: #2C1610;     /* Very dark espresso brown for maximum contrast */
-  --text-secondary: #4A2E24;   /* Dark roasted brown */
-  --text-muted: #785B50;       /* Medium earthy brown */
-  --accent: #C78D8D;           /* Pastel pink / soft rose */
-  --accent-dark: #B57474;      /* Dark pastel rose */
-  --accent-glow: rgba(199, 141, 141, 0.25);
-  --success: #98C49F;          /* Pastel green / sage */
-  --warning: #D9B891;          /* Warm pastel amber/brown */
-  --danger: #E28E8E;           /* Pastel coral red */
-  --info: #8bbec4;             /* Pastel light blue/teal */
-  --header-bg: linear-gradient(135deg, #9e0000 0%, #6b0000 100%); /* Solid wine red */
+  /* === BACKGROUND SYSTEM === */
+  --bg-primary: linear-gradient(160deg, #EDD5C8 0%, #E0C0B5 50%, #D4A99A 100%); /* Soft warm rose-cream background */
+  --bg-secondary: rgba(255, 248, 244, 0.55);    /* Semi-transparent warm white for containers */
+  --bg-tertiary: rgba(255, 248, 244, 0.75);     /* Warmer white for cards/tabs */
+  --bg-card: #FFFAF7;          /* Warm near-white for cards */
+  --bg-hover: #F5E8DF;         /* Soft warm hover */
+  --bg-active: rgba(196, 101, 74, 0.10); /* Warm terracotta active background */
+
+  /* === BORDERS === */
+  --border: #E5CFC4;           /* Warm rose-clay border */
+  --border-light: #EDD8CF;     /* Light rose border */
+
+  /* === TEXT === */
+  --text-primary: #2C1610;     /* Very dark espresso — max contrast */
+  --text-secondary: #4A2E22;   /* Dark roasted brown */
+  --text-muted: #7A5548;       /* Medium warm muted brown */
+
+  /* === ACCENT / PRIMARY === */
+  --accent: #C0445C;           /* Rose-red accent — links & highlights */
+  --accent-dark: #A83550;      /* Deeper rose for hover/active */
+  --accent-glow: rgba(192, 68, 92, 0.22);
+
+  /* === SEMANTIC COLORS === */
+  --success: #5DB870;          /* Fresh green */
+  --warning: #D9A05A;          /* Warm amber */
+  --danger: #E05252;           /* Coral red */
+  --info: #5AABBD;             /* Calm teal */
+
+  /* === HEADER === */
+  --header-bg: linear-gradient(135deg, #C9607A 0%, #8B3A52 100%); /* Rose pink → deep plum */
   --header-text: #FFFFFF;
-  --gradient-1: linear-gradient(135deg, #a8d5ad 0%, #82b987 100%);
-  --gradient-2: linear-gradient(135deg, #f0c2c2 0%, #e29e9e 100%);
-  --gradient-3: linear-gradient(135deg, #e6d5cc 0%, #c9b4a6 100%);
-  --gradient-4: linear-gradient(135deg, #bcdce0 0%, #8bbec4 100%);
-  --glass: rgba(252, 250, 247, 0.85);
-  --glass-border: rgba(220, 167, 167, 0.2);
-  --shadow-sm: 0 1px 3px rgba(61,49,42,0.06);
-  --shadow-md: 0 4px 12px rgba(61,49,42,0.1);
-  --shadow-lg: 0 8px 24px rgba(61,49,42,0.14);
-  --shadow-glow: 0 0 20px rgba(220, 167, 167, 0.15);
+
+  /* === GRADIENTS === */
+  --gradient-1: linear-gradient(135deg, #9DD4A4 0%, #72B87A 100%); /* Sage green */
+  --gradient-2: linear-gradient(135deg, #F0B8BC 0%, #E0909A 100%); /* Soft pink */
+  --gradient-3: linear-gradient(135deg, #EDD5C8 0%, #D4B0A0 100%); /* Warm cream */
+  --gradient-4: linear-gradient(135deg, #B8D8E0 0%, #80B8C8 100%); /* Soft teal */
+
+  /* === GLASS / SHADOW === */
+  --glass: rgba(255, 250, 247, 0.88);
+  --glass-border: rgba(192, 68, 92, 0.18);
+  --shadow-sm: 0 1px 3px rgba(44, 22, 16, 0.07);
+  --shadow-md: 0 4px 12px rgba(44, 22, 16, 0.11);
+  --shadow-lg: 0 8px 24px rgba(44, 22, 16, 0.16);
+  --shadow-glow: 0 0 20px rgba(192, 68, 92, 0.18);
+
+  /* === SHAPE & MOTION === */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -178,38 +196,38 @@ body {
 
 .tab-btn.active {
   background: var(--bg-card);
-  color: #944053; /* Match the dark pink/red of the gradient */
+  color: #A83550; /* Deep rose — matches header gradient end */
   border-color: transparent;
-  box-shadow: 0 4px 12px rgba(148, 64, 83, 0.2);
+  box-shadow: 0 4px 12px rgba(168, 53, 80, 0.2);
 }
 
 /* Specific Tab Colors */
 #tab-objects-btn {
-  background: rgba(216, 180, 156, 0.4); /* Muted pastel brown */
-  color: #6B4933;
+  background: rgba(212, 169, 154, 0.35); /* Warm terracotta tint */
+  color: #5C2E1E;
 }
 #tab-objects-btn:hover {
-  background: rgba(216, 180, 156, 0.7);
-  color: #4A3320;
+  background: rgba(212, 169, 154, 0.6);
+  color: #3D1E10;
 }
 #tab-objects-btn.active {
-  background: linear-gradient(135deg, #EAD6C9 0%, #D8B49C 100%);
-  color: #4A3320;
-  box-shadow: 0 4px 12px rgba(216, 180, 156, 0.4);
+  background: linear-gradient(135deg, #EDD5C8 0%, #D4A99A 100%);
+  color: #3D1E10;
+  box-shadow: 0 4px 12px rgba(212, 169, 154, 0.4);
 }
 
 #tab-statistics-btn {
-  background: rgba(149, 213, 178, 0.4); /* Muted pastel green */
-  color: #2D6A4F;
+  background: rgba(93, 184, 112, 0.2); /* Fresh green tint */
+  color: #2A6640;
 }
 #tab-statistics-btn:hover {
-  background: rgba(149, 213, 178, 0.7);
-  color: #1B4332;
+  background: rgba(93, 184, 112, 0.35);
+  color: #1A4A2A;
 }
 #tab-statistics-btn.active {
-  background: linear-gradient(135deg, #C2E5D3 0%, #95D5B2 100%);
-  color: #1B4332;
-  box-shadow: 0 4px 12px rgba(149, 213, 178, 0.4);
+  background: linear-gradient(135deg, #BCEAC8 0%, #8FD4A4 100%);
+  color: #1A4A2A;
+  box-shadow: 0 4px 12px rgba(93, 184, 112, 0.35);
 }
 
 .tab-btn.active::after {
@@ -347,7 +365,7 @@ select:focus {
   display: flex;
   gap: 8px;
   padding: 12px 16px;
-  background: #F4ECE6; /* Soft pink-brown pastel tint for the region */
+  background: #F2E8E0; /* Warm rose-cream tint for the action bar */
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   flex-wrap: wrap;
@@ -433,39 +451,39 @@ select:focus {
 
 /* Specific Pastel Button Classes */
 .btn-pastel-orange {
-  background: rgba(255, 180, 162, 0.2);
-  color: #8C402B;
+  background: rgba(212, 169, 154, 0.2); /* Warm terracotta */
+  color: #7A3A22;
 }
 .btn-pastel-orange:hover {
-  background: rgba(255, 180, 162, 0.4);
-  color: #5C2C16;
+  background: rgba(212, 169, 154, 0.4);
+  color: #4D2412;
 }
 
 .btn-pastel-pink {
-  background: rgba(255, 154, 158, 0.2);
-  color: #8A3E44;
+  background: rgba(192, 68, 92, 0.12); /* Rose accent tint */
+  color: #9A2C44;
 }
 .btn-pastel-pink:hover {
-  background: rgba(255, 154, 158, 0.4);
-  color: #5C2A2A;
+  background: rgba(192, 68, 92, 0.22);
+  color: #6E1E30;
 }
 
 .btn-pastel-green {
-  background: rgba(149, 213, 178, 0.2);
-  color: #2D6A4F;
+  background: rgba(93, 184, 112, 0.2); /* Fresh green tint */
+  color: #2A6640;
 }
 .btn-pastel-green:hover {
-  background: rgba(149, 213, 178, 0.4);
-  color: #1B4332;
+  background: rgba(93, 184, 112, 0.35);
+  color: #1A4A2A;
 }
 
 .btn-pastel-brown {
-  background: rgba(216, 180, 156, 0.2);
-  color: #6B4933;
+  background: rgba(212, 169, 154, 0.2); /* Warm cream tint */
+  color: #5C2E1E;
 }
 .btn-pastel-brown:hover {
-  background: rgba(216, 180, 156, 0.4);
-  color: #4A3320;
+  background: rgba(212, 169, 154, 0.4);
+  color: #3D1E10;
 }
 
 .action-btn.export {
@@ -474,8 +492,8 @@ select:focus {
 }
 
 .action-btn.export:hover {
-  background: #84B38B;
-  box-shadow: 0 4px 10px rgba(152, 196, 159, 0.4);
+  background: #4DA060;
+  box-shadow: 0 4px 10px rgba(93, 184, 112, 0.4);
 }
 
 .action-btn.export-secondary {
@@ -663,7 +681,7 @@ select:focus {
 }
 
 .tree-item:hover {
-  background: linear-gradient(90deg, rgba(255, 154, 158, 0.15) 0%, rgba(255, 154, 158, 0.05) 100%) !important;
+  background: linear-gradient(90deg, rgba(192, 68, 92, 0.10) 0%, rgba(192, 68, 92, 0.03) 100%) !important; /* Rose accent hover */
   color: var(--text-primary);
 }
 
@@ -801,44 +819,44 @@ select:focus {
 
 /* Specific Pastel Colored Boxes with Vibrant Gradients */
 .bg-pastel-pink { 
-  background: linear-gradient(135deg, #FFB6C1 0%, #FF9A9E 100%) !important; 
-  --card-text-primary: #5C2A2A;
-  --card-text-muted: rgba(92, 42, 42, 0.75);
+  background: linear-gradient(135deg, #F2B0BC 0%, #E08898 100%) !important; /* Rose pink */
+  --card-text-primary: #5C1E2E;
+  --card-text-muted: rgba(92, 30, 46, 0.75);
   --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
-  box-shadow: 0 4px 10px rgba(255, 154, 158, 0.25) !important;
+  box-shadow: 0 4px 10px rgba(192, 68, 92, 0.25) !important;
 }
 .bg-pastel-brown { 
-  background: linear-gradient(135deg, #EAD6C9 0%, #D8B49C 100%) !important; 
-  --card-text-primary: #4A3320;
-  --card-text-muted: rgba(74, 51, 32, 0.75);
+  background: linear-gradient(135deg, #EDD5C8 0%, #D4A99A 100%) !important; /* Warm terracotta cream */
+  --card-text-primary: #3D1E10;
+  --card-text-muted: rgba(61, 30, 16, 0.75);
   --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
-  box-shadow: 0 4px 10px rgba(216, 180, 156, 0.25) !important;
+  box-shadow: 0 4px 10px rgba(212, 169, 154, 0.3) !important;
 }
 .bg-pastel-green { 
-  background: linear-gradient(135deg, #C2E5D3 0%, #95D5B2 100%) !important; 
-  --card-text-primary: #1B4332;
-  --card-text-muted: rgba(27, 67, 50, 0.75);
+  background: linear-gradient(135deg, #BCEAC8 0%, #8FD4A4 100%) !important; /* Fresh sage green */
+  --card-text-primary: #1A4A2A;
+  --card-text-muted: rgba(26, 74, 42, 0.75);
   --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
-  box-shadow: 0 4px 10px rgba(149, 213, 178, 0.25) !important;
+  box-shadow: 0 4px 10px rgba(93, 184, 112, 0.25) !important;
 }
 .bg-pastel-orange { 
-  background: linear-gradient(135deg, #FFDAB9 0%, #FFB4A2 100%) !important; 
-  --card-text-primary: #5C2C16;
-  --card-text-muted: rgba(92, 44, 22, 0.75);
+  background: linear-gradient(135deg, #F5D4B0 0%, #E8B888 100%) !important; /* Warm amber */
+  --card-text-primary: #4D2C0E;
+  --card-text-muted: rgba(77, 44, 14, 0.75);
   --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
-  box-shadow: 0 4px 10px rgba(255, 180, 162, 0.25) !important;
+  box-shadow: 0 4px 10px rgba(217, 160, 90, 0.25) !important;
 }
 .bg-pastel-red { 
-  background: linear-gradient(135deg, #FFC3A0 0%, #FFAFBD 100%) !important; 
-  --card-text-primary: #59242C;
-  --card-text-muted: rgba(89, 36, 44, 0.75);
+  background: linear-gradient(135deg, #F4B8C0 0%, #E89098 100%) !important; /* Deep rose */
+  --card-text-primary: #5C1E28;
+  --card-text-muted: rgba(92, 30, 40, 0.75);
   --card-tag-bg: rgba(255, 255, 255, 0.4);
   border: none !important;
-  box-shadow: 0 4px 10px rgba(255, 175, 189, 0.25) !important;
+  box-shadow: 0 4px 10px rgba(192, 68, 92, 0.25) !important;
 }
 
 /* Add hover scaling to strip-count too */
@@ -959,7 +977,7 @@ select:focus {
 /* ===== TABLE ENHANCEMENTS ===== */
 /* Zebra striping */
 #stats-table tbody tr:nth-child(even) {
-  background: rgba(224, 213, 203, 0.25);
+  background: rgba(229, 207, 196, 0.22); /* Warm rose-cream stripe */
 }
 
 #stats-table tbody tr:nth-child(even):hover {
@@ -1017,7 +1035,7 @@ select:focus {
 }
 
 #stats-table tbody tr:hover {
-  background: linear-gradient(90deg, rgba(255, 154, 158, 0.15) 0%, rgba(255, 154, 158, 0.05) 100%) !important;
+  background: linear-gradient(90deg, rgba(192, 68, 92, 0.10) 0%, rgba(192, 68, 92, 0.03) 100%) !important; /* Rose accent hover */
 }
 
 #stats-table tfoot td {
@@ -1166,13 +1184,13 @@ select:focus {
   padding: 6px 12px;
   cursor: pointer;
   user-select: none;
-  background: linear-gradient(135deg, rgba(220,167,167,0.08) 0%, rgba(220,167,167,0.04) 100%);
+  background: linear-gradient(135deg, rgba(192, 68, 92, 0.07) 0%, rgba(192, 68, 92, 0.03) 100%);
   border-bottom: 1px solid var(--glass-border);
   transition: var(--transition);
 }
 
 .assembly-info-header:hover {
-  background: linear-gradient(135deg, rgba(220,167,167,0.14) 0%, rgba(220,167,167,0.08) 100%);
+  background: linear-gradient(135deg, rgba(192, 68, 92, 0.13) 0%, rgba(192, 68, 92, 0.07) 100%);
 }
 
 .assembly-info-icon {
