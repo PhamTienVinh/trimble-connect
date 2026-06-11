@@ -451,39 +451,47 @@ select:focus {
 
 /* Specific Pastel Button Classes */
 .btn-pastel-orange {
-  background: rgba(212, 169, 154, 0.2); /* Warm terracotta */
-  color: #7A3A22;
+  background: #FDE8E0; /* Light warm peach-orange */
+  border: 1px solid #F5C5B5;
+  color: #C4654A; /* Terracotta */
 }
 .btn-pastel-orange:hover {
-  background: rgba(212, 169, 154, 0.4);
-  color: #4D2412;
+  background: #FADAD0;
+  border-color: #EFA690;
+  color: #A8503A;
 }
 
 .btn-pastel-pink {
-  background: rgba(192, 68, 92, 0.12); /* Rose accent tint */
-  color: #9A2C44;
+  background: #FDEAEB; /* Light pink-rose */
+  border: 1px solid #F7C6CA;
+  color: #D4505A; /* Rose-red */
 }
 .btn-pastel-pink:hover {
-  background: rgba(192, 68, 92, 0.22);
-  color: #6E1E30;
+  background: #FAD8DC;
+  border-color: #EEA5AC;
+  color: #A83550;
 }
 
 .btn-pastel-green {
-  background: rgba(93, 184, 112, 0.2); /* Fresh green tint */
-  color: #2A6640;
+  background: #EBF6EE; /* Light sage green */
+  border: 1px solid #CEEAD6;
+  color: #3A8A4E; /* Sage green */
 }
 .btn-pastel-green:hover {
-  background: rgba(93, 184, 112, 0.35);
-  color: #1A4A2A;
+  background: #DCF0E2;
+  border-color: #B5DEC0;
+  color: #266B38;
 }
 
 .btn-pastel-brown {
-  background: rgba(212, 169, 154, 0.2); /* Warm cream tint */
-  color: #5C2E1E;
+  background: #FFFAF7; /* Warm near-white */
+  border: 1px solid #E5CFC4;
+  color: #7A5548; /* Warm brown */
 }
 .btn-pastel-brown:hover {
-  background: rgba(212, 169, 154, 0.4);
-  color: #3D1E10;
+  background: #F5E8DF;
+  border-color: #D4B0A0;
+  color: #5C2E1E;
 }
 
 .action-btn.export {
