@@ -54,6 +54,11 @@ function isAssemblyGrouping(groupBy) {
   return groupBy === "assemblyName" || groupBy === "assemblyPos" || groupBy === "assemblyPosCode";
 }
 
+// ── Check if groupBy is the dedicated container mode ──
+function isContainerMode(groupBy) {
+  return groupBy === "assemblyContainer";
+}
+
 // ── Get assembly field key from groupBy ──
 function getAssemblyFieldKey(groupBy) {
   switch (groupBy) {
@@ -266,6 +271,13 @@ function updateStatistics() {
       document.getElementById("stats-placeholder").style.display = "none";
       return;
     }
+  }
+
+  // ── Assembly Container mode: show containers as primary items ──
+  if (isContainerMode(groupBy)) {
+    renderContainerStatsTable(enriched, totalNetVolume, totalGrossVolume, totalNetWeight, totalGrossWeight, totalGrossArea, totalNetArea);
+    document.getElementById("stats-placeholder").style.display = "none";
+    return;
   }
 
   // ── Standard flat grouping ──
@@ -525,6 +537,157 @@ function renderStatsTable(groups, totalNetVolume, totalGrossVolume, totalNetWeig
     </tr>
   `;
 }
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Render Container Stats Table ──
+// Shows IfcElementAssembly containers as primary items with their OWN quantities.
+// ══════════════════════════════════════════════════════════════════════════════
+function renderContainerStatsTable(enrichedObjects, totalNetVolume, totalGrossVolume, totalNetWeight, totalGrossWeight, totalGrossArea, totalNetArea) {
+  const tbody = document.getElementById("stats-table-body");
+  const tfoot = document.getElementById("stats-table-footer");
+  const containers = getSavedAssemblyContainers();
+
+  // Remove assembly weight header if exists
+  const thead = document.querySelector("#stats-table thead tr");
+  if (thead) {
+    const asmHeader = thead.querySelector(".asm-weight-header");
+    if (asmHeader) asmHeader.remove();
+  }
+
+  if (!containers || containers.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px;">Không tìm thấy IfcElementAssembly container</td></tr>`;
+    tfoot.innerHTML = "";
+
+    const el = document.getElementById("stat-total-groups");
+    if (el) el.textContent = "0";
+    return;
+  }
+
+  // Build children lookup
+  const containerChildrenMap_local = new Map();
+  const allContainerChildKeys = new Set();
+
+  for (const container of containers) {
+    const containerKey = `${container.modelId}:${container.id}`;
+    const childIds = getAssemblyChildren(container.modelId, container.id);
+    containerChildrenMap_local.set(containerKey, childIds);
+    for (const child of childIds) {
+      allContainerChildKeys.add(`${child.modelId}:${child.id}`);
+    }
+  }
+
+  // Sort containers
+  const sorted = [...containers].sort((a, b) => {
+    const nameA = (a.assemblyName || a.name || "").toLowerCase();
+    const nameB = (b.assemblyName || b.name || "").toLowerCase();
+    if (nameA !== nameB) return nameA.localeCompare(nameB);
+    return (a.assemblyPos || "").localeCompare(b.assemblyPos || "");
+  });
+
+  let bodyHtml = "";
+  let containerTotalWeight = 0;
+  let containerTotalVolume = 0;
+  let containerTotalArea = 0;
+
+  for (const container of sorted) {
+    const containerKey = `${container.modelId}:${container.id}`;
+    const children = containerChildrenMap_local.get(containerKey) || [];
+    const displayName = container.assemblyPos || container.assemblyName || container.name || `Container ${container.id}`;
+    const cWeight = container.weight || container.assemblyWeight || 0;
+    const cVolume = container.volume || 0;
+    const cArea = container.area || 0;
+
+    containerTotalWeight += cWeight;
+    containerTotalVolume += cVolume;
+    containerTotalArea += cArea;
+
+    // Container header row
+    bodyHtml += `<tr class="stats-group-header" data-assembly-group="${escHtml(containerKey)}">`;
+    bodyHtml += `<td class="stats-group-name">`;
+    bodyHtml += `<span class="stats-toggle" onclick="this.closest('tr').classList.toggle('collapsed'); _toggleAssemblyGroup(this)">▼</span> `;
+    bodyHtml += `<strong>📦 ${escHtml(displayName)}</strong>`;
+    bodyHtml += `</td>`;
+    bodyHtml += `<td><strong>${formatNumber(children.length)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatVolume(cVolume)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatVolume(cVolume)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatArea(cArea)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatArea(cArea)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatWeight(cWeight)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatWeight(cWeight)}</strong></td>`;
+    bodyHtml += `</tr>`;
+
+    // Children rows
+    for (const child of children) {
+      const enrichedChild = enrichedObjects.find(e => e.modelId === child.modelId && e.id === child.id);
+      const cObj = enrichedChild || child;
+      bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(containerKey)}">`;
+      bodyHtml += `<td class="stats-child-name">─ ${escHtml(cObj.name || "(Không tên)")}</td>`;
+      bodyHtml += `<td>1</td>`;
+      bodyHtml += `<td class="col-gross">${formatVolume(cObj.grossVolume || cObj.volume || 0)}</td>`;
+      bodyHtml += `<td class="col-net">${formatVolume(cObj.netVolume || cObj.volume || 0)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatArea(cObj.grossArea || cObj.area || 0)}</td>`;
+      bodyHtml += `<td class="col-net">${formatArea(cObj.netArea || 0)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatWeight(cObj.grossWeight || cObj.weight || 0)}</td>`;
+      bodyHtml += `<td class="col-net">${formatWeight(cObj.netWeight || cObj.weight || 0)}</td>`;
+      bodyHtml += `</tr>`;
+    }
+  }
+
+  // Orphan objects
+  const orphans = enrichedObjects.filter(obj => !allContainerChildKeys.has(`${obj.modelId}:${obj.id}`));
+  if (orphans.length > 0) {
+    let orphanWeight = 0, orphanVolume = 0, orphanArea = 0;
+    for (const o of orphans) {
+      orphanWeight += o.grossWeight || o.weight || 0;
+      orphanVolume += o.grossVolume || o.volume || 0;
+      orphanArea += o.grossArea || o.area || 0;
+    }
+
+    bodyHtml += `<tr class="stats-group-header" data-assembly-group="__orphans__">`;
+    bodyHtml += `<td class="stats-group-name">`;
+    bodyHtml += `<span class="stats-toggle" onclick="this.closest('tr').classList.toggle('collapsed'); _toggleAssemblyGroup(this)">▼</span> `;
+    bodyHtml += `<strong>🔗 Không thuộc Container</strong>`;
+    bodyHtml += `</td>`;
+    bodyHtml += `<td><strong>${formatNumber(orphans.length)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatVolume(orphanVolume)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatVolume(orphanVolume)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatArea(orphanArea)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatArea(orphanArea)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatWeight(orphanWeight)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatWeight(orphanWeight)}</strong></td>`;
+    bodyHtml += `</tr>`;
+
+    for (const obj of orphans) {
+      bodyHtml += `<tr class="stats-child-row" data-assembly-group="__orphans__">`;
+      bodyHtml += `<td class="stats-child-name">─ ${escHtml(obj.name || "(Không tên)")}</td>`;
+      bodyHtml += `<td>1</td>`;
+      bodyHtml += `<td class="col-gross">${formatVolume(obj.grossVolume || obj.volume || 0)}</td>`;
+      bodyHtml += `<td class="col-net">${formatVolume(obj.netVolume || obj.volume || 0)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatArea(obj.grossArea || obj.area || 0)}</td>`;
+      bodyHtml += `<td class="col-net">${formatArea(obj.netArea || 0)}</td>`;
+      bodyHtml += `<td class="col-gross">${formatWeight(obj.grossWeight || obj.weight || 0)}</td>`;
+      bodyHtml += `<td class="col-net">${formatWeight(obj.netWeight || obj.weight || 0)}</td>`;
+      bodyHtml += `</tr>`;
+    }
+  }
+
+  tbody.innerHTML = bodyHtml;
+
+  tfoot.innerHTML = `
+    <tr>
+      <td>TỔNG CỘNG (${sorted.length} containers)</td>
+      <td>${formatNumber(enrichedObjects.length)}</td>
+      <td class="col-gross">${formatVolume(totalGrossVolume)}</td>
+      <td class="col-net">${formatVolume(totalNetVolume)}</td>
+      <td class="col-gross">${formatArea(totalGrossArea)}</td>
+      <td class="col-net">${formatArea(totalNetArea)}</td>
+      <td class="col-gross">${formatWeight(totalGrossWeight)}</td>
+      <td class="col-net">${formatWeight(totalNetWeight)}</td>
+    </tr>
+  `;
+
+  const el = document.getElementById("stat-total-groups");
+  if (el) el.textContent = formatNumber(sorted.length);
+}
 
 // ── Export Excel ──
 function exportExcel(selectedOnly) {
@@ -574,6 +737,7 @@ function getGroupKey(obj, groupBy) {
     case "profile": return obj.profile || "(Không xác định)";
     case "referenceName": return obj.referenceName || "(Không xác định)";
     case "ifcClass": return obj.ifcClass || "(Không xác định)";
+    case "assemblyContainer": return obj.assemblyName || obj.assembly || "(Không xác định)";
     default: return obj.assemblyDisplayName || obj.assembly;
   }
 }

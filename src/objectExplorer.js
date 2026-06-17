@@ -3045,6 +3045,12 @@ function isAssemblyGroupingMode(groupBy) {
   return groupBy === "assemblyName" || groupBy === "assemblyPos" || groupBy === "assemblyPosCode";
 }
 
+// ── Check if this is the dedicated "Assembly Container" view ──
+// Shows IfcElementAssembly containers AS the primary items with their own quantities
+function isAssemblyContainerMode(groupBy) {
+  return groupBy === "assemblyContainer";
+}
+
 // ── Get assembly field key from groupBy ──
 function getAssemblyFieldKeyForTree(groupBy) {
   switch (groupBy) {
@@ -3061,6 +3067,7 @@ function getAssemblyGroupIcon(groupBy) {
     case "assemblyName": return "🏗️";
     case "assemblyPos": return "📍";
     case "assemblyPosCode": return "🔖";
+    case "assemblyContainer": return "📦";
     default: return "📦";
   }
 }
@@ -3289,6 +3296,133 @@ window._cascadeToggle = function(el, containerClass) {
   }
 };
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Render Assembly Container Tree ──
+// Shows IfcElementAssembly containers as PRIMARY items with their OWN quantities.
+// Each container = 1 group in the tree, expandable to show children.
+// ══════════════════════════════════════════════════════════════════════════════
+function renderAssemblyContainerTree(groupBy) {
+  const containers = savedAssemblyContainers;
+  if (!containers || containers.length === 0) {
+    return `<div class="placeholder"><div class="placeholder-icon">📦</div><p>Không tìm thấy IfcElementAssembly nào</p><p class="placeholder-sub">Model có thể không có assembly container</p></div>`;
+  }
+
+  const fmtW = (w) => w >= 1000 ? (w / 1000).toFixed(2) + " tấn" : w.toFixed(2) + " kg";
+  const fmtV = (v) => v > 0 ? v.toFixed(6) + " m³" : "—";
+  const fmtA = (a) => a > 0 ? a.toFixed(4) + " m²" : "—";
+
+  // Build a lookup: containerKey → children (from allObjects)
+  const containerChildrenLookup = new Map();
+  for (const container of containers) {
+    const containerKey = `${container.modelId}:${container.id}`;
+    const childIds = assemblyChildrenMap.get(containerKey);
+    const children = [];
+    if (childIds) {
+      for (const childId of childIds) {
+        const childObj = allObjects.find(o => o.modelId === container.modelId && o.id === childId);
+        if (childObj) children.push(childObj);
+      }
+    }
+    containerChildrenLookup.set(containerKey, children);
+  }
+
+  // Find orphan objects (not in any container)
+  const allContainerChildIds = new Set();
+  for (const [, children] of containerChildrenLookup) {
+    for (const child of children) {
+      allContainerChildIds.add(`${child.modelId}:${child.id}`);
+    }
+  }
+  const orphanObjects = filteredObjects.filter(obj => !allContainerChildIds.has(`${obj.modelId}:${obj.id}`));
+
+  // Sort containers by assemblyName then assemblyPos
+  const sortedContainers = [...containers].sort((a, b) => {
+    const nameA = (a.assemblyName || a.name || "").toLowerCase();
+    const nameB = (b.assemblyName || b.name || "").toLowerCase();
+    if (nameA !== nameB) return nameA.localeCompare(nameB);
+    const posA = (a.assemblyPos || "").toLowerCase();
+    const posB = (b.assemblyPos || "").toLowerCase();
+    return posA.localeCompare(posB);
+  });
+
+  let html = "";
+
+  for (const container of sortedContainers) {
+    const containerKey = `${container.modelId}:${container.id}`;
+    const children = containerChildrenLookup.get(containerKey) || [];
+
+    // Container display info
+    const displayName = container.assemblyPos || container.assemblyName || container.name || `Container ${container.id}`;
+    const assemblyNameLabel = container.assemblyName ? ` [${container.assemblyName}]` : "";
+    const containerWeight = container.weight || container.assemblyWeight || 0;
+    const containerVolume = container.volume || 0;
+    const containerArea = container.area || 0;
+
+    // Checkbox state: based on children selection
+    const childUids = children.map(o => `${o.modelId}:${o.id}`);
+    const allChecked = childUids.length > 0 && childUids.every(uid => selectedIds.has(uid));
+    const someChecked = childUids.some(uid => selectedIds.has(uid));
+
+    // Build tooltip
+    let tooltip = `📦 ${displayName}`;
+    tooltip += `\nIFC Class: ${container.ifcClass || "IfcElementAssembly"}`;
+    if (container.assemblyPos) tooltip += `\nAssembly Pos: ${container.assemblyPos}`;
+    if (container.assemblyName) tooltip += `\nAssembly Name: ${container.assemblyName}`;
+    tooltip += `\nWeight: ${fmtW(containerWeight)}`;
+    tooltip += `\nVolume: ${fmtV(containerVolume)}`;
+    tooltip += `\nArea: ${fmtA(containerArea)}`;
+    tooltip += `\nChildren: ${children.length}`;
+
+    html += `<div class="tree-group" data-group="${escHtml(containerKey)}">`;
+    html += `<div class="tree-group-header" title="${escHtml(tooltip)}">`;
+    html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn tất cả children" />`;
+    html += `<span class="tree-toggle" onclick="_cascadeToggle(this,'tree-group')">▼</span>`;
+    html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">📦 ${escHtml(displayName)}${escHtml(assemblyNameLabel)}</span>`;
+    html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${children.length} children</span>`;
+    if (containerWeight > 0) {
+      html += `<span class="tree-group-weight" onclick="_cascadeToggle(this,'tree-group')" title="Khối lượng Assembly Container">⚖️ ${fmtW(containerWeight)}</span>`;
+    }
+    html += `</div>`;
+
+    // Container stats row (volume + area)
+    html += `<div class="tree-items">`;
+    if (containerVolume > 0 || containerArea > 0) {
+      html += `<div class="tree-item" style="opacity:0.7; cursor:default; padding-left:36px; font-size:11px; color:var(--text-muted);">`;
+      html += `<span>📐 V: ${fmtV(containerVolume)} &nbsp;|&nbsp; 📏 A: ${fmtA(containerArea)}</span>`;
+      html += `</div>`;
+    }
+
+    // Children
+    for (const obj of children) {
+      html += renderTreeItemHtml(obj, groupBy);
+    }
+
+    html += `</div></div>`;
+  }
+
+  // Orphan objects (not in any container)
+  if (orphanObjects.length > 0) {
+    const orphanUids = orphanObjects.map(o => `${o.modelId}:${o.id}`);
+    const allChecked = orphanUids.every(uid => selectedIds.has(uid));
+    const someChecked = orphanUids.some(uid => selectedIds.has(uid));
+
+    html += `<div class="tree-group" data-group="__orphans__">`;
+    html += `<div class="tree-group-header">`;
+    html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} />`;
+    html += `<span class="tree-toggle" onclick="_cascadeToggle(this,'tree-group')">▼</span>`;
+    html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">🔗 Không thuộc Assembly Container</span>`;
+    html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${orphanObjects.length}</span>`;
+    html += `</div>`;
+    html += `<div class="tree-items">`;
+    for (const obj of orphanObjects) {
+      html += renderTreeItemHtml(obj, groupBy);
+    }
+    html += `</div></div>`;
+  }
+
+  return html;
+}
+
 // ── Tree Rendering ──
 function renderTree() {
   const container = document.getElementById("object-tree");
@@ -3302,10 +3436,19 @@ function renderTree() {
 
   // Check if assembly container grouping applies
   const useAssemblyGrouping = isAssemblyGroupingMode(groupBy);
+  const useContainerMode = isAssemblyContainerMode(groupBy);
 
   let html = "";
 
-  if (useAssemblyGrouping) {
+  if (useContainerMode) {
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── Assembly Container Mode ──
+    // Shows IfcElementAssembly containers AS the primary items.
+    // Each container shows its OWN weight/volume/area.
+    // Expandable to see children inside.
+    // ══════════════════════════════════════════════════════════════════════════
+    html = renderAssemblyContainerTree(groupBy);
+  } else if (useAssemblyGrouping) {
     // ══════════════════════════════════════════════════════════════════════════
     // ── Assembly container grouping ──
     // Structure:
@@ -3905,6 +4048,8 @@ function getGroupKey(obj, groupBy) {
       return obj.assemblyPos || "(Không xác định)";
     case "assemblyPosCode":
       return obj.assemblyPosCode || "(Không xác định)";
+    case "assemblyContainer":
+      return obj.assemblyName || obj.assembly || "(Không xác định)";
     case "name":
       return obj.name;
     case "group":
