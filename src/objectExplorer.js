@@ -4371,7 +4371,7 @@ function buildTooltip(obj) {
 // ── Handle TC Viewer selection → sync tree checkboxes + statistics ──
 // Called when user single-clicks or area-selects objects in TC 3D viewer.
 // Simple approach: parse IDs, match against allObjects, update panel UI + stats.
-function handleViewerSelectionChanged(data) {
+async function handleViewerSelectionChanged(data) {
   if (!allObjects || allObjects.length === 0) return;
 
   try {
@@ -4508,7 +4508,64 @@ function handleViewerSelectionChanged(data) {
               unmatchedCount.count++;
             }
           } else {
-            unmatchedCount.count++;
+            // Fallback: Real-time fetch children via getHierarchyChildren API
+            // This handles cases where assemblyChildrenMap was not built properly
+            try {
+              const idx = uid.indexOf(":");
+              const modelId = uid.substring(0, idx);
+              const objectId = parseInt(uid.substring(idx + 1));
+              if (!isNaN(objectId) && viewerRef) {
+                const hierarchyChildren = await viewerRef.getHierarchyChildren(
+                  modelId, [objectId], 4 /* ElementAssembly */, true
+                );
+                if (hierarchyChildren && hierarchyChildren.length > 0) {
+                  // Collect all child IDs recursively
+                  function collectChildIds(nodes) {
+                    const ids = [];
+                    for (const n of nodes) {
+                      ids.push(n.id);
+                      if (n.children && n.children.length > 0) {
+                        ids.push(...collectChildIds(n.children));
+                      }
+                    }
+                    return ids;
+                  }
+                  const fetchedChildIds = collectChildIds(hierarchyChildren);
+                  let childrenMatched = 0;
+                  for (const childId of fetchedChildIds) {
+                    const childUid = `${modelId}:${childId}`;
+                    if (knownUids.has(childUid)) {
+                      matchedUids.add(childUid);
+                      if (!incomingUidList.includes(childUid)) {
+                        incomingUidList.push(childUid);
+                      }
+                      childrenMatched++;
+                    }
+                  }
+                  if (childrenMatched > 0) {
+                    assemblyResolved++;
+                    // Also update assemblyChildrenMap for future lookups
+                    const childSet = new Set(fetchedChildIds);
+                    assemblyChildrenMap.set(uid, childSet);
+                    console.log(
+                      `[ObjectExplorer] ✓ Real-time resolved assembly ${uid} → ${childrenMatched}/${fetchedChildIds.length} children (fallback fetch)`,
+                    );
+                  } else {
+                    unmatchedCount.count++;
+                    console.warn(
+                      `[ObjectExplorer] ⚠ Assembly ${uid}: fetched ${fetchedChildIds.length} children but none matched allObjects`,
+                    );
+                  }
+                } else {
+                  unmatchedCount.count++;
+                }
+              } else {
+                unmatchedCount.count++;
+              }
+            } catch (fetchErr) {
+              console.warn(`[ObjectExplorer] Real-time assembly fetch failed for ${uid}:`, fetchErr);
+              unmatchedCount.count++;
+            }
           }
         }
       }
