@@ -4371,7 +4371,7 @@ function buildTooltip(obj) {
 // ── Handle TC Viewer selection → sync tree checkboxes + statistics ──
 // Called when user single-clicks or area-selects objects in TC 3D viewer.
 // Simple approach: parse IDs, match against allObjects, update panel UI + stats.
-async function handleViewerSelectionChanged(data) {
+function handleViewerSelectionChanged(data) {
   if (!allObjects || allObjects.length === 0) return;
 
   try {
@@ -4418,167 +4418,21 @@ async function handleViewerSelectionChanged(data) {
     }
 
     // Step 4: Match incoming IDs against our allObjects
-    // ENHANCED: Also resolve IfcElementAssembly container IDs to their children
-    // When viewer is in Assembly Selection mode, it sends the IfcElementAssembly
-    // container ID (which was removed from allObjects to prevent double-counting).
-    // We resolve these to all children IDs so statistics (V/A/W) work correctly.
     const knownUids = new Set(allObjects.map((o) => `${o.modelId}:${o.id}`));
     const matchedUids = new Set();
     let targetUid = null;
     const unmatchedCount = { count: 0 };
-    let assemblyResolved = 0;
 
     for (const uid of incomingUids) {
       if (knownUids.has(uid)) {
         matchedUids.add(uid);
       } else {
-        // Check if this unmatched ID is an IfcElementAssembly container
-        // that was removed from allObjects during dedup stage
-        const childIds = assemblyChildrenMap.get(uid);
-        if (childIds && childIds.size > 0) {
-          // This IS an assembly container → resolve to ALL children
-          const idx = uid.indexOf(":");
-          const modelId = uid.substring(0, idx);
-          let childrenMatched = 0;
-          for (const childId of childIds) {
-            const childUid = `${modelId}:${childId}`;
-            if (knownUids.has(childUid)) {
-              matchedUids.add(childUid);
-              // Also add to incomingUidList for scroll targeting
-              if (!incomingUidList.includes(childUid)) {
-                incomingUidList.push(childUid);
-              }
-              childrenMatched++;
-            }
-          }
-          if (childrenMatched > 0) {
-            assemblyResolved++;
-            console.log(
-              `[ObjectExplorer] ✓ Resolved assembly container ${uid} → ${childrenMatched}/${childIds.size} children`,
-            );
-          } else {
-            unmatchedCount.count++;
-          }
-        } else {
-          // Also check savedAssemblyContainers for assembly containers
-          // that might not be in assemblyChildrenMap
-          const savedContainer = savedAssemblyContainers.find(
-            (c) => `${c.modelId}:${c.id}` === uid,
-          );
-          if (savedContainer) {
-            // Found a saved assembly container — look for children
-            // via assemblyMembershipMap (reverse lookup)
-            let childrenMatched = 0;
-            for (const obj of allObjects) {
-              const objKey = `${obj.modelId}:${obj.id}`;
-              const parentKey = assemblyMembershipMap.get(objKey);
-              if (parentKey === uid) {
-                matchedUids.add(objKey);
-                if (!incomingUidList.includes(objKey)) {
-                  incomingUidList.push(objKey);
-                }
-                childrenMatched++;
-              }
-            }
-            // Also match by assemblyPos/assemblyName from the container
-            if (childrenMatched === 0 && (savedContainer.assemblyPos || savedContainer.assemblyName)) {
-              for (const obj of allObjects) {
-                const posMatch = savedContainer.assemblyPos &&
-                  savedContainer.assemblyPos !== "(Không xác định)" &&
-                  obj.assemblyPos === savedContainer.assemblyPos;
-                const nameMatch = savedContainer.assemblyName &&
-                  savedContainer.assemblyName !== "(Không xác định)" &&
-                  obj.assemblyName === savedContainer.assemblyName;
-                if (posMatch || nameMatch) {
-                  const objKey = `${obj.modelId}:${obj.id}`;
-                  matchedUids.add(objKey);
-                  if (!incomingUidList.includes(objKey)) {
-                    incomingUidList.push(objKey);
-                  }
-                  childrenMatched++;
-                }
-              }
-            }
-            if (childrenMatched > 0) {
-              assemblyResolved++;
-              console.log(
-                `[ObjectExplorer] ✓ Resolved saved assembly container ${uid} (${savedContainer.assemblyPos || savedContainer.name}) → ${childrenMatched} children`,
-              );
-            } else {
-              unmatchedCount.count++;
-            }
-          } else {
-            // Fallback: Real-time fetch children via getHierarchyChildren API
-            // This handles cases where assemblyChildrenMap was not built properly
-            try {
-              const idx = uid.indexOf(":");
-              const modelId = uid.substring(0, idx);
-              const objectId = parseInt(uid.substring(idx + 1));
-              if (!isNaN(objectId) && viewerRef) {
-                const hierarchyChildren = await viewerRef.getHierarchyChildren(
-                  modelId, [objectId], 4 /* ElementAssembly */, true
-                );
-                if (hierarchyChildren && hierarchyChildren.length > 0) {
-                  // Collect all child IDs recursively
-                  function collectChildIds(nodes) {
-                    const ids = [];
-                    for (const n of nodes) {
-                      ids.push(n.id);
-                      if (n.children && n.children.length > 0) {
-                        ids.push(...collectChildIds(n.children));
-                      }
-                    }
-                    return ids;
-                  }
-                  const fetchedChildIds = collectChildIds(hierarchyChildren);
-                  let childrenMatched = 0;
-                  for (const childId of fetchedChildIds) {
-                    const childUid = `${modelId}:${childId}`;
-                    if (knownUids.has(childUid)) {
-                      matchedUids.add(childUid);
-                      if (!incomingUidList.includes(childUid)) {
-                        incomingUidList.push(childUid);
-                      }
-                      childrenMatched++;
-                    }
-                  }
-                  if (childrenMatched > 0) {
-                    assemblyResolved++;
-                    // Also update assemblyChildrenMap for future lookups
-                    const childSet = new Set(fetchedChildIds);
-                    assemblyChildrenMap.set(uid, childSet);
-                    console.log(
-                      `[ObjectExplorer] ✓ Real-time resolved assembly ${uid} → ${childrenMatched}/${fetchedChildIds.length} children (fallback fetch)`,
-                    );
-                  } else {
-                    unmatchedCount.count++;
-                    console.warn(
-                      `[ObjectExplorer] ⚠ Assembly ${uid}: fetched ${fetchedChildIds.length} children but none matched allObjects`,
-                    );
-                  }
-                } else {
-                  unmatchedCount.count++;
-                }
-              } else {
-                unmatchedCount.count++;
-              }
-            } catch (fetchErr) {
-              console.warn(`[ObjectExplorer] Real-time assembly fetch failed for ${uid}:`, fetchErr);
-              unmatchedCount.count++;
-            }
-          }
-        }
+        unmatchedCount.count++;
       }
     }
 
-    if (assemblyResolved > 0) {
-      console.log(
-        `[ObjectExplorer] Assembly Selection resolved: ${assemblyResolved} containers → ${matchedUids.size} total matched children`,
-      );
-    }
-
     console.log(
-      `[ObjectExplorer] Viewer selection: ${incomingUids.size} IDs, ${matchedUids.size} matched, ${unmatchedCount.count} unmatched${assemblyResolved > 0 ? `, ${assemblyResolved} assemblies resolved` : ""}`,
+      `[ObjectExplorer] Viewer selection: ${incomingUids.size} IDs, ${matchedUids.size} matched, ${unmatchedCount.count} unmatched`,
     );
 
     // If zero matches, keep current panel state

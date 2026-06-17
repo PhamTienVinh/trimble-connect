@@ -35,32 +35,6 @@ export function initSteelStatistics(api, viewer) {
   // Column toggle (Tất cả / Gross / Net)
   setupColumnToggle();
 
-  // Assembly filter bindings (debounced)
-  let asmFilterTimeout = null;
-  const asmNameInput = document.getElementById("stats-filter-asm-name");
-  const asmPosInput = document.getElementById("stats-filter-asm-pos");
-  const asmClearBtn = document.getElementById("btn-clear-asm-filter");
-
-  if (asmNameInput) {
-    asmNameInput.addEventListener("input", () => {
-      clearTimeout(asmFilterTimeout);
-      asmFilterTimeout = setTimeout(updateStatistics, 300);
-    });
-  }
-  if (asmPosInput) {
-    asmPosInput.addEventListener("input", () => {
-      clearTimeout(asmFilterTimeout);
-      asmFilterTimeout = setTimeout(updateStatistics, 300);
-    });
-  }
-  if (asmClearBtn) {
-    asmClearBtn.addEventListener("click", () => {
-      if (asmNameInput) asmNameInput.value = "";
-      if (asmPosInput) asmPosInput.value = "";
-      updateStatistics();
-    });
-  }
-
   // Listen for real-time selection changes
   window.addEventListener("selection-changed", (e) => {
     const detail = e.detail || {};
@@ -196,71 +170,6 @@ function buildAssemblyGroupedData(enrichedObjects, groupBy) {
     group.totalNetArea += obj.netArea || 0;
   }
 
-  // ── Fallback: Use saved container's aggregate V/A/W when children have no data ──
-  // In some Tekla exports, only the IfcElementAssembly container stores aggregate
-  // quantities (VOLUME_NET, AREA_NET, WEIGHT_NET). Individual children may have 0.
-  // When this happens, we use the container's values as fallback.
-  for (const group of Object.values(assemblyGroups)) {
-    for (const [containerKey, containerEntry] of group.containers) {
-      // Only apply fallback when ALL children have zero quantities
-      const childrenHaveNoData = (
-        containerEntry.totalNetWeight === 0 &&
-        containerEntry.totalGrossWeight === 0 &&
-        containerEntry.totalNetVolume === 0 &&
-        containerEntry.totalGrossVolume === 0
-      );
-
-      if (childrenHaveNoData) {
-        // Find the saved container with full V/A/W data
-        const savedContainer = savedContainers.find(
-          c => `${c.modelId}:${c.id}` === containerKey
-        );
-        const cInfo = containerInfoMap.get(containerKey);
-
-        if (savedContainer) {
-          // Use container's aggregate values
-          const fallbackNetVol = savedContainer.netVolume || savedContainer.volume || 0;
-          const fallbackGrossVol = savedContainer.grossVolume || savedContainer.volume || 0;
-          const fallbackNetArea = savedContainer.netArea || 0;
-          const fallbackGrossArea = savedContainer.grossArea || savedContainer.area || 0;
-          const fallbackNetWeight = savedContainer.netWeight || savedContainer.weight || 0;
-          const fallbackGrossWeight = savedContainer.grossWeight || savedContainer.weight || 0;
-
-          if (fallbackNetWeight > 0 || fallbackGrossWeight > 0 || fallbackNetVol > 0 || fallbackGrossVol > 0) {
-            containerEntry.totalNetVolume = fallbackNetVol;
-            containerEntry.totalGrossVolume = fallbackGrossVol;
-            containerEntry.totalNetArea = fallbackNetArea;
-            containerEntry.totalGrossArea = fallbackGrossArea;
-            containerEntry.totalNetWeight = fallbackNetWeight;
-            containerEntry.totalGrossWeight = fallbackGrossWeight;
-
-            // Also update group totals
-            group.totalNetVolume += fallbackNetVol;
-            group.totalGrossVolume += fallbackGrossVol;
-            group.totalNetArea += fallbackNetArea;
-            group.totalGrossArea += fallbackGrossArea;
-            group.totalNetWeight += fallbackNetWeight;
-            group.totalGrossWeight += fallbackGrossWeight;
-
-            console.log(
-              `[Statistics] ✓ Fallback V/A/W for container ${containerKey}: ` +
-              `W=${fallbackNetWeight.toFixed(2)}kg, V=${fallbackNetVol.toFixed(6)}m³, A=${fallbackGrossArea.toFixed(4)}m²`
-            );
-          }
-        } else if (cInfo && cInfo.assemblyWeight > 0) {
-          // Use assemblyWeight from container info as last resort
-          containerEntry.totalNetWeight = cInfo.assemblyWeight;
-          containerEntry.totalGrossWeight = cInfo.assemblyWeight;
-          group.totalNetWeight += cInfo.assemblyWeight;
-          group.totalGrossWeight += cInfo.assemblyWeight;
-          console.log(
-            `[Statistics] ✓ Fallback weight from assemblyWeight for ${containerKey}: W=${cInfo.assemblyWeight.toFixed(2)}kg`
-          );
-        }
-      }
-    }
-  }
-
   return assemblyGroups;
 }
 
@@ -282,31 +191,6 @@ function updateStatistics() {
   }
 
   objects = objects.filter(is3DObjectWithDimensions);
-
-  if (objects.length === 0) {
-    clearStats();
-    return;
-  }
-
-  // ── Apply Assembly Name / Pos filters ──
-  const asmNameFilter = (document.getElementById("stats-filter-asm-name") || {}).value || "";
-  const asmPosFilter = (document.getElementById("stats-filter-asm-pos") || {}).value || "";
-
-  if (asmNameFilter.trim()) {
-    const filterTerms = asmNameFilter.split(",").map(t => t.trim().toLowerCase()).filter(t => t);
-    objects = objects.filter(obj => {
-      const objName = (obj.assemblyName || "").toLowerCase();
-      return filterTerms.some(term => objName.includes(term));
-    });
-  }
-
-  if (asmPosFilter.trim()) {
-    const filterTerms = asmPosFilter.split(",").map(t => t.trim().toLowerCase()).filter(t => t);
-    objects = objects.filter(obj => {
-      const objPos = (obj.assemblyPos || "").toLowerCase();
-      return filterTerms.some(term => objPos.includes(term));
-    });
-  }
 
   if (objects.length === 0) {
     clearStats();
