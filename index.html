@@ -53,8 +53,6 @@
           <div class="control-row">
             <label for="group-by-select" class="control-label">Nhóm theo:</label>
             <select id="group-by-select">
-              <option value="assemblyName">Assembly Name</option>
-              <option value="assemblyPos">Assembly Pos</option>
               <option value="assemblyContainer">📦 Assembly Container</option>
               <option value="name">Tên</option>
               <option value="profile">Profile Name</option>
@@ -128,8 +126,6 @@
           <div class="control-row">
             <label for="stats-group-by" class="control-label">Nhóm theo:</label>
             <select id="stats-group-by">
-              <option value="assemblyName">Assembly Name</option>
-              <option value="assemblyPos">Assembly Pos</option>
               <option value="assemblyContainer">📦 Assembly Container</option>
               <option value="name">Tên</option>
               <option value="profile">Profile Name</option>
@@ -140,17 +136,16 @@
               <option value="material">Vật liệu</option>
             </select>
           </div>
-          <!-- Assembly Container Filter (lọc ở cấp IfcElementAssembly từ Tekla) -->
-          <div class="control-row assembly-filter-row" id="assembly-filter-row">
-            <div class="assembly-filter-group">
-              <label for="stats-filter-asm-name" class="control-label filter-label">🏗️ Asm Name:</label>
-              <input type="text" id="stats-filter-asm-name" class="filter-input" placeholder="VD: BEAM, COLUMN..." autocomplete="off" />
+          <!-- Container Search (visible in Assembly Container mode) -->
+          <div class="control-row container-search-row" id="container-search-row">
+            <div class="search-wrapper container-search-wrapper">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="container-search-input" class="filter-input" placeholder="Tìm assembly: name, pos, code..." autocomplete="off" />
+              <button id="container-search-clear" class="icon-btn" title="Xóa tìm kiếm" style="display:none;">✕</button>
             </div>
-            <div class="assembly-filter-group">
-              <label for="stats-filter-asm-pos" class="control-label filter-label">📍 Asm Pos:</label>
-              <input type="text" id="stats-filter-asm-pos" class="filter-input" placeholder="VD: B-1, C-5..." autocomplete="off" />
-            </div>
-            <button id="btn-clear-asm-filter" class="icon-btn filter-clear-btn" title="Xóa bộ lọc assembly">✕</button>
+            <button id="btn-container-isolate" class="action-btn btn-pastel-orange" title="Isolate assembly containers đã chọn">
+              <span>👁️</span> Isolate
+            </button>
           </div>
           <div class="control-row">
             <label class="toggle-label">

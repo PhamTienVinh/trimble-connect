@@ -35,39 +35,59 @@ export function initSteelStatistics(api, viewer) {
   // Column toggle (Tất cả / Gross / Net)
   setupColumnToggle();
 
-  // ── Assembly Container Filter bindings (debounced) ──
-  // These filters work at the IfcElementAssembly CONTAINER level,
-  // NOT on children. They find matching containers first,
-  // then include only their children in statistics.
-  let asmFilterTimeout = null;
-  const asmNameInput = document.getElementById("stats-filter-asm-name");
-  const asmPosInput = document.getElementById("stats-filter-asm-pos");
-  const asmClearBtn = document.getElementById("btn-clear-asm-filter");
+  // ── Container Search binding (debounced) ──
+  let containerSearchTimeout = null;
+  const containerSearchInput = document.getElementById("container-search-input");
+  const containerSearchClear = document.getElementById("container-search-clear");
 
-  if (asmNameInput) {
-    asmNameInput.addEventListener("input", () => {
-      clearTimeout(asmFilterTimeout);
-      asmFilterTimeout = setTimeout(updateStatistics, 300);
+  if (containerSearchInput) {
+    containerSearchInput.addEventListener("input", () => {
+      clearTimeout(containerSearchTimeout);
+      containerSearchTimeout = setTimeout(() => {
+        filterContainerRows(containerSearchInput.value);
+        containerSearchClear.style.display = containerSearchInput.value ? "block" : "none";
+      }, 300);
     });
   }
-  if (asmPosInput) {
-    asmPosInput.addEventListener("input", () => {
-      clearTimeout(asmFilterTimeout);
-      asmFilterTimeout = setTimeout(updateStatistics, 300);
+  if (containerSearchClear) {
+    containerSearchClear.addEventListener("click", () => {
+      if (containerSearchInput) containerSearchInput.value = "";
+      containerSearchClear.style.display = "none";
+      filterContainerRows("");
     });
   }
-  if (asmClearBtn) {
-    asmClearBtn.addEventListener("click", () => {
-      if (asmNameInput) asmNameInput.value = "";
-      if (asmPosInput) asmPosInput.value = "";
+
+  // ── Container Isolate button ──
+  const containerIsolateBtn = document.getElementById("btn-container-isolate");
+  if (containerIsolateBtn) {
+    containerIsolateBtn.addEventListener("click", () => {
+      isolateSelectedContainers();
+    });
+  }
+
+  // ── Show/hide container search row based on group-by mode ──
+  const statsGroupBy = document.getElementById("stats-group-by");
+  function toggleContainerSearchVisibility() {
+    const searchRow = document.getElementById("container-search-row");
+    if (searchRow) {
+      searchRow.style.display = statsGroupBy.value === "assemblyContainer" ? "flex" : "none";
+    }
+  }
+  if (statsGroupBy) {
+    statsGroupBy.addEventListener("change", () => {
+      toggleContainerSearchVisibility();
       updateStatistics();
     });
+    toggleContainerSearchVisibility();
   }
 
-  // Listen for real-time selection changes
+  document.getElementById("stats-all-toggle").addEventListener("change", updateStatistics);
+  document.getElementById("btn-export-all").addEventListener("click", () => exportExcel(false));
+  document.getElementById("btn-export-selected").addEventListener("click", () => exportExcel(true));
+
+  // Listen for real-time selection changes (3D → Panel sync)
   window.addEventListener("selection-changed", (e) => {
     const detail = e.detail || {};
-    // Auto-switch to "selected only" when objects are selected from 3D viewer
     const toggle = document.getElementById("stats-all-toggle");
     if (detail.count > 0) {
       toggle.checked = false;
@@ -75,6 +95,11 @@ export function initSteelStatistics(api, viewer) {
       toggle.checked = true;
     }
     updateStatistics();
+
+    // Sync 3D selection to container checkboxes
+    if (isContainerMode(document.getElementById("stats-group-by").value)) {
+      syncViewerSelectionToContainerCheckboxes(detail);
+    }
   });
 }
 
@@ -231,97 +256,6 @@ function updateStatistics() {
     return;
   }
 
-  // ══════════════════════════════════════════════════════════════════════════════
-  // ── Assembly Container-Level Filter ──
-  // These filters find matching IfcElementAssembly CONTAINERS first,
-  // then keep ONLY children belonging to those containers.
-  // This is separate from other filters that work on children directly.
-  // ══════════════════════════════════════════════════════════════════════════════
-  const asmNameFilterVal = (document.getElementById("stats-filter-asm-name") || {}).value || "";
-  const asmPosFilterVal = (document.getElementById("stats-filter-asm-pos") || {}).value || "";
-  const hasAsmFilter = asmNameFilterVal.trim() || asmPosFilterVal.trim();
-
-  if (hasAsmFilter) {
-    // Step 1: Get all IfcElementAssembly containers (saved before removal)
-    const allContainers = getAssemblyContainers();
-    const savedContainers = getSavedAssemblyContainers();
-
-    // Merge container info: use savedContainers for richer property data
-    const containerMap = new Map();
-    for (const c of allContainers) {
-      containerMap.set(c.key, c);
-    }
-    for (const c of savedContainers) {
-      const key = `${c.modelId}:${c.id}`;
-      if (!containerMap.has(key)) {
-        containerMap.set(key, {
-          key, id: c.id, modelId: c.modelId,
-          assemblyName: c.assemblyName || "",
-          assemblyPos: c.assemblyPos || "",
-          name: c.name || "",
-        });
-      } else {
-        const existing = containerMap.get(key);
-        if (!existing.assemblyName && c.assemblyName) existing.assemblyName = c.assemblyName;
-        if (!existing.assemblyPos && c.assemblyPos) existing.assemblyPos = c.assemblyPos;
-      }
-    }
-
-    // Step 2: Find matching containers by filter values
-    const nameTerms = asmNameFilterVal.trim()
-      ? asmNameFilterVal.split(",").map(t => t.trim().toLowerCase()).filter(t => t)
-      : [];
-    const posTerms = asmPosFilterVal.trim()
-      ? asmPosFilterVal.split(",").map(t => t.trim().toLowerCase()).filter(t => t)
-      : [];
-
-    const matchedContainerKeys = new Set();
-    for (const [key, container] of containerMap) {
-      const cName = (container.assemblyName || container.name || "").toLowerCase();
-      const cPos = (container.assemblyPos || "").toLowerCase();
-
-      let nameMatch = nameTerms.length === 0; // no filter = match all
-      let posMatch = posTerms.length === 0;   // no filter = match all
-
-      if (nameTerms.length > 0) {
-        nameMatch = nameTerms.some(term => cName.includes(term));
-      }
-      if (posTerms.length > 0) {
-        posMatch = posTerms.some(term => cPos.includes(term));
-      }
-
-      // Both filters must match (AND logic)
-      if (nameMatch && posMatch) {
-        matchedContainerKeys.add(key);
-      }
-    }
-
-    console.log(`[Statistics] Assembly filter: ${matchedContainerKeys.size}/${containerMap.size} containers matched`);
-
-    // Step 3: Get ALL children of matching containers
-    const allowedChildKeys = new Set();
-    for (const containerKey of matchedContainerKeys) {
-      const idx = containerKey.indexOf(":");
-      const modelId = containerKey.substring(0, idx);
-      const containerId = parseInt(containerKey.substring(idx + 1));
-      const children = getAssemblyChildren(modelId, containerId);
-      for (const child of children) {
-        allowedChildKeys.add(`${child.modelId}:${child.id}`);
-      }
-    }
-
-    // Step 4: Filter objects to only keep children of matching containers
-    objects = objects.filter(obj => {
-      const objKey = `${obj.modelId}:${obj.id}`;
-      return allowedChildKeys.has(objKey);
-    });
-
-    if (objects.length === 0) {
-      clearStats();
-      return;
-    }
-  }
-
   // Calculate totals
   let totalNetVolume = 0, totalGrossVolume = 0;
   let totalNetWeight = 0, totalGrossWeight = 0;
@@ -357,7 +291,6 @@ function updateStatistics() {
       grossWeight: grossWt,
       grossArea,
       netArea,
-      // legacy support
       volume: netVol,
       weight: netWt,
       area: grossArea,
@@ -376,22 +309,6 @@ function updateStatistics() {
   if (document.getElementById("stat-total-net-area")) document.getElementById("stat-total-net-area").textContent = formatArea(totalNetArea);
   if (document.getElementById("stat-total-gross-weight")) document.getElementById("stat-total-gross-weight").textContent = formatWeight(totalGrossWeight);
   if (document.getElementById("stat-total-net-weight")) document.getElementById("stat-total-net-weight").textContent = formatWeight(totalNetWeight);
-
-  // ── Assembly grouping: 3-level hierarchy ──
-  if (isAssemblyGrouping(groupBy)) {
-    const assemblyGroups = buildAssemblyGroupedData(enriched, groupBy);
-    if (assemblyGroups) {
-      const sortedGroups = Object.values(assemblyGroups).sort((a, b) => b.totalNetWeight - a.totalNetWeight);
-      renderAssemblyStatsTable(sortedGroups, totalNetVolume, totalGrossVolume, totalNetWeight, totalGrossWeight, totalGrossArea, totalNetArea, groupBy);
-
-      const groupCount = sortedGroups.length;
-      const el = document.getElementById("stat-total-groups");
-      if (el) el.textContent = formatNumber(groupCount);
-
-      document.getElementById("stats-placeholder").style.display = "none";
-      return;
-    }
-  }
 
   // ── Assembly Container mode: show containers as primary items ──
   if (isContainerMode(groupBy)) {
@@ -658,8 +575,12 @@ function renderStatsTable(groups, totalNetVolume, totalGrossVolume, totalNetWeig
   `;
 }
 // ══════════════════════════════════════════════════════════════════════════════
-// ── Render Container Stats Table ──
-// Shows IfcElementAssembly containers as primary items with their OWN quantities.
+// ── Render Container Stats Table (UPGRADED) ──
+// - Checkbox per container (for selection + V/A/W display)
+// - Position Code displayed
+// - Search via filterContainerRows
+// - 2-way sync with 3D viewer
+// - Isolate support
 // ══════════════════════════════════════════════════════════════════════════════
 function renderContainerStatsTable(enrichedObjects, totalNetVolume, totalGrossVolume, totalNetWeight, totalGrossWeight, totalGrossArea, totalNetArea) {
   const tbody = document.getElementById("stats-table-body");
@@ -676,23 +597,38 @@ function renderContainerStatsTable(enrichedObjects, totalNetVolume, totalGrossVo
   if (!containers || containers.length === 0) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px;">Không tìm thấy IfcElementAssembly container</td></tr>`;
     tfoot.innerHTML = "";
-
     const el = document.getElementById("stat-total-groups");
     if (el) el.textContent = "0";
     return;
   }
 
-  // Build children lookup
+  // Build children lookup + compute V/A/W from children
   const containerChildrenMap_local = new Map();
   const allContainerChildKeys = new Set();
+  const containerVAW = new Map(); // containerKey → { weight, volume, area }
 
   for (const container of containers) {
     const containerKey = `${container.modelId}:${container.id}`;
     const childIds = getAssemblyChildren(container.modelId, container.id);
     containerChildrenMap_local.set(containerKey, childIds);
+
+    let totalW = 0, totalV = 0, totalA = 0;
     for (const child of childIds) {
       allContainerChildKeys.add(`${child.modelId}:${child.id}`);
+      const enriched = enrichedObjects.find(e => e.modelId === child.modelId && e.id === child.id);
+      if (enriched) {
+        totalW += enriched.netWeight || enriched.weight || 0;
+        totalV += enriched.netVolume || enriched.volume || 0;
+        totalA += enriched.grossArea || enriched.area || 0;
+      }
     }
+    // Fallback to container's own values if children sum = 0
+    if (totalW === 0 && totalV === 0) {
+      totalW = container.weight || container.assemblyWeight || 0;
+      totalV = container.volume || 0;
+      totalA = container.area || 0;
+    }
+    containerVAW.set(containerKey, { weight: totalW, volume: totalV, area: totalA });
   }
 
   // Sort containers
@@ -704,42 +640,50 @@ function renderContainerStatsTable(enrichedObjects, totalNetVolume, totalGrossVo
   });
 
   let bodyHtml = "";
-  let containerTotalWeight = 0;
-  let containerTotalVolume = 0;
-  let containerTotalArea = 0;
+  let containerTotalWeight = 0, containerTotalVolume = 0, containerTotalArea = 0;
 
   for (const container of sorted) {
     const containerKey = `${container.modelId}:${container.id}`;
     const children = containerChildrenMap_local.get(containerKey) || [];
-    const displayName = container.assemblyPos || container.assemblyName || container.name || `Container ${container.id}`;
-    const cWeight = container.weight || container.assemblyWeight || 0;
-    const cVolume = container.volume || 0;
-    const cArea = container.area || 0;
+    const vaw = containerVAW.get(containerKey) || { weight: 0, volume: 0, area: 0 };
 
-    containerTotalWeight += cWeight;
-    containerTotalVolume += cVolume;
-    containerTotalArea += cArea;
+    const asmName = container.assemblyName || container.name || "";
+    const asmPos = container.assemblyPos || "";
+    const asmPosCode = container.assemblyPosCode || "";
+    const searchText = `${asmName} ${asmPos} ${asmPosCode}`.toLowerCase();
 
-    // Container header row
-    bodyHtml += `<tr class="stats-group-header" data-assembly-group="${escHtml(containerKey)}">`;
+    // Build display label: Pos | Name | Code
+    let displayParts = [];
+    if (asmPos) displayParts.push(asmPos);
+    if (asmName) displayParts.push(asmName);
+    if (asmPosCode) displayParts.push(`[${asmPosCode}]`);
+    const displayName = displayParts.join(" | ") || `Container ${container.id}`;
+
+    containerTotalWeight += vaw.weight;
+    containerTotalVolume += vaw.volume;
+    containerTotalArea += vaw.area;
+
+    // Container header row with checkbox
+    bodyHtml += `<tr class="stats-group-header container-selectable" data-assembly-group="${escHtml(containerKey)}" data-container-key="${escHtml(containerKey)}" data-search-text="${escHtml(searchText)}" data-model-id="${escHtml(container.modelId)}" data-object-id="${container.id}">`;
     bodyHtml += `<td class="stats-group-name">`;
-    bodyHtml += `<span class="stats-toggle" onclick="this.closest('tr').classList.toggle('collapsed'); _toggleAssemblyGroup(this)">▼</span> `;
+    bodyHtml += `<input type="checkbox" class="container-checkbox" data-container-key="${escHtml(containerKey)}" onclick="event.stopPropagation(); window._onContainerCheckboxChanged()" /> `;
+    bodyHtml += `<span class="stats-toggle" onclick="event.stopPropagation(); this.closest('tr').classList.toggle('collapsed'); _toggleAssemblyGroup(this)">▼</span> `;
     bodyHtml += `<strong>📦 ${escHtml(displayName)}</strong>`;
     bodyHtml += `</td>`;
     bodyHtml += `<td><strong>${formatNumber(children.length)}</strong></td>`;
-    bodyHtml += `<td class="col-gross"><strong>${formatVolume(cVolume)}</strong></td>`;
-    bodyHtml += `<td class="col-net"><strong>${formatVolume(cVolume)}</strong></td>`;
-    bodyHtml += `<td class="col-gross"><strong>${formatArea(cArea)}</strong></td>`;
-    bodyHtml += `<td class="col-net"><strong>${formatArea(cArea)}</strong></td>`;
-    bodyHtml += `<td class="col-gross"><strong>${formatWeight(cWeight)}</strong></td>`;
-    bodyHtml += `<td class="col-net"><strong>${formatWeight(cWeight)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatVolume(vaw.volume)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatVolume(vaw.volume)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatArea(vaw.area)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatArea(vaw.area)}</strong></td>`;
+    bodyHtml += `<td class="col-gross"><strong>${formatWeight(vaw.weight)}</strong></td>`;
+    bodyHtml += `<td class="col-net"><strong>${formatWeight(vaw.weight)}</strong></td>`;
     bodyHtml += `</tr>`;
 
     // Children rows
     for (const child of children) {
       const enrichedChild = enrichedObjects.find(e => e.modelId === child.modelId && e.id === child.id);
       const cObj = enrichedChild || child;
-      bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(containerKey)}">`;
+      bodyHtml += `<tr class="stats-child-row" data-assembly-group="${escHtml(containerKey)}" data-container-key="${escHtml(containerKey)}">`;
       bodyHtml += `<td class="stats-child-name">─ ${escHtml(cObj.name || "(Không tên)")}</td>`;
       bodyHtml += `<td>1</td>`;
       bodyHtml += `<td class="col-gross">${formatVolume(cObj.grossVolume || cObj.volume || 0)}</td>`;
@@ -762,7 +706,7 @@ function renderContainerStatsTable(enrichedObjects, totalNetVolume, totalGrossVo
       orphanArea += o.grossArea || o.area || 0;
     }
 
-    bodyHtml += `<tr class="stats-group-header" data-assembly-group="__orphans__">`;
+    bodyHtml += `<tr class="stats-group-header" data-assembly-group="__orphans__" data-search-text="orphan không thuộc container">`;
     bodyHtml += `<td class="stats-group-name">`;
     bodyHtml += `<span class="stats-toggle" onclick="this.closest('tr').classList.toggle('collapsed'); _toggleAssemblyGroup(this)">▼</span> `;
     bodyHtml += `<strong>🔗 Không thuộc Container</strong>`;
@@ -792,6 +736,18 @@ function renderContainerStatsTable(enrichedObjects, totalNetVolume, totalGrossVo
 
   tbody.innerHTML = bodyHtml;
 
+  // Bind click on container row → toggle checkbox + select in 3D
+  tbody.querySelectorAll("tr.container-selectable").forEach(row => {
+    row.addEventListener("click", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.classList.contains("stats-toggle")) return;
+      const cb = row.querySelector(".container-checkbox");
+      if (cb) {
+        cb.checked = !cb.checked;
+        window._onContainerCheckboxChanged();
+      }
+    });
+  });
+
   tfoot.innerHTML = `
     <tr>
       <td>TỔNG CỘNG (${sorted.length} containers)</td>
@@ -807,7 +763,214 @@ function renderContainerStatsTable(enrichedObjects, totalNetVolume, totalGrossVo
 
   const el = document.getElementById("stat-total-groups");
   if (el) el.textContent = formatNumber(sorted.length);
+
+  // Apply any existing search filter
+  const searchInput = document.getElementById("container-search-input");
+  if (searchInput && searchInput.value) {
+    filterContainerRows(searchInput.value);
+  }
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Container Search (filter table rows by name/pos/code) ──
+// ══════════════════════════════════════════════════════════════════════════════
+function filterContainerRows(query) {
+  const tbody = document.getElementById("stats-table-body");
+  if (!tbody) return;
+
+  const terms = query.trim().toLowerCase().split(",").map(t => t.trim()).filter(t => t);
+  const headerRows = tbody.querySelectorAll("tr.stats-group-header");
+
+  for (const headerRow of headerRows) {
+    const searchText = headerRow.dataset.searchText || "";
+    const containerKey = headerRow.dataset.assemblyGroup;
+
+    let visible = true;
+    if (terms.length > 0) {
+      visible = terms.some(term => searchText.includes(term));
+    }
+
+    headerRow.style.display = visible ? "" : "none";
+
+    // Also show/hide children
+    const childRows = tbody.querySelectorAll(`tr.stats-child-row[data-assembly-group="${CSS.escape(containerKey)}"]`);
+    for (const childRow of childRows) {
+      childRow.style.display = visible ? "" : "none";
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Container Checkbox Changed → select in 3D + update V/A/W summary ──
+// ══════════════════════════════════════════════════════════════════════════════
+window._onContainerCheckboxChanged = function() {
+  const checkedBoxes = document.querySelectorAll(".container-checkbox:checked");
+  const checkedKeys = new Set();
+  const modelMap = {};
+
+  for (const cb of checkedBoxes) {
+    const key = cb.dataset.containerKey;
+    checkedKeys.add(key);
+    const row = cb.closest("tr");
+    const modelId = row?.dataset.modelId;
+    const objectId = parseInt(row?.dataset.objectId);
+    if (modelId && !isNaN(objectId)) {
+      if (!modelMap[modelId]) modelMap[modelId] = [];
+      modelMap[modelId].push(objectId);
+
+      // Also add children IDs
+      const children = getAssemblyChildren(modelId, objectId);
+      for (const child of children) {
+        if (!modelMap[child.modelId]) modelMap[child.modelId] = [];
+        modelMap[child.modelId].push(child.id);
+      }
+    }
+  }
+
+  // Highlight selected rows
+  document.querySelectorAll("tr.container-selectable").forEach(row => {
+    const key = row.dataset.containerKey;
+    row.classList.toggle("container-selected", checkedKeys.has(key));
+  });
+
+  // Update V/A/W summary from selected containers
+  if (checkedKeys.size > 0) {
+    let selWeight = 0, selVolume = 0, selArea = 0;
+    for (const cb of checkedBoxes) {
+      const row = cb.closest("tr");
+      // Parse V/A/W from table cells
+      const cells = row.querySelectorAll("td");
+      if (cells.length >= 8) {
+        selVolume += parseFloat(cells[2].textContent) || 0;
+        selArea += parseFloat(cells[4].textContent) || 0;
+        selWeight += parseFloat(cells[6].textContent) || 0;
+      }
+    }
+
+    // Update summary cards with selected containers' totals
+    if (document.getElementById("stat-total-gross-volume")) document.getElementById("stat-total-gross-volume").textContent = formatVolume(selVolume);
+    if (document.getElementById("stat-total-net-volume")) document.getElementById("stat-total-net-volume").textContent = formatVolume(selVolume);
+    if (document.getElementById("stat-total-gross-area")) document.getElementById("stat-total-gross-area").textContent = formatArea(selArea);
+    if (document.getElementById("stat-total-net-area")) document.getElementById("stat-total-net-area").textContent = formatArea(selArea);
+    if (document.getElementById("stat-total-gross-weight")) document.getElementById("stat-total-gross-weight").textContent = formatWeight(selWeight);
+    if (document.getElementById("stat-total-net-weight")) document.getElementById("stat-total-net-weight").textContent = formatWeight(selWeight);
+    document.getElementById("stat-total-objects").textContent = formatNumber(checkedKeys.size) + " asm";
+  }
+
+  // Sync to 3D viewer: select container + children
+  if (viewerRef && Object.keys(modelMap).length > 0) {
+    const modelObjectIds = Object.entries(modelMap).map(([modelId, ids]) => ({
+      modelId,
+      objectRuntimeIds: [...new Set(ids)],
+    }));
+    viewerRef.setSelection({ modelObjectIds }, "set").catch(e => {
+      console.warn("[Statistics] Failed to sync container selection to 3D:", e);
+    });
+  } else if (viewerRef) {
+    viewerRef.setSelection({ modelObjectIds: [] }, "set").catch(() => {});
+  }
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Isolate Selected Containers in 3D ──
+// ══════════════════════════════════════════════════════════════════════════════
+function isolateSelectedContainers() {
+  const checkedBoxes = document.querySelectorAll(".container-checkbox:checked");
+  if (checkedBoxes.length === 0) {
+    console.warn("[Statistics] No containers selected to isolate");
+    return;
+  }
+
+  const modelMap = {};
+  for (const cb of checkedBoxes) {
+    const row = cb.closest("tr");
+    const modelId = row?.dataset.modelId;
+    const objectId = parseInt(row?.dataset.objectId);
+    if (modelId && !isNaN(objectId)) {
+      if (!modelMap[modelId]) modelMap[modelId] = [];
+      modelMap[modelId].push(objectId);
+
+      // Include children
+      const children = getAssemblyChildren(modelId, objectId);
+      for (const child of children) {
+        if (!modelMap[child.modelId]) modelMap[child.modelId] = [];
+        modelMap[child.modelId].push(child.id);
+      }
+    }
+  }
+
+  const modelEntities = Object.entries(modelMap).map(([modelId, ids]) => ({
+    modelId,
+    entityIds: [...new Set(ids)],
+  }));
+
+  if (viewerRef && modelEntities.length > 0) {
+    viewerRef.isolateEntities(modelEntities).then(() => {
+      console.log(`[Statistics] ✓ Isolated ${checkedBoxes.length} containers`);
+      const btn = document.getElementById("btn-container-isolate");
+      if (btn) btn.classList.add("active");
+    }).catch(e => {
+      console.warn("[Statistics] Isolate failed:", e);
+    });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── Sync 3D Viewer Selection → Container Checkboxes (3D → Panel) ──
+// ══════════════════════════════════════════════════════════════════════════════
+function syncViewerSelectionToContainerCheckboxes(detail) {
+  const selectedUids = detail.selectedUids || [];
+  if (!selectedUids || selectedUids.length === 0) return;
+
+  // Find which containers are related to the selected objects
+  const containers = getSavedAssemblyContainers();
+  if (!containers || containers.length === 0) return;
+
+  const selectedSet = new Set(selectedUids);
+  const matchedContainerKeys = new Set();
+
+  for (const container of containers) {
+    const containerKey = `${container.modelId}:${container.id}`;
+
+    // Check if the container itself was selected
+    if (selectedSet.has(containerKey)) {
+      matchedContainerKeys.add(containerKey);
+      continue;
+    }
+
+    // Check if any child of this container was selected
+    const children = getAssemblyChildren(container.modelId, container.id);
+    for (const child of children) {
+      if (selectedSet.has(`${child.modelId}:${child.id}`)) {
+        matchedContainerKeys.add(containerKey);
+        break;
+      }
+    }
+  }
+
+  // Update checkboxes
+  if (matchedContainerKeys.size > 0) {
+    document.querySelectorAll(".container-checkbox").forEach(cb => {
+      cb.checked = matchedContainerKeys.has(cb.dataset.containerKey);
+    });
+
+    // Highlight rows and scroll to first matched
+    document.querySelectorAll("tr.container-selectable").forEach(row => {
+      const key = row.dataset.containerKey;
+      row.classList.toggle("container-selected", matchedContainerKeys.has(key));
+    });
+
+    // Scroll to first matched container
+    const firstMatched = document.querySelector("tr.container-selected");
+    if (firstMatched) {
+      firstMatched.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    // Update V/A/W summary
+    window._onContainerCheckboxChanged();
+  }
+}
+
 
 // ── Export Excel ──
 function exportExcel(selectedOnly) {

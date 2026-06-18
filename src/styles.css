@@ -2099,31 +2099,54 @@ select option {
   }
 }
 
-/* ===== ASSEMBLY CONTAINER FILTER ===== */
-.assembly-filter-row {
+/* ===== ASSEMBLY CONTAINER SELECTION & SEARCH ===== */
+.container-search-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 0;
-  flex-wrap: wrap;
-  border-top: 1px dashed var(--border-light);
-  margin-top: 2px;
-  padding-top: 10px;
 }
 
-.assembly-filter-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.container-search-wrapper {
   flex: 1;
-  min-width: 120px;
 }
 
-.filter-label {
-  font-size: 11px;
-  white-space: nowrap;
-  color: var(--text-muted);
-  font-weight: 500;
+.container-search-wrapper .filter-input {
+  width: 100%;
+  padding: 7px 32px 7px 32px;
+}
+
+.container-checkbox {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+tr.container-selectable {
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+tr.container-selectable:hover {
+  background: rgba(192, 68, 92, 0.06) !important;
+}
+
+tr.container-selected {
+  background: rgba(192, 68, 92, 0.12) !important;
+  border-left: 3px solid var(--accent);
+}
+
+tr.container-selected td {
+  color: var(--accent-dark) !important;
+}
+
+#btn-container-isolate.active {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-color: var(--accent-dark) !important;
 }
 
 .filter-input {
@@ -2155,20 +2178,3 @@ select option {
   background: rgba(192, 68, 92, 0.05);
 }
 
-.filter-clear-btn {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 12px;
-  padding: 4px 8px;
-  transition: var(--transition);
-  flex-shrink: 0;
-}
-
-.filter-clear-btn:hover {
-  background: rgba(224, 82, 82, 0.1);
-  border-color: var(--danger);
-  color: var(--danger);
-}
