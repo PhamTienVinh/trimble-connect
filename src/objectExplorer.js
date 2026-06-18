@@ -927,9 +927,43 @@ async function scanObjects() {
       }
       return true;
     });
+
+    // Step 3.5: Enrich saved containers with values from assemblyNodeInfoMap
+    // The container object itself may NOT have assemblyPos/assemblyName/assemblyPosCode
+    // (these are often parsed from children, not from the container's own IFC properties).
+    // The nodeInfo HAS these values from hierarchy tree parsing — copy them to the saved containers.
+    for (const sc of savedAssemblyContainers) {
+      const key = `${sc.modelId}:${sc.id}`;
+      const nodeInfo = assemblyNodeInfoMap.get(key);
+      if (nodeInfo) {
+        if (!sc.assemblyPos && nodeInfo.assemblyPos) sc.assemblyPos = nodeInfo.assemblyPos;
+        if (!sc.assemblyName && nodeInfo.assemblyName) sc.assemblyName = nodeInfo.assemblyName;
+        if (!sc.assemblyPosCode && nodeInfo.assemblyPosCode) sc.assemblyPosCode = nodeInfo.assemblyPosCode;
+        if ((!sc.assemblyWeight || sc.assemblyWeight === 0) && nodeInfo.assemblyWeight > 0) {
+          sc.assemblyWeight = nodeInfo.assemblyWeight;
+        }
+      }
+      // Also try to get from first child if container still has no assembly props
+      if (!sc.assemblyPos || !sc.assemblyName) {
+        const childIds = assemblyChildrenMap.get(key);
+        if (childIds) {
+          for (const childId of childIds) {
+            const childObj = allObjects.find(o => o.modelId === sc.modelId && o.id === childId);
+            if (childObj) {
+              if (!sc.assemblyPos && childObj.assemblyPos) sc.assemblyPos = childObj.assemblyPos;
+              if (!sc.assemblyName && childObj.assemblyName) sc.assemblyName = childObj.assemblyName;
+              if (!sc.assemblyPosCode && childObj.assemblyPosCode) sc.assemblyPosCode = childObj.assemblyPosCode;
+              if (sc.assemblyPos && sc.assemblyName) break; // Got what we need
+            }
+          }
+        }
+      }
+    }
+
     if (savedAssemblyContainers.length > 0) {
+      const enrichedCount = savedAssemblyContainers.filter(c => c.assemblyPos || c.assemblyName || c.assemblyPosCode).length;
       console.log(
-        `[ObjectExplorer] Removed ${savedAssemblyContainers.length} IfcElementAssembly containers (${beforeAssemblyDedup} → ${allObjects.length} objects)`
+        `[ObjectExplorer] Removed ${savedAssemblyContainers.length} IfcElementAssembly containers (${beforeAssemblyDedup} → ${allObjects.length} objects), ${enrichedCount} with assembly properties`
       );
     }
 
@@ -3368,17 +3402,46 @@ function renderAssemblyContainerTree(groupBy) {
     return posA.localeCompare(posB);
   });
 
-  // Filter containers by search query (search in name, pos, posCode, assemblyName)
+  // Filter containers by search query
+  // Search checks: 1) container properties, 2) nodeInfo, 3) children properties
   if (searchQuery) {
     sortedContainers = sortedContainers.filter(c => {
-      const searchFields = [
+      const containerKey = `${c.modelId}:${c.id}`;
+
+      // Level 1: Check container's own properties
+      const containerSearch = [
         c.name || "",
         c.assemblyName || "",
         c.assemblyPos || "",
         c.assemblyPosCode || "",
         c.assembly || "",
       ].join(" ").toLowerCase();
-      return searchFields.includes(searchQuery);
+      if (containerSearch.includes(searchQuery)) return true;
+
+      // Level 2: Check assemblyNodeInfoMap (may have values container doesn't)
+      const nodeInfo = assemblyNodeInfoMap.get(containerKey);
+      if (nodeInfo) {
+        const nodeSearch = [
+          nodeInfo.name || "",
+          nodeInfo.assemblyPos || "",
+          nodeInfo.assemblyName || "",
+          nodeInfo.assemblyPosCode || "",
+        ].join(" ").toLowerCase();
+        if (nodeSearch.includes(searchQuery)) return true;
+      }
+
+      // Level 3: Check children's assembly properties
+      const children = containerChildrenLookup.get(containerKey) || [];
+      for (const child of children) {
+        const childSearch = [
+          child.assemblyPos || "",
+          child.assemblyName || "",
+          child.assemblyPosCode || "",
+        ].join(" ").toLowerCase();
+        if (childSearch.includes(searchQuery)) return true;
+      }
+
+      return false;
     });
   }
 
