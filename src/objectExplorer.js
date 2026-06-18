@@ -3318,6 +3318,9 @@ function renderAssemblyContainerTree(groupBy) {
     return `<div class="placeholder"><div class="placeholder-icon">📦</div><p>Không tìm thấy IfcElementAssembly nào</p><p class="placeholder-sub">Model có thể không có assembly container</p></div>`;
   }
 
+  // Get current search query to filter containers too
+  const searchQuery = (document.getElementById("search-input")?.value || "").trim().toLowerCase();
+
   const fmtW = (w) => w >= 1000 ? (w / 1000).toFixed(2) + " tấn" : w.toFixed(2) + " kg";
   const fmtV = (v) => v > 0 ? v.toFixed(6) + " m³" : "—";
   const fmtA = (a) => a > 0 ? a.toFixed(4) + " m²" : "—";
@@ -3347,7 +3350,7 @@ function renderAssemblyContainerTree(groupBy) {
   const orphanObjects = filteredObjects.filter(obj => !allContainerChildIds.has(`${obj.modelId}:${obj.id}`));
 
   // Sort containers by assemblyName then assemblyPos
-  const sortedContainers = [...containers].sort((a, b) => {
+  let sortedContainers = [...containers].sort((a, b) => {
     const nameA = (a.assemblyName || a.name || "").toLowerCase();
     const nameB = (b.assemblyName || b.name || "").toLowerCase();
     if (nameA !== nameB) return nameA.localeCompare(nameB);
@@ -3355,6 +3358,20 @@ function renderAssemblyContainerTree(groupBy) {
     const posB = (b.assemblyPos || "").toLowerCase();
     return posA.localeCompare(posB);
   });
+
+  // Filter containers by search query (search in name, pos, posCode, assemblyName)
+  if (searchQuery) {
+    sortedContainers = sortedContainers.filter(c => {
+      const searchFields = [
+        c.name || "",
+        c.assemblyName || "",
+        c.assemblyPos || "",
+        c.assemblyPosCode || "",
+        c.assembly || "",
+      ].join(" ").toLowerCase();
+      return searchFields.includes(searchQuery);
+    });
+  }
 
   let html = "";
 
@@ -4326,7 +4343,6 @@ async function toggleIsolate() {
   if (isolateActive) {
     // Reset: show all objects again
     try {
-      // Reset visibility for all objects
       await viewerRef.setObjectState(undefined, { visible: "reset" });
       await viewerRef.setObjectState(undefined, { color: "reset" });
       isolateActive = false;
@@ -4345,13 +4361,50 @@ async function toggleIsolate() {
     return;
   }
 
-  if (selectedIds.size === 0) return;
+  // Build model map: use expanded model map that includes assembly containers
+  let modelMap;
+  let totalIds;
 
-  // Use expanded model map that includes assembly containers + all assembly siblings
-  const modelMap = buildModelMapWithAssemblyContainers();
-  const totalIds = Object.values(modelMap).reduce((sum, ids) => sum + ids.length, 0);
+  if (selectedIds.size > 0) {
+    modelMap = buildModelMapWithAssemblyContainers();
+    totalIds = Object.values(modelMap).reduce((sum, ids) => sum + ids.length, 0);
+  } else {
+    // No selectedIds — check if we're in Assembly Container mode with checked groups
+    const groupBy = document.getElementById("group-by-select")?.value;
+    if (isAssemblyContainerMode(groupBy)) {
+      // Build model map from checked container group checkboxes
+      const checkedGroups = document.querySelectorAll(".tree-group .tree-group-checkbox:checked");
+      if (checkedGroups.length > 0) {
+        modelMap = {};
+        for (const cb of checkedGroups) {
+          const groupEl = cb.closest(".tree-group");
+          const groupKey = groupEl?.dataset.group;
+          if (!groupKey || groupKey === "__orphans__") continue;
+          
+          const idx = groupKey.indexOf(":");
+          const modelId = groupKey.substring(0, idx);
+          const containerId = parseInt(groupKey.substring(idx + 1));
+          if (!modelMap[modelId]) modelMap[modelId] = [];
+          modelMap[modelId].push(containerId);
 
-  if (totalIds === 0) {
+          // Add all children from assembly hierarchy
+          const childIds = assemblyChildrenMap.get(groupKey);
+          if (childIds) {
+            for (const childId of childIds) {
+              modelMap[modelId].push(childId);
+            }
+          }
+        }
+        // Deduplicate
+        for (const modelId of Object.keys(modelMap)) {
+          modelMap[modelId] = [...new Set(modelMap[modelId])];
+        }
+        totalIds = Object.values(modelMap).reduce((sum, ids) => sum + ids.length, 0);
+      }
+    }
+  }
+
+  if (!modelMap || !totalIds || totalIds === 0) {
     console.warn("[ObjectExplorer] No valid entity IDs to isolate");
     return;
   }
@@ -4368,11 +4421,11 @@ async function toggleIsolate() {
     await viewerRef.isolateEntities(modelEntities);
     isolateActive = true;
     btn.classList.add("active");
-    console.log(`[ObjectExplorer] ✓ Isolated successfully: ${totalIds} entities (${selectedIds.size} selected + ${totalIds - selectedIds.size} assembly-related)`);
+    console.log(`[ObjectExplorer] ✓ Isolated successfully: ${totalIds} entities`);
   } catch (e) {
     console.warn("[ObjectExplorer] isolateEntities failed, trying fallback 1 (setObjectState):", e);
 
-    // Fallback 1: hide all, then show selected + assembly containers using objectRuntimeIds
+    // Fallback 1: hide all, then show selected using objectRuntimeIds
     try {
       await viewerRef.setObjectState(undefined, { visible: false });
       await viewerRef.setObjectState(
