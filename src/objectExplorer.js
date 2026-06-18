@@ -760,24 +760,34 @@ async function scanObjects() {
       objectLookup.set(`${obj.modelId}:${obj.id}`, obj);
     }
 
-    // Step 1.5: Enrich assemblyNodeInfoMap with ACTUAL parsed assembly properties
-    // from the container objects (IfcElementAssembly). This is critical because:
-    //   - assemblyNodeInfoMap initially only stores node.name (IFC entity name)
-    //   - After parsing, containers now have actual ASSEMBLY_POS, ASSEMBLY_NAME, etc.
-    //   - We must copy these BEFORE propagation, so children get correct values
-    //   - Later when containers are removed from allObjects, the map still has correct data
+    // Step 1.5: BI-DIRECTIONAL enrichment between containerObj and nodeInfo
+    //   Direction A: containerObj → nodeInfo (parsed IFC properties override)
+    //   Direction B: nodeInfo → containerObj (fetchAssemblyContainerProperties values)
+    // This is critical because:
+    //   - nodeInfo has values from fetchAssemblyContainerProperties() (API fetch)
+    //   - containerObj has values from parseObjectProperties() (IFC property parsing)
+    //   - Both may have different properties; merge both directions
+    //   - containerObj will become savedAssemblyContainers (for display + search)
     for (const [asmKey, nodeInfo] of assemblyNodeInfoMap) {
       const containerObj = objectLookup.get(asmKey);
       if (containerObj) {
+        // Direction A: containerObj → nodeInfo (parsed properties win if present)
         if (containerObj.assemblyPos) nodeInfo.assemblyPos = containerObj.assemblyPos;
         if (containerObj.assemblyName) nodeInfo.assemblyName = containerObj.assemblyName;
         if (containerObj.assemblyPosCode) nodeInfo.assemblyPosCode = containerObj.assemblyPosCode;
         if (containerObj.assemblyWeight > 0 && (!nodeInfo.assemblyWeight || containerObj.assemblyWeight > nodeInfo.assemblyWeight)) {
           nodeInfo.assemblyWeight = containerObj.assemblyWeight;
         }
-        // Also use the container's own weight as assembly weight if not already set
         if (!nodeInfo.assemblyWeight && containerObj.weight > 0) {
           nodeInfo.assemblyWeight = containerObj.weight;
+        }
+
+        // Direction B: nodeInfo → containerObj (fill gaps from API fetch)
+        if (!containerObj.assemblyPos && nodeInfo.assemblyPos) containerObj.assemblyPos = nodeInfo.assemblyPos;
+        if (!containerObj.assemblyName && nodeInfo.assemblyName) containerObj.assemblyName = nodeInfo.assemblyName;
+        if (!containerObj.assemblyPosCode && nodeInfo.assemblyPosCode) containerObj.assemblyPosCode = nodeInfo.assemblyPosCode;
+        if ((!containerObj.assemblyWeight || containerObj.assemblyWeight === 0) && nodeInfo.assemblyWeight > 0) {
+          containerObj.assemblyWeight = nodeInfo.assemblyWeight;
         }
       }
     }
@@ -931,20 +941,23 @@ async function scanObjects() {
     // Step 3.5: Enrich saved containers with values from assemblyNodeInfoMap
     // The container object itself may NOT have assemblyPos/assemblyName/assemblyPosCode
     // (these are often parsed from children, not from the container's own IFC properties).
-    // The nodeInfo HAS these values from hierarchy tree parsing — copy them to the saved containers.
+    // The nodeInfo HAS these values from fetchAssemblyContainerProperties() — copy them.
     for (const sc of savedAssemblyContainers) {
       const key = `${sc.modelId}:${sc.id}`;
       const nodeInfo = assemblyNodeInfoMap.get(key);
       if (nodeInfo) {
-        if (!sc.assemblyPos && nodeInfo.assemblyPos) sc.assemblyPos = nodeInfo.assemblyPos;
-        if (!sc.assemblyName && nodeInfo.assemblyName) sc.assemblyName = nodeInfo.assemblyName;
-        if (!sc.assemblyPosCode && nodeInfo.assemblyPosCode) sc.assemblyPosCode = nodeInfo.assemblyPosCode;
-        if ((!sc.assemblyWeight || sc.assemblyWeight === 0) && nodeInfo.assemblyWeight > 0) {
+        // ALWAYS prefer nodeInfo values (they come from dedicated API fetch)
+        if (nodeInfo.assemblyPos && !sc.assemblyPos) sc.assemblyPos = nodeInfo.assemblyPos;
+        if (nodeInfo.assemblyName && !sc.assemblyName) sc.assemblyName = nodeInfo.assemblyName;
+        if (nodeInfo.assemblyPosCode && !sc.assemblyPosCode) sc.assemblyPosCode = nodeInfo.assemblyPosCode;
+        if (nodeInfo.assemblyWeight > 0 && (!sc.assemblyWeight || sc.assemblyWeight === 0)) {
           sc.assemblyWeight = nodeInfo.assemblyWeight;
         }
+        // If container has name but NOT assemblyName, use nodeInfo's name as assemblyName
+        if (!sc.assemblyName && nodeInfo.name) sc.assemblyName = nodeInfo.name;
       }
-      // Also try to get from first child if container still has no assembly props
-      if (!sc.assemblyPos || !sc.assemblyName) {
+      // Fallback: get from first child if container still has no assembly props
+      if (!sc.assemblyPos || !sc.assemblyPosCode) {
         const childIds = assemblyChildrenMap.get(key);
         if (childIds) {
           for (const childId of childIds) {
@@ -953,7 +966,7 @@ async function scanObjects() {
               if (!sc.assemblyPos && childObj.assemblyPos) sc.assemblyPos = childObj.assemblyPos;
               if (!sc.assemblyName && childObj.assemblyName) sc.assemblyName = childObj.assemblyName;
               if (!sc.assemblyPosCode && childObj.assemblyPosCode) sc.assemblyPosCode = childObj.assemblyPosCode;
-              if (sc.assemblyPos && sc.assemblyName) break; // Got what we need
+              if (sc.assemblyPos && sc.assemblyPosCode) break;
             }
           }
         }
@@ -965,6 +978,10 @@ async function scanObjects() {
       console.log(
         `[ObjectExplorer] Removed ${savedAssemblyContainers.length} IfcElementAssembly containers (${beforeAssemblyDedup} → ${allObjects.length} objects), ${enrichedCount} with assembly properties`
       );
+      // Debug: show first 5 containers' values
+      for (const sc of savedAssemblyContainers.slice(0, 5)) {
+        console.log(`[ObjectExplorer] Container "${sc.name}" → pos="${sc.assemblyPos}", name="${sc.assemblyName}", code="${sc.assemblyPosCode}"`);
+      }
     }
 
     // ── Estimate bolt quantities ──
