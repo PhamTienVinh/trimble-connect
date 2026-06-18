@@ -26,11 +26,7 @@ export function initSteelStatistics(api, viewer) {
     updateStatistics();
   });
 
-  // UI bindings
-  document.getElementById("stats-group-by").addEventListener("change", updateStatistics);
-  document.getElementById("stats-all-toggle").addEventListener("change", updateStatistics);
-  document.getElementById("btn-export-all").addEventListener("click", () => exportExcel(false));
-  document.getElementById("btn-export-selected").addEventListener("click", () => exportExcel(true));
+  // UI bindings are set up below after setupColumnToggle()
 
   // Column toggle (Tất cả / Gross / Net)
   setupColumnToggle();
@@ -873,8 +869,30 @@ window._onContainerCheckboxChanged = function() {
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Isolate Selected Containers in 3D ──
+// Includes fallback methods matching objectExplorer's isolate pattern
 // ══════════════════════════════════════════════════════════════════════════════
-function isolateSelectedContainers() {
+let containerIsolateActive = false;
+
+async function isolateSelectedContainers() {
+  const btn = document.getElementById("btn-container-isolate");
+
+  // Toggle off if already isolating
+  if (containerIsolateActive) {
+    try {
+      await viewerRef.setObjectState(undefined, { visible: "reset" });
+      await viewerRef.setObjectState(undefined, { color: "reset" });
+      containerIsolateActive = false;
+      if (btn) btn.classList.remove("active");
+      console.log("[Statistics] Container isolation reset");
+    } catch (e) {
+      console.warn("[Statistics] Reset failed:", e);
+      try { await viewerRef.reset(); } catch (e2) {}
+      containerIsolateActive = false;
+      if (btn) btn.classList.remove("active");
+    }
+    return;
+  }
+
   const checkedBoxes = document.querySelectorAll(".container-checkbox:checked");
   if (checkedBoxes.length === 0) {
     console.warn("[Statistics] No containers selected to isolate");
@@ -887,31 +905,69 @@ function isolateSelectedContainers() {
     const modelId = row?.dataset.modelId;
     const objectId = parseInt(row?.dataset.objectId);
     if (modelId && !isNaN(objectId)) {
-      if (!modelMap[modelId]) modelMap[modelId] = [];
-      modelMap[modelId].push(objectId);
+      if (!modelMap[modelId]) modelMap[modelId] = new Set();
+      modelMap[modelId].add(objectId);
 
       // Include children
       const children = getAssemblyChildren(modelId, objectId);
       for (const child of children) {
-        if (!modelMap[child.modelId]) modelMap[child.modelId] = [];
-        modelMap[child.modelId].push(child.id);
+        if (!modelMap[child.modelId]) modelMap[child.modelId] = new Set();
+        modelMap[child.modelId].add(child.id);
       }
     }
   }
 
   const modelEntities = Object.entries(modelMap).map(([modelId, ids]) => ({
     modelId,
-    entityIds: [...new Set(ids)],
+    entityIds: [...ids],
   }));
 
-  if (viewerRef && modelEntities.length > 0) {
-    viewerRef.isolateEntities(modelEntities).then(() => {
-      console.log(`[Statistics] ✓ Isolated ${checkedBoxes.length} containers`);
-      const btn = document.getElementById("btn-container-isolate");
+  const totalIds = modelEntities.reduce((sum, m) => sum + m.entityIds.length, 0);
+  console.log(`[Statistics] Attempting isolate: ${checkedBoxes.length} containers → ${totalIds} entities`);
+
+  if (!viewerRef || modelEntities.length === 0) return;
+
+  try {
+    // Primary method: isolateEntities
+    await viewerRef.isolateEntities(modelEntities);
+    containerIsolateActive = true;
+    if (btn) btn.classList.add("active");
+    console.log(`[Statistics] ✓ Isolated ${checkedBoxes.length} containers (${totalIds} entities)`);
+  } catch (e) {
+    console.warn("[Statistics] isolateEntities failed, trying fallback (setObjectState):", e);
+
+    // Fallback: hide all, show selected
+    try {
+      await viewerRef.setObjectState(undefined, { visible: false });
+      await viewerRef.setObjectState(
+        {
+          modelObjectIds: Object.entries(modelMap).map(([modelId, ids]) => ({
+            modelId,
+            objectRuntimeIds: [...ids],
+          })),
+        },
+        { visible: true },
+      );
+      containerIsolateActive = true;
       if (btn) btn.classList.add("active");
-    }).catch(e => {
-      console.warn("[Statistics] Isolate failed:", e);
-    });
+      console.log(`[Statistics] ✓ Fallback isolate succeeded: ${totalIds} entities`);
+    } catch (e2) {
+      console.warn("[Statistics] Fallback isolate also failed:", e2);
+
+      // Fallback 2: try entityIds with setObjectState
+      try {
+        await viewerRef.setObjectState(undefined, { visible: false });
+        await viewerRef.setObjectState(
+          { modelObjectIds: modelEntities },
+          { visible: true },
+        );
+        containerIsolateActive = true;
+        if (btn) btn.classList.add("active");
+        console.log(`[Statistics] ✓ Fallback 2 isolate succeeded`);
+      } catch (e3) {
+        console.error("[Statistics] All isolate methods failed:", e3);
+      }
+    }
   }
 }
 
@@ -919,14 +975,15 @@ function isolateSelectedContainers() {
 // ── Sync 3D Viewer Selection → Container Checkboxes (3D → Panel) ──
 // ══════════════════════════════════════════════════════════════════════════════
 function syncViewerSelectionToContainerCheckboxes(detail) {
-  const selectedUids = detail.selectedUids || [];
-  if (!selectedUids || selectedUids.length === 0) return;
+  // detail.selectedIds = array of "modelId:objectId" strings from objectExplorer
+  const selectedIdsList = detail.selectedIds || [];
+  if (!selectedIdsList || selectedIdsList.length === 0) return;
 
   // Find which containers are related to the selected objects
   const containers = getSavedAssemblyContainers();
   if (!containers || containers.length === 0) return;
 
-  const selectedSet = new Set(selectedUids);
+  const selectedSet = new Set(selectedIdsList);
   const matchedContainerKeys = new Set();
 
   for (const container of containers) {
@@ -966,8 +1023,25 @@ function syncViewerSelectionToContainerCheckboxes(detail) {
       firstMatched.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
-    // Update V/A/W summary
-    window._onContainerCheckboxChanged();
+    // Update V/A/W summary (without triggering 3D selection loop)
+    const checkedBoxes = document.querySelectorAll(".container-checkbox:checked");
+    let selWeight = 0, selVolume = 0, selArea = 0;
+    for (const cb of checkedBoxes) {
+      const row = cb.closest("tr");
+      const cells = row.querySelectorAll("td");
+      if (cells.length >= 8) {
+        selVolume += parseFloat(cells[2].textContent) || 0;
+        selArea += parseFloat(cells[4].textContent) || 0;
+        selWeight += parseFloat(cells[6].textContent) || 0;
+      }
+    }
+    if (document.getElementById("stat-total-gross-volume")) document.getElementById("stat-total-gross-volume").textContent = formatVolume(selVolume);
+    if (document.getElementById("stat-total-net-volume")) document.getElementById("stat-total-net-volume").textContent = formatVolume(selVolume);
+    if (document.getElementById("stat-total-gross-area")) document.getElementById("stat-total-gross-area").textContent = formatArea(selArea);
+    if (document.getElementById("stat-total-net-area")) document.getElementById("stat-total-net-area").textContent = formatArea(selArea);
+    if (document.getElementById("stat-total-gross-weight")) document.getElementById("stat-total-gross-weight").textContent = formatWeight(selWeight);
+    if (document.getElementById("stat-total-net-weight")) document.getElementById("stat-total-net-weight").textContent = formatWeight(selWeight);
+    document.getElementById("stat-total-objects").textContent = formatNumber(matchedContainerKeys.size) + " asm";
   }
 }
 

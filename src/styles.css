@@ -2098,6 +2098,49 @@ select option {
     border-color: #ccc;
   }
 }
+/* ===== STATISTICS TAB LAYOUT OPTIMIZATION ===== */
+#tab-statistics {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+#tab-statistics > .card {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+#tab-statistics #stats-control-bar {
+  padding: 6px 10px;
+  gap: 5px;
+}
+
+#tab-statistics .stats-strip {
+  padding: 4px 10px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+#tab-statistics .stats-strip-counters {
+  gap: 6px;
+}
+
+#tab-statistics .strip-count {
+  padding: 4px 8px !important;
+  font-size: 11px;
+}
+
+#tab-statistics .stats-strip-metrics {
+  gap: 3px;
+  padding: 0;
+}
+
+#tab-statistics .stats-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
 
 /* ===== ASSEMBLY CONTAINER SELECTION & SEARCH ===== */
 .container-search-row {

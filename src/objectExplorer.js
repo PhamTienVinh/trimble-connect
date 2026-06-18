@@ -3354,6 +3354,7 @@ function renderAssemblyContainerTree(groupBy) {
     // Container display info
     const displayName = container.assemblyPos || container.assemblyName || container.name || `Container ${container.id}`;
     const assemblyNameLabel = container.assemblyName ? ` [${container.assemblyName}]` : "";
+    const posCodeLabel = container.assemblyPosCode ? ` {${container.assemblyPosCode}}` : "";
     const containerWeight = container.weight || container.assemblyWeight || 0;
     const containerVolume = container.volume || 0;
     const containerArea = container.area || 0;
@@ -3368,6 +3369,7 @@ function renderAssemblyContainerTree(groupBy) {
     tooltip += `\nIFC Class: ${container.ifcClass || "IfcElementAssembly"}`;
     if (container.assemblyPos) tooltip += `\nAssembly Pos: ${container.assemblyPos}`;
     if (container.assemblyName) tooltip += `\nAssembly Name: ${container.assemblyName}`;
+    if (container.assemblyPosCode) tooltip += `\nPosition Code: ${container.assemblyPosCode}`;
     tooltip += `\nWeight: ${fmtW(containerWeight)}`;
     tooltip += `\nVolume: ${fmtV(containerVolume)}`;
     tooltip += `\nArea: ${fmtA(containerArea)}`;
@@ -3377,7 +3379,7 @@ function renderAssemblyContainerTree(groupBy) {
     html += `<div class="tree-group-header" title="${escHtml(tooltip)}">`;
     html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} title="Chọn/bỏ chọn tất cả children" />`;
     html += `<span class="tree-toggle" onclick="_cascadeToggle(this,'tree-group')">▼</span>`;
-    html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">📦 ${escHtml(displayName)}${escHtml(assemblyNameLabel)}</span>`;
+    html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">📦 ${escHtml(displayName)}${escHtml(assemblyNameLabel)}${escHtml(posCodeLabel)}</span>`;
     html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${children.length} children</span>`;
     if (containerWeight > 0) {
       html += `<span class="tree-group-weight" onclick="_cascadeToggle(this,'tree-group')" title="Khối lượng Assembly Container">⚖️ ${fmtW(containerWeight)}</span>`;
