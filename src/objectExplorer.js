@@ -18,6 +18,7 @@ let assemblyMembershipMap = new Map(); // "modelId:objectId" -> "modelId:assembl
 let assemblyChildrenMap = new Map(); // "modelId:assemblyParentId" -> Set([objectId1, objectId2, ...])
 let assemblyNodeInfoMap = new Map(); // "modelId:assemblyNodeId" -> { id, name, class, modelId, assemblyWeight }
 let savedAssemblyContainers = []; // Full IfcElementAssembly objects saved before removal (for display)
+let loadedModelNames = []; // Model file names for Excel export
 let isolateActive = false;
 let searchTimeout = null;
 let lastClickedItem = null; // for Shift+click range selection
@@ -217,6 +218,10 @@ export function getSavedAssemblyContainers() {
   return savedAssemblyContainers;
 }
 
+export function getModelNames() {
+  return loadedModelNames;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ── PUBLIC API: Assembly Container Information ──
 // ══════════════════════════════════════════════════════════════════════════════
@@ -330,6 +335,10 @@ async function scanObjects() {
         console.warn("[ObjectExplorer] getModels() also failed:", e2);
       }
     }
+
+    // Save model names for Excel export
+    loadedModelNames = models.map(m => m.name || m.fileName || m.id || "").filter(n => n);
+    console.log("[ObjectExplorer] Loaded model names:", loadedModelNames);
 
     // Strategy 1: getObjects() returns ModelObjects[] with full ObjectProperties
     let modelObjectsList = [];
@@ -3427,26 +3436,6 @@ function renderAssemblyContainerTree(groupBy) {
       html += renderTreeItemHtml(obj, groupBy);
     }
 
-    html += `</div></div>`;
-  }
-
-  // Orphan objects (not in any container)
-  if (orphanObjects.length > 0) {
-    const orphanUids = orphanObjects.map(o => `${o.modelId}:${o.id}`);
-    const allChecked = orphanUids.every(uid => selectedIds.has(uid));
-    const someChecked = orphanUids.some(uid => selectedIds.has(uid));
-
-    html += `<div class="tree-group" data-group="__orphans__">`;
-    html += `<div class="tree-group-header">`;
-    html += `<input type="checkbox" class="tree-group-checkbox" ${allChecked ? "checked" : ""} ${!allChecked && someChecked ? 'data-indeterminate="true"' : ""} />`;
-    html += `<span class="tree-toggle" onclick="_cascadeToggle(this,'tree-group')">▼</span>`;
-    html += `<span class="tree-group-name" onclick="_cascadeToggle(this,'tree-group')">🔗 Không thuộc Assembly Container</span>`;
-    html += `<span class="tree-group-count" onclick="_cascadeToggle(this,'tree-group')">${orphanObjects.length}</span>`;
-    html += `</div>`;
-    html += `<div class="tree-items">`;
-    for (const obj of orphanObjects) {
-      html += renderTreeItemHtml(obj, groupBy);
-    }
     html += `</div></div>`;
   }
 

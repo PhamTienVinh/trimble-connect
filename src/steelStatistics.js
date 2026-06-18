@@ -6,6 +6,7 @@ import {
   getAssemblyChildren,
   getAssemblyChildIds,
   getSavedAssemblyContainers,
+  getModelNames,
 } from "./objectExplorer.js";
 import { exportToExcel } from "./excelExport.js";
 
@@ -1095,7 +1096,11 @@ function exportExcel(selectedOnly) {
     weight: obj.weight || (obj.volume > 0 ? obj.volume * STEEL_DENSITY : 0),
   }));
 
-  exportToExcel(enrichedData, groupBy, selectedOnly);
+  exportToExcel(enrichedData, groupBy, selectedOnly, {
+    modelNames: getModelNames(),
+    savedContainers: getSavedAssemblyContainers(),
+    getChildrenFn: getAssemblyChildren,
+  });
 }
 
 // ── Helpers ──
