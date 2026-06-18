@@ -2099,7 +2099,7 @@ select option {
   }
 }
 /* ===== STATISTICS TAB LAYOUT OPTIMIZATION ===== */
-#tab-statistics {
+#tab-statistics.active {
   display: flex;
   flex-direction: column;
   height: 100%;

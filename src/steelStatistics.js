@@ -4,6 +4,7 @@ import {
   getSelectedIds,
   getAssemblyContainers,
   getAssemblyChildren,
+  getAssemblyChildIds,
   getSavedAssemblyContainers,
 } from "./objectExplorer.js";
 import { exportToExcel } from "./excelExport.js";
@@ -814,7 +815,14 @@ window._onContainerCheckboxChanged = function() {
       if (!modelMap[modelId]) modelMap[modelId] = [];
       modelMap[modelId].push(objectId);
 
-      // Also add children IDs
+      // Add raw child IDs (from hierarchy map, always available)
+      const childIds = getAssemblyChildIds(modelId, objectId);
+      for (const childId of childIds) {
+        if (!modelMap[modelId]) modelMap[modelId] = [];
+        modelMap[modelId].push(childId);
+      }
+
+      // Also add children from allObjects
       const children = getAssemblyChildren(modelId, objectId);
       for (const child of children) {
         if (!modelMap[child.modelId]) modelMap[child.modelId] = [];
@@ -908,7 +916,13 @@ async function isolateSelectedContainers() {
       if (!modelMap[modelId]) modelMap[modelId] = new Set();
       modelMap[modelId].add(objectId);
 
-      // Include children
+      // Include children using RAW IDs (don't depend on allObjects)
+      const childIds = getAssemblyChildIds(modelId, objectId);
+      for (const childId of childIds) {
+        modelMap[modelId].add(childId);
+      }
+
+      // Also include children from getAssemblyChildren (objects in allObjects)
       const children = getAssemblyChildren(modelId, objectId);
       for (const child of children) {
         if (!modelMap[child.modelId]) modelMap[child.modelId] = new Set();

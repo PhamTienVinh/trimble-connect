@@ -279,6 +279,17 @@ export function getAssemblyChildren(modelId, containerId) {
 }
 
 /**
+ * Get raw child IDs for an assembly container (does NOT require children to be in allObjects)
+ * Use this for isolate/selection operations where raw IDs are needed
+ */
+export function getAssemblyChildIds(modelId, containerId) {
+  const containerKey = `${modelId}:${containerId}`;
+  const childIds = assemblyChildrenMap.get(containerKey);
+  if (!childIds) return [];
+  return [...childIds]; // Return array of numeric IDs
+}
+
+/**
  * Get all assembly containers (IfcElementAssembly nodes) with their info
  * @returns {Array} Array of container info objects
  */
