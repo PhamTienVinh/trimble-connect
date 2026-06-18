@@ -12,8 +12,8 @@
   <title>DDC Statistics</title>
   <meta name="description" content="Trimble Connect Extension - DDC Statistics" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <script type="module" crossorigin src="./assets/index-D7ndqqux.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-V_LyawSE.css">
+  <script type="module" crossorigin src="./assets/index-B9avjv_I.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-x3IyB6xi.css">
 </head>
 
 <body>
@@ -140,6 +140,18 @@
               <option value="ifcClass">IFC Class</option>
               <option value="material">Vật liệu</option>
             </select>
+          </div>
+          <!-- Assembly Container Filter (lọc ở cấp IfcElementAssembly từ Tekla) -->
+          <div class="control-row assembly-filter-row" id="assembly-filter-row">
+            <div class="assembly-filter-group">
+              <label for="stats-filter-asm-name" class="control-label filter-label">🏗️ Asm Name:</label>
+              <input type="text" id="stats-filter-asm-name" class="filter-input" placeholder="VD: BEAM, COLUMN..." autocomplete="off" />
+            </div>
+            <div class="assembly-filter-group">
+              <label for="stats-filter-asm-pos" class="control-label filter-label">📍 Asm Pos:</label>
+              <input type="text" id="stats-filter-asm-pos" class="filter-input" placeholder="VD: B-1, C-5..." autocomplete="off" />
+            </div>
+            <button id="btn-clear-asm-filter" class="icon-btn filter-clear-btn" title="Xóa bộ lọc assembly">✕</button>
           </div>
           <div class="control-row">
             <label class="toggle-label">

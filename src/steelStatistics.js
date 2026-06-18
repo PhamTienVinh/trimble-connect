@@ -35,6 +35,35 @@ export function initSteelStatistics(api, viewer) {
   // Column toggle (Tất cả / Gross / Net)
   setupColumnToggle();
 
+  // ── Assembly Container Filter bindings (debounced) ──
+  // These filters work at the IfcElementAssembly CONTAINER level,
+  // NOT on children. They find matching containers first,
+  // then include only their children in statistics.
+  let asmFilterTimeout = null;
+  const asmNameInput = document.getElementById("stats-filter-asm-name");
+  const asmPosInput = document.getElementById("stats-filter-asm-pos");
+  const asmClearBtn = document.getElementById("btn-clear-asm-filter");
+
+  if (asmNameInput) {
+    asmNameInput.addEventListener("input", () => {
+      clearTimeout(asmFilterTimeout);
+      asmFilterTimeout = setTimeout(updateStatistics, 300);
+    });
+  }
+  if (asmPosInput) {
+    asmPosInput.addEventListener("input", () => {
+      clearTimeout(asmFilterTimeout);
+      asmFilterTimeout = setTimeout(updateStatistics, 300);
+    });
+  }
+  if (asmClearBtn) {
+    asmClearBtn.addEventListener("click", () => {
+      if (asmNameInput) asmNameInput.value = "";
+      if (asmPosInput) asmPosInput.value = "";
+      updateStatistics();
+    });
+  }
+
   // Listen for real-time selection changes
   window.addEventListener("selection-changed", (e) => {
     const detail = e.detail || {};
@@ -200,6 +229,97 @@ function updateStatistics() {
   if (objects.length === 0) {
     clearStats();
     return;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // ── Assembly Container-Level Filter ──
+  // These filters find matching IfcElementAssembly CONTAINERS first,
+  // then keep ONLY children belonging to those containers.
+  // This is separate from other filters that work on children directly.
+  // ══════════════════════════════════════════════════════════════════════════════
+  const asmNameFilterVal = (document.getElementById("stats-filter-asm-name") || {}).value || "";
+  const asmPosFilterVal = (document.getElementById("stats-filter-asm-pos") || {}).value || "";
+  const hasAsmFilter = asmNameFilterVal.trim() || asmPosFilterVal.trim();
+
+  if (hasAsmFilter) {
+    // Step 1: Get all IfcElementAssembly containers (saved before removal)
+    const allContainers = getAssemblyContainers();
+    const savedContainers = getSavedAssemblyContainers();
+
+    // Merge container info: use savedContainers for richer property data
+    const containerMap = new Map();
+    for (const c of allContainers) {
+      containerMap.set(c.key, c);
+    }
+    for (const c of savedContainers) {
+      const key = `${c.modelId}:${c.id}`;
+      if (!containerMap.has(key)) {
+        containerMap.set(key, {
+          key, id: c.id, modelId: c.modelId,
+          assemblyName: c.assemblyName || "",
+          assemblyPos: c.assemblyPos || "",
+          name: c.name || "",
+        });
+      } else {
+        const existing = containerMap.get(key);
+        if (!existing.assemblyName && c.assemblyName) existing.assemblyName = c.assemblyName;
+        if (!existing.assemblyPos && c.assemblyPos) existing.assemblyPos = c.assemblyPos;
+      }
+    }
+
+    // Step 2: Find matching containers by filter values
+    const nameTerms = asmNameFilterVal.trim()
+      ? asmNameFilterVal.split(",").map(t => t.trim().toLowerCase()).filter(t => t)
+      : [];
+    const posTerms = asmPosFilterVal.trim()
+      ? asmPosFilterVal.split(",").map(t => t.trim().toLowerCase()).filter(t => t)
+      : [];
+
+    const matchedContainerKeys = new Set();
+    for (const [key, container] of containerMap) {
+      const cName = (container.assemblyName || container.name || "").toLowerCase();
+      const cPos = (container.assemblyPos || "").toLowerCase();
+
+      let nameMatch = nameTerms.length === 0; // no filter = match all
+      let posMatch = posTerms.length === 0;   // no filter = match all
+
+      if (nameTerms.length > 0) {
+        nameMatch = nameTerms.some(term => cName.includes(term));
+      }
+      if (posTerms.length > 0) {
+        posMatch = posTerms.some(term => cPos.includes(term));
+      }
+
+      // Both filters must match (AND logic)
+      if (nameMatch && posMatch) {
+        matchedContainerKeys.add(key);
+      }
+    }
+
+    console.log(`[Statistics] Assembly filter: ${matchedContainerKeys.size}/${containerMap.size} containers matched`);
+
+    // Step 3: Get ALL children of matching containers
+    const allowedChildKeys = new Set();
+    for (const containerKey of matchedContainerKeys) {
+      const idx = containerKey.indexOf(":");
+      const modelId = containerKey.substring(0, idx);
+      const containerId = parseInt(containerKey.substring(idx + 1));
+      const children = getAssemblyChildren(modelId, containerId);
+      for (const child of children) {
+        allowedChildKeys.add(`${child.modelId}:${child.id}`);
+      }
+    }
+
+    // Step 4: Filter objects to only keep children of matching containers
+    objects = objects.filter(obj => {
+      const objKey = `${obj.modelId}:${obj.id}`;
+      return allowedChildKeys.has(objKey);
+    });
+
+    if (objects.length === 0) {
+      clearStats();
+      return;
+    }
   }
 
   // Calculate totals
