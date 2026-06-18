@@ -644,15 +644,18 @@ function renderContainerStatsTable(enrichedObjects, totalNetVolume, totalGrossVo
     const children = containerChildrenMap_local.get(containerKey) || [];
     const vaw = containerVAW.get(containerKey) || { weight: 0, volume: 0, area: 0 };
 
-    const asmName = container.assemblyName || container.name || "";
+    const asmName = container.assemblyName || "";
     const asmPos = container.assemblyPos || "";
     const asmPosCode = container.assemblyPosCode || "";
-    const searchText = `${asmName} ${asmPos} ${asmPosCode}`.toLowerCase();
+    const containerName = container.name || "";
+    // Include ALL searchable fields: name, assembly name, pos, pos code, container name
+    const searchText = `${containerName} ${asmName} ${asmPos} ${asmPosCode} ${container.assembly || ""}`.toLowerCase();
 
     // Build display label: Pos | Name | Code
     let displayParts = [];
     if (asmPos) displayParts.push(asmPos);
     if (asmName) displayParts.push(asmName);
+    else if (containerName) displayParts.push(containerName);
     if (asmPosCode) displayParts.push(`[${asmPosCode}]`);
     const displayName = displayParts.join(" | ") || `Container ${container.id}`;
 
@@ -803,7 +806,7 @@ function filterContainerRows(query) {
 window._onContainerCheckboxChanged = function() {
   const checkedBoxes = document.querySelectorAll(".container-checkbox:checked");
   const checkedKeys = new Set();
-  const modelMap = {};
+  const modelMap = new Map(); // modelId → Set of IDs
 
   for (const cb of checkedBoxes) {
     const key = cb.dataset.containerKey;
@@ -812,21 +815,20 @@ window._onContainerCheckboxChanged = function() {
     const modelId = row?.dataset.modelId;
     const objectId = parseInt(row?.dataset.objectId);
     if (modelId && !isNaN(objectId)) {
-      if (!modelMap[modelId]) modelMap[modelId] = [];
-      modelMap[modelId].push(objectId);
+      if (!modelMap.has(modelId)) modelMap.set(modelId, new Set());
+      modelMap.get(modelId).add(objectId);
 
       // Add raw child IDs (from hierarchy map, always available)
       const childIds = getAssemblyChildIds(modelId, objectId);
       for (const childId of childIds) {
-        if (!modelMap[modelId]) modelMap[modelId] = [];
-        modelMap[modelId].push(childId);
+        modelMap.get(modelId).add(childId);
       }
 
       // Also add children from allObjects
       const children = getAssemblyChildren(modelId, objectId);
       for (const child of children) {
-        if (!modelMap[child.modelId]) modelMap[child.modelId] = [];
-        modelMap[child.modelId].push(child.id);
+        if (!modelMap.has(child.modelId)) modelMap.set(child.modelId, new Set());
+        modelMap.get(child.modelId).add(child.id);
       }
     }
   }
@@ -842,7 +844,6 @@ window._onContainerCheckboxChanged = function() {
     let selWeight = 0, selVolume = 0, selArea = 0;
     for (const cb of checkedBoxes) {
       const row = cb.closest("tr");
-      // Parse V/A/W from table cells
       const cells = row.querySelectorAll("td");
       if (cells.length >= 8) {
         selVolume += parseFloat(cells[2].textContent) || 0;
@@ -851,7 +852,6 @@ window._onContainerCheckboxChanged = function() {
       }
     }
 
-    // Update summary cards with selected containers' totals
     if (document.getElementById("stat-total-gross-volume")) document.getElementById("stat-total-gross-volume").textContent = formatVolume(selVolume);
     if (document.getElementById("stat-total-net-volume")) document.getElementById("stat-total-net-volume").textContent = formatVolume(selVolume);
     if (document.getElementById("stat-total-gross-area")) document.getElementById("stat-total-gross-area").textContent = formatArea(selArea);
@@ -862,13 +862,26 @@ window._onContainerCheckboxChanged = function() {
   }
 
   // Sync to 3D viewer: select container + children
-  if (viewerRef && Object.keys(modelMap).length > 0) {
-    const modelObjectIds = Object.entries(modelMap).map(([modelId, ids]) => ({
-      modelId,
-      objectRuntimeIds: [...new Set(ids)],
-    }));
-    viewerRef.setSelection({ modelObjectIds }, "set").catch(e => {
-      console.warn("[Statistics] Failed to sync container selection to 3D:", e);
+  const totalIds = Array.from(modelMap.values()).reduce((sum, s) => sum + s.size, 0);
+  console.log(`[Statistics] Container sync → 3D: ${checkedKeys.size} containers, ${totalIds} total IDs, viewerRef=${!!viewerRef}`);
+
+  if (viewerRef && modelMap.size > 0) {
+    const modelObjectIds = [];
+    for (const [modelId, ids] of modelMap) {
+      modelObjectIds.push({
+        modelId,
+        objectRuntimeIds: [...ids],
+      });
+    }
+    console.log("[Statistics] setSelection payload:", JSON.stringify(modelObjectIds.map(m => ({ modelId: m.modelId, count: m.objectRuntimeIds.length, sample: m.objectRuntimeIds.slice(0, 5) }))));
+    viewerRef.setSelection({ modelObjectIds }, "set").then(() => {
+      console.log("[Statistics] ✓ setSelection succeeded");
+    }).catch(e => {
+      console.warn("[Statistics] setSelection failed, trying alternative:", e);
+      // Fallback: try with different format
+      viewerRef.setSelection(modelObjectIds, "set").catch(e2 => {
+        console.warn("[Statistics] Alternative setSelection also failed:", e2);
+      });
     });
   } else if (viewerRef) {
     viewerRef.setSelection({ modelObjectIds: [] }, "set").catch(() => {});
