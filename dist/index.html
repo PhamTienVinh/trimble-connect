@@ -10,9 +10,9 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>DDC Statistics</title>
-  <meta name="description" content="Trimble Connect Extension - DDC Statistics" />
-  <script type="module" crossorigin src="./assets/index-COU7V8nC.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-1zvM_XvV.css">
+  <meta name="description" content="Trimble Connect Extension - DDC Statistics" />
+  <script type="module" crossorigin src="./assets/index-Bl-t2QcS.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-DZ9BEeyQ.css">
 </head>
 
 <body>
@@ -37,6 +37,10 @@
       <button class="tab-btn" data-tab="statistics" id="tab-statistics-btn">
         <span class="tab-icon">📊</span>
         <span class="tab-label">Thống kê</span>
+      </button>
+      <button class="tab-btn" data-tab="labels" id="tab-labels-btn">
+        <span class="tab-icon">🏷️</span>
+        <span class="tab-label">Labels</span>
       </button>
     </nav>
 
@@ -242,6 +246,125 @@
             <div class="placeholder-icon">📊</div>
             <p>Chưa có dữ liệu thống kê</p>
             <p class="placeholder-sub">Chuyển qua tab Objects và quét model trước</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Labels Tab -->
+    <div id="tab-labels" class="tab-content">
+      <div class="card">
+        <!-- Label Controls -->
+        <div class="control-bar" id="labels-control-bar">
+          <div class="control-row">
+            <label for="label-field-select" class="control-label">Hiển thị:</label>
+            <select id="label-field-select">
+              <option value="name">🏷️ Tên Object</option>
+              <option value="assemblyName">🏗️ Assembly Name</option>
+              <option value="assemblyPos">📍 Assembly Pos</option>
+              <option value="assemblyPosCode">🔢 Position Code</option>
+              <option value="profile">📐 Profile Name</option>
+              <option value="referenceName">📎 Reference Name</option>
+              <option value="ifcClass">🧱 IFC Class</option>
+              <option value="material">🪨 Vật liệu</option>
+              <option value="weight">⚖️ Khối lượng (kg)</option>
+              <option value="type">📦 Object Type</option>
+              <option value="revitType">🔧 Revit Type</option>
+              <option value="revitFamily">🏠 Revit Family</option>
+              <option value="description">📝 Mô tả</option>
+              <option value="tag">🔖 Tag</option>
+              <option value="group">📁 Group</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label class="control-label">Áp dụng cho:</label>
+            <select id="label-scope-select">
+              <option value="all">Tất cả objects</option>
+              <option value="selected">Chỉ đã chọn</option>
+              <option value="visible">Đang hiển thị (filtered)</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label class="control-label">Tối đa:</label>
+            <select id="label-limit-select">
+              <option value="100">100 labels</option>
+              <option value="200">200 labels</option>
+              <option value="500" selected>500 labels</option>
+              <option value="1000">1000 labels</option>
+              <option value="0">Tất cả (không giới hạn)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Label Action Bar -->
+        <div class="action-bar" id="labels-action-bar">
+          <button id="btn-show-labels" class="action-btn btn-pastel-green" title="Hiện labels lên 3D view">
+            <span>🏷️</span> Hiện Labels
+          </button>
+          <button id="btn-clear-labels" class="action-btn btn-pastel-pink" title="Xóa tất cả labels">
+            <span>🗑️</span> Xóa Labels
+          </button>
+          <button id="btn-toggle-labels" class="action-btn btn-pastel-orange" title="Bật/Tắt labels">
+            <span>👁️</span> Ẩn/Hiện
+          </button>
+          <button id="btn-refresh-labels" class="action-btn btn-pastel-brown" title="Cập nhật lại labels">
+            <span>🔄</span> Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Label Status & Info -->
+      <div class="card flex-1 label-info-card">
+        <div class="label-status-bar" id="label-status-bar">
+          <div class="label-status-row">
+            <span class="label-status-icon" id="label-status-icon">⭕</span>
+            <span class="label-status-text" id="label-status-text">Chưa hiển thị labels</span>
+          </div>
+          <div class="label-status-row label-stats" id="label-stats-row" style="display:none">
+            <span id="label-count-display">0 labels</span>
+            <span class="divider">|</span>
+            <span id="label-field-display">—</span>
+          </div>
+        </div>
+
+        <!-- Label Guide -->
+        <div class="label-guide" id="label-guide">
+          <div class="label-guide-content">
+            <div class="label-guide-icon">🏷️</div>
+            <h3>3D Labels — Hiển thị thông tin trực tiếp trên view</h3>
+            <div class="label-guide-steps">
+              <div class="label-guide-step">
+                <span class="step-num">1</span>
+                <span>Chọn loại thông tin cần hiển thị (Tên, Assembly, Profile...)</span>
+              </div>
+              <div class="label-guide-step">
+                <span class="step-num">2</span>
+                <span>Chọn phạm vi: tất cả objects, chỉ đã chọn, hoặc đang filtered</span>
+              </div>
+              <div class="label-guide-step">
+                <span class="step-num">3</span>
+                <span>Nhấn <strong>"Hiện Labels"</strong> để gắn labels lên 3D view</span>
+              </div>
+              <div class="label-guide-step">
+                <span class="step-num">4</span>
+                <span>Dùng <strong>"Ẩn/Hiện"</strong> để toggle, hoặc <strong>"Xóa Labels"</strong> để gỡ bỏ</span>
+              </div>
+            </div>
+            <div class="label-guide-tips">
+              <p>💡 <strong>Mẹo:</strong> Labels sẽ hiển thị trên đỉnh mỗi cấu kiện trong 3D Viewer</p>
+              <p>⚡ <strong>Hiệu suất:</strong> Giới hạn số labels để giữ viewer mượt mà</p>
+              <p>🔄 <strong>Check list:</strong> Dùng labels để kiểm tra trực quan thông tin từng cấu kiện</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Label List Preview -->
+        <div class="label-preview-container" id="label-preview-container" style="display:none">
+          <div class="label-preview-header">
+            <span>📋 Danh sách Labels đang hiển thị</span>
+            <span id="label-preview-count" class="label-preview-badge">0</span>
+          </div>
+          <div class="label-preview-list" id="label-preview-list">
           </div>
         </div>
       </div>

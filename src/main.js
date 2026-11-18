@@ -6,8 +6,10 @@
  */
 
 import { connect } from "trimble-connect-workspace-api";
+import "./styles.css";
 import { initObjectExplorer } from "./objectExplorer.js";
 import { initSteelStatistics } from "./steelStatistics.js";
+import { initLabelManager } from "./labelManager.js";
 
 // ── State ──
 let api = null;
@@ -105,6 +107,7 @@ async function init() {
     // Initialize feature modules — pass api and viewer references
     initObjectExplorer(api, viewer);
     initSteelStatistics(api, viewer);
+    initLabelManager(api, viewer);
 
     // Check if models are already loaded
     await checkExistingModels();

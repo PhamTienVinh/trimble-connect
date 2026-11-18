@@ -1,7 +1,10 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-   base: './',
+  base: './',
+  resolve: {
+    preserveSymlinks: true,
+  },
   server: {
     port: 3000,
     host: true,

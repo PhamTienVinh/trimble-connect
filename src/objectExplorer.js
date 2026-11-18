@@ -207,6 +207,9 @@ export function initObjectExplorer(api, viewer) {
 export function getAllObjects() {
   return allObjects;
 }
+export function getFilteredObjects() {
+  return filteredObjects;
+}
 export function getSelectedIds() {
   return selectedIds;
 }
