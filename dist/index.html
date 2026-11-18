@@ -11,7 +11,7 @@
   <meta http-equiv="Expires" content="0" />
   <title>DDC Statistics</title>
   <meta name="description" content="Trimble Connect Extension - DDC Statistics" />
-  <script type="module" crossorigin src="./assets/index-CdFGD44n.js"></script>
+  <script type="module" crossorigin src="./assets/index-sNyb3zW6.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-CQXBZA6N.css">
 </head>
 
@@ -408,11 +408,31 @@
                 </div>
               </div>
 
+              <!-- Coordinate Units & Style Mode -->
+              <div class="config-grid-2">
+                <div class="config-item">
+                  <label for="cfg-unit-scale" class="config-sublabel">Hệ đơn vị tọa độ:</label>
+                  <select id="cfg-unit-scale">
+                    <option value="auto" selected>⚡ Tự động (Khuyên dùng)</option>
+                    <option value="mm">Milimét (mm → m, /1000)</option>
+                    <option value="m">Mét (m, nguyên bản 1:1)</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label for="cfg-badge-mode" class="config-sublabel">Kiểu hiển thị 3D:</label>
+                  <select id="cfg-badge-mode">
+                    <option value="canvasBadge" selected>🏷️ Thẻ chữ màu (Custom Badge)</option>
+                    <option value="pinMarker">📍 Ghim Pin 3D</option>
+                    <option value="both">🏷️ Thẻ + Ghim</option>
+                  </select>
+                </div>
+              </div>
+
               <!-- Options Checkboxes -->
               <div class="config-checkboxes">
                 <label class="config-chk-label">
                   <input type="checkbox" id="cfg-show-icon" checked />
-                  <span>Hiện biểu tượng icon</span>
+                  <span>Hiện biểu tượng icon trên thẻ</span>
                 </label>
                 <label class="config-chk-label">
                   <input type="checkbox" id="cfg-has-shadow" checked />
@@ -421,6 +441,10 @@
                 <label class="config-chk-label">
                   <input type="checkbox" id="cfg-fallback-name" checked />
                   <span>Dùng Tên nếu trường trống</span>
+                </label>
+                <label class="config-chk-label">
+                  <input type="checkbox" id="cfg-zoom-on-click" checked />
+                  <span>Zoom camera vào cấu kiện khi nhấp thẻ</span>
                 </label>
               </div>
 

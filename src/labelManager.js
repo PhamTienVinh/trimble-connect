@@ -7,8 +7,8 @@
  *     Position Code, Profile, Khối lượng, IFC Class, Vật liệu, v.v.
  *   - Tùy biến toàn diện: Màu nền, màu chữ, viền, cỡ chữ, độ to nhỏ (scale),
  *     bo góc, độ cao nhãn (Z-offset), bóng đổ 3D, icon ký hiệu.
- *   - Tự động thay thế bằng Tên cấu kiện nếu trường được chọn bị trống.
- *   - Tương tác chọn và định vị cấu kiện trên 3D View từ danh sách checklist.
+ *   - Tự động nhận diện đơn vị tọa độ (Milimét vs Mét) để đặt nhãn chính xác.
+ *   - Nhấp vào thẻ trong danh sách để chọn & tự động zoom camera vào cấu kiện trong 3D.
  */
 
 import {
@@ -27,7 +27,7 @@ let currentLabelField = "name";
 let labelScope = "all"; // "all" | "selected" | "visible"
 let labelLimit = 500; // 0 = không giới hạn
 let labeledObjects = []; // { obj, text, position, iconId, isFallback }
-let activeIconIds = []; // Danh sách ID các icon đã tạo để quản lý gỡ bỏ
+let activeIconCount = 0;
 
 // ── Cấu hình tùy biến nhãn (Mặc định) ──
 const DEFAULT_LABEL_CONFIG = {
@@ -40,16 +40,16 @@ const DEFAULT_LABEL_CONFIG = {
   scale: 1.0, // Độ to nhỏ (tỉ lệ)
   opacity: 0.95, // Độ mờ nền
   zOffset: 0.15, // Độ cao nhô lên khỏi đỉnh cấu kiện (m)
+  unitScale: "auto", // "auto" | "mm" | "m"
+  badgeMode: "canvasBadge", // "canvasBadge" | "pinMarker" | "both"
   hasShadow: true, // Bóng đổ 3D
   showIcon: true, // Hiện biểu tượng icon
   fallbackToName: true, // Tự động dùng Tên nếu trường trống
+  zoomOnClick: true, // Zoom camera khi nhấp thẻ trong danh sách
 };
 
 // Cấu hình hiện hành
 let labelConfig = { ...DEFAULT_LABEL_CONFIG };
-
-// ── Prefix ──
-const LABEL_PREFIX = "ddc_lbl_";
 
 // ── Biểu tượng Icon đại diện cho từng loại trường ──
 const FIELD_ICONS = {
@@ -98,7 +98,6 @@ export const LABEL_FIELD_OPTIONS = [
 function extractBoundingBox(item) {
   if (!item) return null;
 
-  // Trường hợp 1: item.boundingBox hoặc item.box hoặc chính item
   const box = item.boundingBox || item.box || item;
   if (box && box.min && box.max) {
     const minX = Number(box.min.x !== undefined ? box.min.x : box.min[0]);
@@ -116,7 +115,6 @@ function extractBoundingBox(item) {
     }
   }
 
-  // Trường hợp 2: Array 6 số [minX, minY, minZ, maxX, maxY, maxZ]
   if (Array.isArray(item) && item.length >= 6) {
     return {
       min: { x: Number(item[0]), y: Number(item[1]), z: Number(item[2]) },
@@ -124,7 +122,6 @@ function extractBoundingBox(item) {
     };
   }
 
-  // Trường hợp 3: minX, minY, minZ... dạng phẳng
   if (item.minX !== undefined && item.maxX !== undefined) {
     return {
       min: { x: Number(item.minX), y: Number(item.minY), z: Number(item.minZ) },
@@ -133,6 +130,48 @@ function extractBoundingBox(item) {
   }
 
   return null;
+}
+
+/**
+ * Tự động phát hiện tỉ lệ chuyển đổi đơn vị tọa độ (mm -> m)
+ * Trong Trimble Connect 3D Viewer, PointIcon.position bắt buộc tính bằng Mét (meters).
+ * Nếu mô hình xuất ra theo milimét (e.g. Tekla mm), tọa độ cần chia 1000.
+ */
+function determineUnitScaleFactor(bboxes) {
+  if (labelConfig.unitScale === "mm") return 0.001;
+  if (labelConfig.unitScale === "m") return 1.0;
+
+  if (!bboxes || bboxes.length === 0) return 1.0;
+
+  // Chế độ "auto": Phân tích kích thước trung bình và cực đại của cấu kiện
+  let totalSpan = 0;
+  let count = 0;
+  let maxSpan = 0;
+
+  for (const b of bboxes) {
+    if (!b) continue;
+    const spanX = Math.abs(b.max.x - b.min.x);
+    const spanY = Math.abs(b.max.y - b.min.y);
+    const spanZ = Math.abs(b.max.z - b.min.z);
+    const span = Math.max(spanX, spanY, spanZ);
+    if (span > 0) {
+      totalSpan += span;
+      count++;
+      if (span > maxSpan) maxSpan = span;
+    }
+  }
+
+  const avgSpan = count > 0 ? totalSpan / count : 0;
+
+  // Nếu kích thước trung bình của các cấu kiện > 25 (hoặc max > 100),
+  // chắc chắn 100% mô hình xuất ra đơn vị Milimét (mm). Cần quy đổi mm -> mét (chia 1000).
+  if (avgSpan > 25 || maxSpan > 100) {
+    console.log(`[LabelManager] Tự động phát hiện đơn vị MILIMÉT (avgSpan=${avgSpan.toFixed(1)}, maxSpan=${maxSpan.toFixed(1)}). Tỉ lệ: chia 1000.`);
+    return 0.001;
+  }
+
+  console.log(`[LabelManager] Tự động phát hiện đơn vị MÉT (avgSpan=${avgSpan.toFixed(2)}, maxSpan=${maxSpan.toFixed(2)}). Tỉ lệ: 1:1.`);
+  return 1.0;
 }
 
 /**
@@ -151,6 +190,68 @@ function hexToRgba(hex, alpha = 1.0) {
 }
 
 /**
+ * Tạo icon Ghim 3D dạng Pin Marker sắc nét (Retina 2x PNG)
+ */
+function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
+  const pixelRatio = 2;
+  const w = 48 * pixelRatio;
+  const h = 64 * pixelRatio;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+
+  const cx = w / 2;
+  const headR = 19 * pixelRatio;
+  const cy = 23 * pixelRatio;
+  const tipX = cx;
+  const tipY = h - 5 * pixelRatio;
+
+  // Drop shadow
+  if (labelConfig.hasShadow) {
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
+    ctx.shadowBlur = 5 * pixelRatio;
+    ctx.shadowOffsetY = 3 * pixelRatio;
+  }
+
+  // Pin outer path
+  ctx.beginPath();
+  ctx.arc(cx, cy, headR, Math.PI * 0.85, Math.PI * 0.15, false);
+  ctx.lineTo(tipX, tipY);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  if (labelConfig.hasShadow) {
+    ctx.restore();
+  }
+
+  // White border
+  ctx.lineWidth = 2.5 * pixelRatio;
+  ctx.strokeStyle = "#FFFFFF";
+  ctx.stroke();
+
+  // Inner white circle
+  ctx.beginPath();
+  ctx.arc(cx, cy, 13 * pixelRatio, 0, Math.PI * 2);
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fill();
+
+  // Symbol inside
+  ctx.font = `${Math.round(13 * pixelRatio)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(textSymbol, cx, cy);
+
+  return {
+    url: canvas.toDataURL("image/png"),
+    width: w,
+    height: h,
+  };
+}
+
+/**
  * Vẽ thẻ nhãn tùy biến lên HTML5 Canvas sắc nét (Retina 2x)
  * Trả về Data URI PNG Base64 để nhúng làm 3D Sprite trong Trimble Connect Viewer
  */
@@ -160,20 +261,23 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️") {
 
   const fontFace = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
 
+  // Rút gọn text nếu quá dài để tránh nhãn kéo dài vô tận trên 3D view
+  const displayStr = text.length > 32 ? text.slice(0, 30) + "…" : text;
+
   // Dùng canvas tạm để đo chiều rộng text
   const tempCanvas = document.createElement("canvas");
   const tempCtx = tempCanvas.getContext("2d");
   tempCtx.font = `bold ${effectiveFontSize}px ${fontFace}`;
 
-  const textMetrics = tempCtx.measureText(text);
+  const textMetrics = tempCtx.measureText(displayStr);
   const textWidth = Math.ceil(textMetrics.width);
 
   const showIcon = labelConfig.showIcon && Boolean(iconSymbol);
   const iconWidth = showIcon ? Math.round(effectiveFontSize * 1.05) : 0;
   const iconSpacing = showIcon ? Math.round(effectiveFontSize * 0.35) : 0;
 
-  const horizPadding = Math.round(9 * labelConfig.scale * pixelRatio);
-  const vertPadding = Math.round(5 * labelConfig.scale * pixelRatio);
+  const horizPadding = Math.round(10 * labelConfig.scale * pixelRatio);
+  const vertPadding = Math.round(6 * labelConfig.scale * pixelRatio);
 
   const badgeWidth = textWidth + iconWidth + iconSpacing + horizPadding * 2;
   const badgeHeight = effectiveFontSize + vertPadding * 2;
@@ -199,10 +303,10 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️") {
   // Đổ bóng 3D
   if (labelConfig.hasShadow) {
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
-    ctx.shadowBlur = Math.round(4 * pixelRatio);
+    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+    ctx.shadowBlur = Math.round(5 * pixelRatio);
     ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = Math.round(2 * pixelRatio);
+    ctx.shadowOffsetY = Math.round(2.5 * pixelRatio);
   }
 
   // Vẽ hình chữ nhật bo góc làm nền
@@ -258,9 +362,13 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️") {
   // Vẽ Nội dung Text
   ctx.font = `bold ${effectiveFontSize}px ${fontFace}`;
   ctx.fillStyle = labelConfig.textColor;
-  ctx.fillText(text, drawX, baselineY);
+  ctx.fillText(displayStr, drawX, baselineY);
 
-  return canvas.toDataURL("image/png");
+  return {
+    url: canvas.toDataURL("image/png"),
+    width: canvasWidth,
+    height: canvasHeight,
+  };
 }
 
 /**
@@ -284,6 +392,35 @@ export function initLabelManager(api, viewer) {
       applyLabels();
     }
   });
+
+  // Lắng nghe tương tác click trực tiếp vào icon trên 3D Viewer
+  if (viewerRef && typeof viewerRef.on === "function") {
+    try {
+      viewerRef.on("viewer.onIconPicked", (data) => {
+        console.log("[LabelManager] 3D Icon picked:", data);
+        if (data && Array.isArray(data) && data.length > 0) {
+          const picked = data[0];
+          const pickedId = picked.id !== undefined ? picked.id : picked;
+          const found = labeledObjects.find((item) => item.iconId === pickedId);
+          if (found && found.obj && viewerRef) {
+            viewerRef.setSelection(
+              {
+                modelObjectIds: [
+                  {
+                    modelId: found.obj.modelId,
+                    objectRuntimeIds: [found.obj.id],
+                  },
+                ],
+              },
+              "set"
+            );
+          }
+        }
+      });
+    } catch (e) {
+      // Bỏ qua nếu onIconPicked không hỗ trợ trên phiên bản hiện hành
+    }
+  }
 
   // Gắn sự kiện cho các điều khiển UI & bảng tùy biến
   bindUIControls();
@@ -324,7 +461,7 @@ export async function showLabelsForObjects(objects, field) {
   currentLabelField = field || currentLabelField;
 
   // Cập nhật trạng thái đang xử lý
-  updateUIState(0, "Đang tính toán tọa độ & gắn thẻ 3D...");
+  updateUIState(0, "Đang định vị tọa độ cấu kiện...");
 
   // Xóa labels cũ trước khi vẽ lại
   await clearLabelsSilent();
@@ -347,15 +484,16 @@ export async function showLabelsForObjects(objects, field) {
   const allIcons = [];
   const successfulLabeled = [];
   const iconSymbol = FIELD_ICONS[currentLabelField] || "🏷️";
-
-  // Cache các ảnh canvas để không phải vẽ lại text trùng nhau
   const canvasCache = new Map();
+
+  let globalIconIdCounter = 1;
 
   for (const [modelId, modelObjects] of byModel) {
     const objectIds = modelObjects.map((o) => o.id);
     const bboxMap = new Map();
+    const collectedBoxes = [];
 
-    // Query bounding boxes theo từng mẩu nhỏ (BATCH 50) để tránh lỗi API
+    // Query bounding boxes theo từng mẩu nhỏ (BATCH 50)
     const CHUNK_QUERY_SIZE = 50;
     for (let i = 0; i < objectIds.length; i += CHUNK_QUERY_SIZE) {
       const batchIds = objectIds.slice(i, i + CHUNK_QUERY_SIZE);
@@ -366,11 +504,10 @@ export async function showLabelsForObjects(objects, field) {
             const rawBox = bboxes[k];
             const parsed = extractBoundingBox(rawBox);
             if (parsed) {
-              // Lưu theo ID nếu có
+              collectedBoxes.push(parsed);
               if (rawBox && rawBox.id !== undefined && rawBox.id !== null) {
                 bboxMap.set(rawBox.id, parsed);
               }
-              // Lưu theo ID trong mảng yêu cầu tương ứng
               if (k < batchIds.length) {
                 bboxMap.set(batchIds[k], parsed);
               }
@@ -382,6 +519,12 @@ export async function showLabelsForObjects(objects, field) {
       }
     }
 
+    // Tự động tính toán hệ số quy đổi đơn vị (mm -> mét)
+    const unitScale = determineUnitScaleFactor(collectedBoxes);
+
+    // Kích thước hiển thị icon sprite trên 3D (PointIcon.size)
+    const iconSize = Math.max(24, Math.round(54 * Number(labelConfig.scale || 1.0)));
+
     // Tiến hành gắn nhãn cho từng object
     for (let i = 0; i < modelObjects.length; i++) {
       const obj = modelObjects[i];
@@ -389,40 +532,60 @@ export async function showLabelsForObjects(objects, field) {
 
       if (!bbox) continue; // Không tìm thấy tọa độ
 
-      // Tính tọa độ label: Đặt ở đỉnh trên cùng (top-center) của cấu kiện + zOffset
-      const centerX = (bbox.min.x + bbox.max.x) / 2;
-      const centerY = (bbox.min.y + bbox.max.y) / 2;
-      const topZ = bbox.max.z + Number(labelConfig.zOffset || 0.15);
+      // Tọa độ đã quy đổi sang mét
+      const centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
+      const centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
+      const topZ = (bbox.max.z * unitScale) + Number(labelConfig.zOffset || 0.15);
 
       // Lấy giá trị chuỗi hiển thị
       const { text: labelText, isFallback } = getFormattedLabelText(obj, currentLabelField);
       if (!labelText) continue;
 
-      // Sinh ảnh canvas cho nhãn (có cache để tối ưu)
-      let badgeDataUrl = canvasCache.get(labelText);
-      if (!badgeDataUrl) {
-        badgeDataUrl = createLabelBadgeCanvas(labelText, iconSymbol);
-        canvasCache.set(labelText, badgeDataUrl);
+      // Sinh URL icon theo chế độ hiển thị
+      let iconPathUrl;
+      let badgeW = 64;
+      let badgeH = 64;
+      if (labelConfig.badgeMode === "pinMarker") {
+        const pinRes = createPinMarkerCanvas(labelConfig.bgColor, iconSymbol);
+        iconPathUrl = pinRes.url;
+        badgeW = pinRes.width;
+        badgeH = pinRes.height;
+      } else {
+        // "canvasBadge" hoặc "both"
+        let cached = canvasCache.get(labelText);
+        if (!cached) {
+          cached = createLabelBadgeCanvas(labelText, iconSymbol);
+          canvasCache.set(labelText, cached);
+        }
+        iconPathUrl = cached.url;
+        badgeW = cached.width;
+        badgeH = cached.height;
       }
 
-      const iconId = `${LABEL_PREFIX}${modelId}_${obj.id}`;
+      // PointIcon ID BẮT BUỘC là NUMBER trong Trimble Connect API
+      const numericId = globalIconIdCounter++;
 
       const pointIcon = {
-        id: iconId,
-        position: { x: centerX, y: centerY, z: topZ },
-        icon: badgeDataUrl,
-        label: labelText, // Kèm text cho tooltip/view
+        id: numericId, // Phải là Number!
+        iconPath: iconPathUrl, // Thuộc tính chuẩn của PointIcon!
+        size: iconSize, // Kích thước icon (Number)
+        width: Math.round(badgeW / 2),
+        height: Math.round(badgeH / 2),
+        position: { x: centerX, y: centerY, z: topZ }, // Tọa độ (m)
+        // Các thuộc tính phụ trợ tương thích chéo:
+        icon: iconPathUrl,
+        image: iconPathUrl,
+        label: labelText,
         text: buildTooltipText(obj),
       };
 
       allIcons.push(pointIcon);
-      activeIconIds.push(iconId);
 
       successfulLabeled.push({
         obj,
         text: labelText,
         position: pointIcon.position,
-        iconId,
+        iconId: numericId,
         isFallback,
       });
     }
@@ -439,7 +602,7 @@ export async function showLabelsForObjects(objects, field) {
         await viewerRef.addIcon(chunk);
         addedCount += chunk.length;
       } catch (chunkErr) {
-        console.warn(`[LabelManager] Batch addIcon (${c} - ${c + chunk.length}) thất bại, thử add từng icon:`, chunkErr);
+        console.warn(`[LabelManager] Batch addIcon (${c} - ${c + chunk.length}) lỗi, thử add từng icon:`, chunkErr);
         for (const icon of chunk) {
           try {
             await viewerRef.addIcon(icon);
@@ -453,11 +616,22 @@ export async function showLabelsForObjects(objects, field) {
 
     labelsVisible = addedCount > 0;
     labeledObjects = successfulLabeled;
-    console.log(`[LabelManager] ✓ Đã hiển thị ${addedCount} labels 3D thành công (Field: ${currentLabelField})`);
+    activeIconCount = addedCount;
+
+    // Xác thực số lượng icons thực tế trên 3D viewer
+    try {
+      const activeInViewer = await viewerRef.getIcon();
+      console.log(`[LabelManager] ✓ Viewer getIcon() xác nhận ${activeInViewer ? activeInViewer.length : 0} icons đang hoạt động.`);
+    } catch (e) {
+      // bỏ qua
+    }
+
+    console.log(`[LabelManager] ✓ Đã gắn ${addedCount} thẻ label 3D (Field: ${currentLabelField})`);
     updateUIState(labeledObjects.length);
   } else {
     labelsVisible = false;
     labeledObjects = [];
+    activeIconCount = 0;
     const fieldOpt = LABEL_FIELD_OPTIONS.find((o) => o.value === currentLabelField);
     const fieldName = fieldOpt ? fieldOpt.label : currentLabelField;
     updateUIState(
@@ -486,27 +660,15 @@ async function clearLabelsSilent() {
   if (!viewerRef) return;
 
   try {
-    if (activeIconIds.length > 0) {
-      for (const iconId of activeIconIds) {
-        try {
-          await viewerRef.removeIcon({ id: iconId });
-        } catch (e) {
-          // Bỏ qua lỗi từng icon
-        }
-      }
-    }
+    // Calling removeIcon() with no parameter removes ALL icons in the viewer
+    await viewerRef.removeIcon();
   } catch (e) {
-    console.warn("[LabelManager] Lỗi removeIcon theo ID, thử remove toàn bộ:", e);
-    try {
-      await viewerRef.removeIcon();
-    } catch (e2) {
-      // bỏ qua
-    }
+    console.warn("[LabelManager] Lỗi removeIcon:", e);
   }
 
-  activeIconIds = [];
   labelsVisible = false;
   labeledObjects = [];
+  activeIconCount = 0;
 }
 
 /**
@@ -812,6 +974,24 @@ function bindCustomizationControls() {
     });
   }
 
+  // Unit Scale Select
+  const unitScaleSelect = document.getElementById("cfg-unit-scale");
+  if (unitScaleSelect) {
+    unitScaleSelect.addEventListener("change", (e) => {
+      labelConfig.unitScale = e.target.value;
+      debounceAutoApply();
+    });
+  }
+
+  // Badge Mode Select
+  const badgeModeSelect = document.getElementById("cfg-badge-mode");
+  if (badgeModeSelect) {
+    badgeModeSelect.addEventListener("change", (e) => {
+      labelConfig.badgeMode = e.target.value;
+      debounceAutoApply();
+    });
+  }
+
   // Checkbox Show Icon
   const showIconChk = document.getElementById("cfg-show-icon");
   if (showIconChk) {
@@ -841,6 +1021,14 @@ function bindCustomizationControls() {
     });
   }
 
+  // Checkbox Zoom on Click
+  const zoomOnClickChk = document.getElementById("cfg-zoom-on-click");
+  if (zoomOnClickChk) {
+    zoomOnClickChk.addEventListener("change", (e) => {
+      labelConfig.zoomOnClick = e.target.checked;
+    });
+  }
+
   // Reset to Defaults
   const resetBtn = document.getElementById("btn-reset-label-style");
   if (resetBtn) {
@@ -860,9 +1048,12 @@ function bindCustomizationControls() {
       if (scaleVal) scaleVal.textContent = `${labelConfig.scale.toFixed(1)}x`;
       if (zOffsetSelect) zOffsetSelect.value = String(labelConfig.zOffset);
       if (radiusSelect) radiusSelect.value = String(labelConfig.borderRadius);
+      if (unitScaleSelect) unitScaleSelect.value = labelConfig.unitScale;
+      if (badgeModeSelect) badgeModeSelect.value = labelConfig.badgeMode;
       if (showIconChk) showIconChk.checked = labelConfig.showIcon;
       if (shadowChk) shadowChk.checked = labelConfig.hasShadow;
       if (fallbackChk) fallbackChk.checked = labelConfig.fallbackToName;
+      if (zoomOnClickChk) zoomOnClickChk.checked = labelConfig.zoomOnClick;
 
       updateLivePreview();
       debounceAutoApply();
@@ -989,7 +1180,7 @@ function updateUIState(count = 0, customMessage = null) {
 }
 
 /**
- * Hiển thị danh sách checklist các thẻ label đang hiển thị kèm click để select/focus trong 3D
+ * Hiển thị danh sách checklist các thẻ label đang hiển thị kèm click để select & zoom camera trong 3D
  */
 function renderPreviewList() {
   const container = document.getElementById("label-preview-list");
@@ -1037,7 +1228,7 @@ function renderPreviewList() {
 
   container.innerHTML = html;
 
-  // Gắn sự kiện click vào từng item để highlight / select đối tượng trong 3D
+  // Gắn sự kiện click vào từng item để highlight / select VÀ zoom camera vào cấu kiện trong 3D
   container.querySelectorAll(".label-preview-item").forEach((el) => {
     el.addEventListener("click", async () => {
       const modelId = el.getAttribute("data-model-id");
@@ -1045,6 +1236,7 @@ function renderPreviewList() {
 
       if (viewerRef && modelId && !isNaN(objectId)) {
         try {
+          // Highlight cấu kiện
           await viewerRef.setSelection(
             {
               modelObjectIds: [
@@ -1056,8 +1248,24 @@ function renderPreviewList() {
             },
             "set"
           );
+
+          // Nếu bật tính năng zoom: Tự động đưa camera tới cấu kiện
+          if (labelConfig.zoomOnClick) {
+            try {
+              await viewerRef.setCamera({
+                modelObjectIds: [
+                  {
+                    modelId,
+                    objectRuntimeIds: [objectId],
+                  },
+                ],
+              });
+            } catch (camErr) {
+              // bỏ qua nếu setCamera theo selector không hỗ trợ
+            }
+          }
         } catch (e) {
-          console.warn("[LabelManager] Set selection failed:", e);
+          console.warn("[LabelManager] Set selection/camera failed:", e);
         }
       }
     });
