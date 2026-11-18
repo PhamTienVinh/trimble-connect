@@ -288,13 +288,23 @@
             </select>
           </div>
           <div class="control-row">
+            <label class="control-label">Loại cấu kiện:</label>
+            <select id="label-category-select">
+              <option value="beam_column" selected>🎯 Chỉ Dầm &amp; Cột (Chính - Mượt &amp; Rõ)</option>
+              <option value="structural">🏗️ Khung kết cấu (Dầm, Cột, Giằng)</option>
+              <option value="all">🌐 Tất cả cấu kiện (Kèm bản mã, bu-lông)</option>
+              <option value="plate">📐 Chỉ Bản mã / Tấm liên kết</option>
+              <option value="fastener">🔩 Chỉ Bu-lông &amp; Phụ kiện</option>
+            </select>
+          </div>
+          <div class="control-row">
             <label class="control-label">Tối đa:</label>
             <select id="label-limit-select">
-              <option value="0" selected>⚡ Tất cả (Không giới hạn - Khuyên dùng)</option>
-              <option value="500">500 labels</option>
-              <option value="1000">1000 labels</option>
-              <option value="2000">2000 labels</option>
-              <option value="5000">5000 labels</option>
+              <option value="300">300 labels (Siêu nhẹ - 60fps)</option>
+              <option value="600" selected>600 labels (Khuyên dùng)</option>
+              <option value="1200">1200 labels</option>
+              <option value="2500">2500 labels</option>
+              <option value="0">⚡ Toàn bộ (Tải tuần tự an toàn)</option>
             </select>
           </div>
 
@@ -391,11 +401,12 @@
               <!-- Z-Offset & Border Radius -->
               <div class="config-grid-2">
                 <div class="config-item">
-                  <label for="cfg-z-offset" class="config-sublabel">Độ cao nhãn:</label>
+                  <label for="cfg-z-offset" class="config-sublabel">Độ cao chân kim / nhô:</label>
                   <select id="cfg-z-offset">
-                    <option value="0.05">Sát đỉnh (+5cm)</option>
-                    <option value="0.15" selected>Vừa (+15cm)</option>
-                    <option value="0.35">Cao (+35cm)</option>
+                    <option value="0.0" selected>Sát bề mặt (0cm - Chuẩn)</option>
+                    <option value="0.05">Cách 5cm (+5cm)</option>
+                    <option value="0.15">Cách 15cm (+15cm)</option>
+                    <option value="0.35">Cách 35cm (+35cm)</option>
                     <option value="0.70">Rất cao (+70cm)</option>
                   </select>
                 </div>
@@ -410,29 +421,51 @@
                 </div>
               </div>
 
-              <!-- Coordinate Units & Style Mode -->
+              <!-- Style Mode & Anchor Placement -->
               <div class="config-grid-2">
-                <div class="config-item">
-                  <label for="cfg-unit-scale" class="config-sublabel">Hệ đơn vị tọa độ:</label>
-                  <select id="cfg-unit-scale">
-                    <option value="auto" selected>⚡ Tự động (Khuyên dùng)</option>
-                    <option value="mm">Milimét (mm → m, /1000)</option>
-                    <option value="m">Mét (m, nguyên bản 1:1)</option>
-                  </select>
-                </div>
                 <div class="config-item">
                   <label for="cfg-badge-mode" class="config-sublabel">Kiểu hiển thị 3D:</label>
                   <select id="cfg-badge-mode">
-                    <option value="canvasBadge" selected>🏷️ Thẻ chữ nổi bật (BIM Tag)</option>
-                    <option value="card2Line">🔖 Thẻ 2 dòng (Tên + Tiết diện/Vật liệu)</option>
+                    <option value="anchorLeader" selected>📍 Thẻ có chân kim bám dính (BIM Leader)</option>
+                    <option value="canvasBadge">🏷️ Thẻ chữ nổi bật (Pill Badge)</option>
+                    <option value="card2Line">🔖 Thẻ 2 dòng BIM (Tên + Tiết diện)</option>
+                    <option value="centroidBadge">🎯 Thẻ bám tâm 3D cấu kiện (Centroid)</option>
                     <option value="pinMarker">📍 Ghim Pin 3D</option>
-                    <option value="both">🏷️ Thẻ + Ghim</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label for="cfg-anchor-pos" class="config-sublabel">Vị trí bám nhãn:</label>
+                  <select id="cfg-anchor-pos">
+                    <option value="topSurface" selected>Đỉnh bề mặt (Top Surface)</option>
+                    <option value="centroid">Tâm 3D cấu kiện (Centroid)</option>
                   </select>
                 </div>
               </div>
 
+              <!-- Coordinate Units -->
+              <div class="config-item" style="margin-top:6px;">
+                <label for="cfg-unit-scale" class="config-sublabel">Hệ đơn vị tọa độ:</label>
+                <select id="cfg-unit-scale">
+                  <option value="auto" selected>⚡ Tự động nhận diện (Khuyên dùng)</option>
+                  <option value="mm">Milimét (mm → m, chia 1000)</option>
+                  <option value="m">Mét (m, nguyên bản 1:1)</option>
+                </select>
+              </div>
+
               <!-- Options Checkboxes -->
               <div class="config-checkboxes">
+                <label class="config-chk-label">
+                  <input type="checkbox" id="cfg-color-by-category" checked />
+                  <span>🎨 Tô màu theo loại (Dầm: Xanh, Cột: Lục, Tấm: Cam)</span>
+                </label>
+                <label class="config-chk-label">
+                  <input type="checkbox" id="cfg-category-prefix" checked />
+                  <span>🏷️ Thêm tiền tố loại ([DẦM], [CỘT], [BẢN MÃ])</span>
+                </label>
+                <label class="config-chk-label">
+                  <input type="checkbox" id="cfg-click-to-select" checked />
+                  <span>🎯 Nhấp nhãn trên 3D để chọn &amp; sáng cấu kiện</span>
+                </label>
                 <label class="config-chk-label">
                   <input type="checkbox" id="cfg-show-icon" checked />
                   <span>Hiện biểu tượng icon trên thẻ</span>
@@ -465,6 +498,9 @@
           <button id="btn-show-labels" class="action-btn btn-pastel-green" title="Hiện labels lên 3D view">
             <span>🏷️</span> Hiện Labels
           </button>
+          <button id="btn-stop-labels" class="action-btn btn-pastel-pink" style="display:none;" title="Dừng quá trình tải nhãn">
+            <span>⏹</span> Dừng tải
+          </button>
           <button id="btn-clear-labels" class="action-btn btn-pastel-pink" title="Xóa tất cả labels">
             <span>🗑️</span> Xóa Labels
           </button>
@@ -483,6 +519,9 @@
           <div class="label-status-row">
             <span class="label-status-icon" id="label-status-icon">⭕</span>
             <span class="label-status-text" id="label-status-text">Chưa hiển thị labels</span>
+          </div>
+          <div id="label-progress-container" class="label-progress-wrapper" style="display:none;">
+            <div id="label-progress-fill" class="label-progress-fill"></div>
           </div>
           <div class="label-status-row label-stats" id="label-stats-row" style="display:none">
             <span id="label-count-display">0 labels</span>

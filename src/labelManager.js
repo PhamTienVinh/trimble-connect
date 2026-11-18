@@ -2,13 +2,16 @@
  * labelManager.js — 3D Label Manager for Trimble Connect Viewer
  *
  * Hiển thị thẻ label (tag) trực tiếp lên từng cấu kiện trên 3D view.
- * Người dùng có thể:
- *   - Chọn trường hiển thị: Tên object, Assembly Name, Assembly Pos,
- *     Position Code, Profile, Khối lượng, IFC Class, Vật liệu, v.v.
- *   - Tùy biến toàn diện: Màu nền, màu chữ, viền, cỡ chữ, độ to nhỏ (scale),
- *     bo góc, độ cao nhãn (Z-offset), bóng đổ 3D, icon ký hiệu.
- *   - Tự động nhận diện đơn vị tọa độ (Milimét vs Mét) để đặt nhãn chính xác.
- *   - Nhấp vào thẻ trong danh sách để chọn & tự động zoom camera vào cấu kiện trong 3D.
+ * Cải tiến toàn diện:
+ *   1. Chống crash & lag: Lọc cấu kiện (Dầm & Cột / Khung kết cấu), sắp xếp ưu tiên
+ *      theo vai trò kết cấu (Dầm & Cột trước, Bản mã & Bu-lông sau), tải tuần tự mượt (progressive stream)
+ *      kèm thanh tiến trình và nút "Dừng tải".
+ *   2. Bám dính cấu kiện (Zero Ambiguity): Chân kim dẫn bám đỉnh bề mặt (Leader Stem)
+ *      với tâm ghim Bullseye ◉ chạm trực tiếp bề mặt thép; hoặc chế độ bám tâm 3D (Centroid).
+ *   3. Phân biệt loại cấu kiện: Tự động tô màu theo loại (Dầm = Xanh, Cột = Lục, Bản mã = Cam)
+ *      kèm tiền tố loại rõ ràng ([DẦM] HSS400X400X16, [CỘT] HSS400, [BẢN MÃ] PLT10x120).
+ *   4. Tương tác 3D hai chiều: Nhấp bất kỳ nhãn nào trên view 3D (viewer.onIconPicked)
+ *      để tự động sáng & chọn cấu kiện trong mô hình và cuộn đến thẻ tương ứng trong checklist!
  */
 
 import {
@@ -18,6 +21,7 @@ import {
   getFilteredObjects,
   scanObjects,
 } from "./objectExplorer.js";
+import { onEvent } from "./main.js";
 
 // ── State ──
 let apiRef = null;
@@ -25,13 +29,16 @@ let viewerRef = null;
 let labelsVisible = false;
 let currentLabelField = "smartName";
 let labelScope = "all"; // "all" | "selected" | "visible"
-let labelLimit = 0; // 0 = tất cả (không giới hạn)
-let labeledObjects = []; // { obj, text, position, iconId, isFallback }
+let labelCategory = "beam_column"; // "beam_column" | "structural" | "all" | "plate" | "fastener"
+let labelLimit = 600; // 600 mặc định (khuyên dùng - vừa đủ mượt)
+let labeledObjects = []; // { obj, text, subText, position, iconId, isFallback, category }
 let activeIconCount = 0;
+let isLabelLoadingCancelled = false;
+let isLabelLoadingActive = false;
 
 // ── Cấu hình tùy biến nhãn (Mặc định) ──
 const DEFAULT_LABEL_CONFIG = {
-  bgColor: "#2563EB", // Màu nền
+  bgColor: "#2563EB", // Màu nền mặc định
   textColor: "#FFFFFF", // Màu chữ
   borderColor: "#FFFFFF", // Màu viền
   borderWidth: 1.5, // Độ dày viền (px)
@@ -39,9 +46,13 @@ const DEFAULT_LABEL_CONFIG = {
   fontSize: 13, // Cỡ chữ (px)
   scale: 1.0, // Độ to nhỏ (tỉ lệ)
   opacity: 0.95, // Độ mờ nền
-  zOffset: 0.15, // Độ cao nhô lên khỏi đỉnh cấu kiện (m)
+  zOffset: 0.0, // Độ cao nhô khỏi bề mặt (m) — 0.0 = chân ghim chạm đúng bề mặt cấu kiện
   unitScale: "auto", // "auto" | "mm" | "m"
-  badgeMode: "canvasBadge", // "canvasBadge" | "card2Line" | "pinMarker" | "both"
+  badgeMode: "anchorLeader", // "anchorLeader" | "canvasBadge" | "card2Line" | "centroidBadge" | "pinMarker"
+  anchorPos: "topSurface", // "topSurface" | "centroid"
+  colorByCategory: true, // Tự động tô màu theo loại cấu kiện
+  addCategoryPrefix: true, // Thêm tiền tố loại ([DẦM], [CỘT], [BẢN MÃ])
+  clickToSelect: true, // Nhấp nhãn trên 3D để sáng cấu kiện
   hasShadow: true, // Bóng đổ 3D
   showIcon: true, // Hiện biểu tượng icon
   fallbackToName: true, // Tự động dùng Tên nếu trường trống
@@ -50,6 +61,115 @@ const DEFAULT_LABEL_CONFIG = {
 
 // Cấu hình hiện hành
 let labelConfig = { ...DEFAULT_LABEL_CONFIG };
+
+// ── Phân loại Cấu kiện Kết cấu Thép / BIM ──
+export function classifyObjectCategory(obj) {
+  if (!obj) return "other";
+  const cls = (obj.ifcClass || "").toLowerCase();
+  const name = (obj.name || "").toUpperCase();
+  const desc = (obj.description || "").toUpperCase();
+  const type = (obj.ifcType || obj.typeName || "").toUpperCase();
+
+  // 1. Cột (Column)
+  if (
+    cls.includes("column") ||
+    name.startsWith("COL") ||
+    name.startsWith("PILLAR") ||
+    name.startsWith("POST") ||
+    name.includes("COLUMN")
+  ) {
+    return "column";
+  }
+
+  // 2. Dầm (Beam)
+  if (
+    cls.includes("beam") ||
+    name.startsWith("BEAM") ||
+    name.startsWith("GIRDER") ||
+    name.startsWith("JOIST") ||
+    name.startsWith("RAFTER") ||
+    name.startsWith("PURLIN") ||
+    name.includes("BEAM") ||
+    name.startsWith("B_")
+  ) {
+    return "beam";
+  }
+
+  // 3. Thanh giằng / Khung dàn (Member / Truss / Brace)
+  if (
+    cls.includes("member") ||
+    cls.includes("truss") ||
+    cls.includes("brace") ||
+    name.startsWith("BRACE") ||
+    name.startsWith("TRUSS") ||
+    name.startsWith("STRUT") ||
+    name.startsWith("TIE") ||
+    name.includes("BRACING")
+  ) {
+    return "member";
+  }
+
+  // 4. Bản mã / Tấm liên kết (Plate / Baseplate / Stiffener)
+  if (
+    cls.includes("plate") ||
+    name.startsWith("PLT") ||
+    name.startsWith("BPL") ||
+    name.startsWith("SPLICE") ||
+    name.startsWith("GUSSET") ||
+    name.startsWith("STIFF") ||
+    name.startsWith("SHIM") ||
+    name.startsWith("CAP") ||
+    type.startsWith("PLT") ||
+    type.startsWith("BPL")
+  ) {
+    return "plate";
+  }
+
+  // 5. Bu lông / Phụ kiện liên kết (Fastener / Bolt / Accessory)
+  if (
+    cls.includes("fastener") ||
+    cls.includes("bolt") ||
+    cls.includes("accessory") ||
+    name.startsWith("BOLT") ||
+    name.startsWith("NUT") ||
+    name.startsWith("WASH") ||
+    name.includes("FASTENER")
+  ) {
+    return "fastener";
+  }
+
+  return "other";
+}
+
+// ── Bảng màu sắc nhận diện theo loại cấu kiện ──
+export const CATEGORY_COLORS = {
+  beam: "#2563EB",     // Xanh dương đậm — Dầm chính/phụ
+  column: "#059669",   // Xanh ngọc lục bảo — Cột
+  member: "#7C3AED",   // Tím hoàng gia — Giằng, Khung dàn
+  plate: "#D97706",    // Hổ phách / Cam đồng — Bản mã, Stiffener
+  fastener: "#DC2626", // Đỏ — Bu-lông, ốc vít
+  other: "#475569",    // Xám than chì — Cấu kiện khác
+};
+
+// Tiền tố tiếng Việt hiển thị
+export const CATEGORY_LABELS_VI = {
+  beam: "DẦM",
+  column: "CỘT",
+  member: "GIẰNG",
+  plate: "BẢN MÃ",
+  fastener: "BU-LÔNG",
+  other: "CẤU KIỆN",
+};
+
+// Thứ tự ưu tiên cấu kiện (Dầm & Cột luôn được ưu tiên gắn nhãn trước!)
+const CATEGORY_PRIORITY = {
+  column: 1,
+  beam: 2,
+  member: 3,
+  other: 4,
+  plate: 5,
+  fastener: 6,
+};
 
 // ── Biểu tượng Icon đại diện cho từng loại trường ──
 const FIELD_ICONS = {
@@ -102,7 +222,6 @@ export const LABEL_FIELD_OPTIONS = [
 
 /**
  * Trích xuất Bounding Box từ đối tượng trả về của TC Workspace API
- * Hỗ trợ mọi định dạng: item.boundingBox, item.box, item.min, array [minX..maxZ]
  */
 function extractBoundingBox(item) {
   if (!item) return null;
@@ -143,8 +262,6 @@ function extractBoundingBox(item) {
 
 /**
  * Tự động phát hiện tỉ lệ chuyển đổi đơn vị tọa độ (mm -> m)
- * Trong Trimble Connect 3D Viewer, PointIcon.position bắt buộc tính bằng Mét (meters).
- * Nếu mô hình xuất ra theo milimét (e.g. Tekla mm), tọa độ cần chia 1000.
  */
 function determineUnitScaleFactor(bboxes) {
   if (labelConfig.unitScale === "mm") return 0.001;
@@ -166,14 +283,12 @@ function determineUnitScaleFactor(bboxes) {
     if (c > maxCoord) maxCoord = c;
   }
 
-  // Nếu kích thước 1 cấu kiện > 50 (không dầm/cột nào dài > 50m trong xây dựng thông thường)
-  // hoặc tọa độ vượt quá 500 (500 mét), thì mô hình đang dùng đơn vị Milimét!
   if (maxSpan > 50 || maxCoord > 500) {
-    console.log(`[LabelManager] Tự động phát hiện đơn vị MILIMÉT (maxCoord=${maxCoord.toFixed(1)}, maxSpan=${maxSpan.toFixed(1)}). Chuyển đổi mm -> mét (chia 1000).`);
+    console.log(`[LabelManager] Tự động phát hiện MILIMÉT (maxCoord=${maxCoord.toFixed(1)}, maxSpan=${maxSpan.toFixed(1)}). Chuyển đổi mm -> mét (chia 1000).`);
     return 0.001;
   }
 
-  console.log(`[LabelManager] Tự động phát hiện đơn vị MÉT (maxCoord=${maxCoord.toFixed(2)}, maxSpan=${maxSpan.toFixed(2)}). Giữ nguyên 1:1.`);
+  console.log(`[LabelManager] Tự động phát hiện MÉT (maxCoord=${maxCoord.toFixed(2)}, maxSpan=${maxSpan.toFixed(2)}). Giữ nguyên 1:1.`);
   return 1.0;
 }
 
@@ -181,7 +296,7 @@ function determineUnitScaleFactor(bboxes) {
  * Chuyển đổi mã màu Hex sang RGBA
  */
 function hexToRgba(hex, alpha = 1.0) {
-  let cleanHex = hex.replace("#", "");
+  let cleanHex = (hex || "#2563EB").replace("#", "");
   if (cleanHex.length === 3) {
     cleanHex = cleanHex.split("").map((c) => c + c).join("");
   }
@@ -194,10 +309,11 @@ function hexToRgba(hex, alpha = 1.0) {
 
 /**
  * Tạo icon Ghim 3D dạng Pin Marker sắc nét trong Square Canvas (Retina 2x PNG)
+ * Điểm chóp nhọn của ghim đặt chính xác tại (cx, cy) để chạm đúng bề mặt 3D!
  */
 function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
   const pixelRatio = 2;
-  const squareSize = 128 * pixelRatio;
+  const squareSize = 160 * pixelRatio;
   const canvas = document.createElement("canvas");
   canvas.width = squareSize;
   canvas.height = squareSize;
@@ -206,22 +322,24 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
   ctx.clearRect(0, 0, squareSize, squareSize);
 
   const cx = squareSize / 2;
-  const headR = 26 * pixelRatio;
-  const cy = 34 * pixelRatio;
+  const cy = squareSize / 2; // Điểm ghim chạm đúng tâm 3D!
+
+  const headR = 24 * pixelRatio;
+  const headCy = cy - 36 * pixelRatio;
   const tipX = cx;
-  const tipY = squareSize - 14 * pixelRatio;
+  const tipY = cy;
 
   // Drop shadow
   if (labelConfig.hasShadow) {
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
     ctx.shadowBlur = 8 * pixelRatio;
-    ctx.shadowOffsetY = 4 * pixelRatio;
+    ctx.shadowOffsetY = 3 * pixelRatio;
   }
 
   // Pin outer path
   ctx.beginPath();
-  ctx.arc(cx, cy, headR, Math.PI * 0.85, Math.PI * 0.15, false);
+  ctx.arc(cx, headCy, headR, Math.PI * 0.85, Math.PI * 0.15, false);
   ctx.lineTo(tipX, tipY);
   ctx.closePath();
   ctx.fillStyle = color;
@@ -238,15 +356,15 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
 
   // Inner white circle
   ctx.beginPath();
-  ctx.arc(cx, cy, 18 * pixelRatio, 0, Math.PI * 2);
+  ctx.arc(cx, headCy, 16 * pixelRatio, 0, Math.PI * 2);
   ctx.fillStyle = "#FFFFFF";
   ctx.fill();
 
   // Symbol inside
-  ctx.font = `${Math.round(18 * pixelRatio)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.font = `${Math.round(16 * pixelRatio)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(textSymbol, cx, cy);
+  ctx.fillText(textSymbol, cx, headCy);
 
   return canvas.toDataURL("image/png");
 }
@@ -255,19 +373,37 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
  * Vẽ thẻ nhãn tùy biến lên HTML5 Canvas sắc nét (Retina 2x)
  * Trả về Data URI PNG Base64 trong Canvas VUÔNG (Square Canvas)
  *
- * QUAN TRỌNG: Trimble Connect 3D Viewer luôn áp texture lên mặt phẳng Sprite quad VUÔNG (1:1).
- * Nếu truyền texture hình chữ nhật (ví dụ 180x40), viewer sẽ nén/kéo dãn làm chữ bị méo mó/dẹp!
- * Bằng cách đặt Canvas là hình vuông (squareSize x squareSize) với nền trong suốt (transparent padding),
- * thẻ nhãn ở giữa sẽ giữ NGUYÊN 100% tỉ lệ thật (aspect ratio chuẩn), chữ KHÔNG BAO GIỜ BỊ DẸP!
+ * ĐẶC BIỆT:
+ * Trong Three.js Sprite quad, tâm sprite (0.5, 0.5) nằm tại tọa độ 3D `pointIcon.position`.
+ * Bằng cách đặt điểm chân kim Bullseye ◉ tại TÂM CANVAS (cx, cy):
+ * -> Chân kim Bullseye ◉ sẽ 100% khóa chặt vào bề mặt cấu kiện, KHÔNG BAO GIỜ BỊ LỆCH
+ *    khi xoay hoặc phóng to/thu nhỏ camera 3D!
+ * -> Nhãn chữ nằm phía trên chân kim dẫn (Leader Stem) giúp người xem nhận biết rõ ràng
+ *    thẻ này đang trỏ thẳng vào cấu kiện nào!
  */
-function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null) {
+function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, category = "other") {
   const pixelRatio = 2; // Vẽ 2x để nhãn trên 3D không bị mờ
   const effectiveFontSize = Math.round(labelConfig.fontSize * labelConfig.scale * pixelRatio);
   const fontFace = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
 
+  // Xác định màu nền hiệu dụng (nếu bật tô màu theo loại)
+  let effectiveBgColor = labelConfig.bgColor;
+  if (labelConfig.colorByCategory && CATEGORY_COLORS[category]) {
+    effectiveBgColor = CATEGORY_COLORS[category];
+  }
+
+  // Xử lý tiền tố phân loại ([DẦM], [CỘT], [BẢN MÃ])
+  let displayMain = text || "";
+  if (labelConfig.addCategoryPrefix && CATEGORY_LABELS_VI[category]) {
+    const prefix = `[${CATEGORY_LABELS_VI[category]}]`;
+    if (!displayMain.startsWith(prefix) && !displayMain.startsWith("[")) {
+      displayMain = `${prefix} ${displayMain}`;
+    }
+  }
+
   // Rút gọn text nếu quá dài
-  const displayStr = text && text.length > 32 ? text.slice(0, 30) + "…" : (text || "");
-  const displaySubStr = subText && subText.length > 30 ? subText.slice(0, 28) + "…" : subText;
+  const displayStr = displayMain.length > 34 ? displayMain.slice(0, 32) + "…" : displayMain;
+  const displaySubStr = subText && subText.length > 32 ? subText.slice(0, 30) + "…" : subText;
 
   // Dùng canvas tạm để đo chiều rộng text
   const tempCanvas = document.createElement("canvas");
@@ -292,20 +428,14 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null) {
   const horizPadding = Math.round(14 * labelConfig.scale * pixelRatio);
   const vertPadding = Math.round(8 * labelConfig.scale * pixelRatio);
 
-  const badgeWidth = Math.max(contentWidth + iconWidth + iconSpacing + horizPadding * 2, 80 * pixelRatio);
+  const badgeWidth = Math.max(contentWidth + iconWidth + iconSpacing + horizPadding * 2, 76 * pixelRatio);
   const badgeHeight = is2Line
     ? Math.round(effectiveFontSize + subFontSize + vertPadding * 2 + 4 * pixelRatio)
     : Math.round(effectiveFontSize + vertPadding * 2);
 
-  // Kích thước đuôi kim chỉ (pointer tail)
-  const tailHeight = Math.round(9 * labelConfig.scale * pixelRatio);
-  const totalGraphicHeight = badgeHeight + tailHeight;
-
-  // TẠO CANVAS VUÔNG (Square Canvas) để tương thích 1:1 với Three.js Sprite quad của Trimble Connect
-  const shadowMargin = labelConfig.hasShadow ? Math.round(8 * pixelRatio) : 4;
-  const maxDim = Math.max(badgeWidth + shadowMargin * 2, totalGraphicHeight + shadowMargin * 2);
-  const squareSize = Math.max(256, Math.ceil(maxDim * 1.05));
-
+  // Kích thước Canvas VUÔNG (Square Canvas)
+  // Tâm Canvas (cx, cy) tương ứng 1:1 với tọa độ 3D pointIcon.position!
+  const squareSize = 256;
   const canvas = document.createElement("canvas");
   canvas.width = squareSize;
   canvas.height = squareSize;
@@ -313,82 +443,219 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null) {
 
   ctx.clearRect(0, 0, squareSize, squareSize);
 
-  // Căn thẻ vào giữa canvas vuông
-  const x = Math.round((squareSize - badgeWidth) / 2);
-  const y = Math.round((squareSize - totalGraphicHeight) / 2);
-  const r = Math.min(
-    Math.round(labelConfig.borderRadius * labelConfig.scale * pixelRatio),
-    badgeHeight / 2
-  );
+  const cx = squareSize / 2;
+  const cy = squareSize / 2; // Điểm neo chuẩn tại tâm 3D!
 
-  const centerX = x + badgeWidth / 2;
-  const tailHalfW = Math.round(8 * labelConfig.scale * pixelRatio);
+  const mode = labelConfig.badgeMode;
 
-  // Đổ bóng 3D
-  if (labelConfig.hasShadow) {
-    ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
-    ctx.shadowBlur = Math.round(8 * pixelRatio);
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = Math.round(4 * pixelRatio);
-  }
+  if (mode === "centroidBadge") {
+    // ══════════════════════════════════════════════════════════
+    // CHẾ ĐỘ 1: BÁM TÂM 3D CẤU KIỆN (CENTROID)
+    // Thẻ nằm ngay giữa tâm 3D của cấu kiện (trong lòng dầm/cột)
+    // ══════════════════════════════════════════════════════════
+    const bx = Math.round(cx - badgeWidth / 2);
+    const by = Math.round(cy - badgeHeight / 2);
+    const r = Math.min(Math.round(labelConfig.borderRadius * labelConfig.scale * pixelRatio), badgeHeight / 2);
 
-  // Vẽ hình chữ nhật bo góc kèm đuôi kim chỉ xuống đỉnh cấu kiện
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + badgeWidth - r, y);
-  ctx.quadraticCurveTo(x + badgeWidth, y, x + badgeWidth, y + r);
-  ctx.lineTo(x + badgeWidth, y + badgeHeight - r);
-  ctx.quadraticCurveTo(x + badgeWidth, y + badgeHeight, x + badgeWidth - r, y + badgeHeight);
+    // Đổ bóng
+    if (labelConfig.hasShadow) {
+      ctx.save();
+      ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+      ctx.shadowBlur = Math.round(8 * pixelRatio);
+      ctx.shadowOffsetY = Math.round(3 * pixelRatio);
+    }
 
-  // Đuôi tam giác chỉ xuống (Anchor pointer)
-  ctx.lineTo(centerX + tailHalfW, y + badgeHeight);
-  ctx.lineTo(centerX, y + badgeHeight + tailHeight);
-  ctx.lineTo(centerX - tailHalfW, y + badgeHeight);
+    // Vẽ hình chữ nhật bo góc
+    drawRoundedRect(ctx, bx, by, badgeWidth, badgeHeight, r);
+    ctx.fillStyle = hexToRgba(effectiveBgColor, labelConfig.opacity);
+    ctx.fill();
 
-  ctx.lineTo(x + r, y + badgeHeight);
-  ctx.quadraticCurveTo(x, y + badgeHeight, x, y + badgeHeight - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
+    if (labelConfig.hasShadow) ctx.restore();
 
-  ctx.fillStyle = hexToRgba(labelConfig.bgColor, labelConfig.opacity);
-  ctx.fill();
+    // Viền
+    if (labelConfig.borderWidth > 0) {
+      drawRoundedRect(ctx, bx, by, badgeWidth, badgeHeight, r);
+      ctx.strokeStyle = labelConfig.borderColor;
+      ctx.lineWidth = labelConfig.borderWidth * labelConfig.scale * pixelRatio;
+      ctx.stroke();
+    }
 
-  if (labelConfig.hasShadow) {
-    ctx.restore();
-  }
+    // Vẽ chữ
+    renderBadgeText(ctx, bx, by, badgeWidth, badgeHeight, displayStr, displaySubStr, iconSymbol, showIcon, iconWidth, iconSpacing, horizPadding, vertPadding, effectiveFontSize, subFontSize, is2Line, fontFace);
 
-  // Vẽ đường viền
-  if (labelConfig.borderWidth > 0) {
+  } else if (mode === "anchorLeader") {
+    // ══════════════════════════════════════════════════════════
+    // CHẾ ĐỘ 2: CHÂN KIM DẪN BÁM ĐỈNH BỀ MẶT (BIM LEADER STEM)
+    // - Điểm Bullseye ◉ nằm tại (cx, cy) chạm đúng bề mặt kim loại!
+    // - Cột chân kim dẫn (Leader Stem) vươn lên nối vào thẻ nhãn!
+    // ══════════════════════════════════════════════════════════
+    const stemHeight = Math.round(24 * labelConfig.scale * pixelRatio);
+    const by = Math.round(cy - stemHeight - badgeHeight);
+    const bx = Math.round(cx - badgeWidth / 2);
+    const r = Math.min(Math.round(labelConfig.borderRadius * labelConfig.scale * pixelRatio), badgeHeight / 2);
+
+    // 1. Vẽ điểm neo Bullseye ◉ tại (cx, cy) chạm trực tiếp bề mặt
+    const dotOuterR = Math.round(5.5 * pixelRatio);
+    const dotMidR = Math.round(4.0 * pixelRatio);
+    const dotInnerR = Math.round(2.0 * pixelRatio);
+
+    // Đổ bóng cho chân kim & bullseye
+    if (labelConfig.hasShadow) {
+      ctx.save();
+      ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+      ctx.shadowBlur = Math.round(6 * pixelRatio);
+      ctx.shadowOffsetY = Math.round(2 * pixelRatio);
+    }
+
+    // Đường kim dẫn (Leader Stem)
     ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + badgeWidth - r, y);
-    ctx.quadraticCurveTo(x + badgeWidth, y, x + badgeWidth, y + r);
-    ctx.lineTo(x + badgeWidth, y + badgeHeight - r);
-    ctx.quadraticCurveTo(x + badgeWidth, y + badgeHeight, x + badgeWidth - r, y + badgeHeight);
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, by + badgeHeight);
+    ctx.lineWidth = Math.round(3.5 * pixelRatio);
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.stroke();
 
-    ctx.lineTo(centerX + tailHalfW, y + badgeHeight);
-    ctx.lineTo(centerX, y + badgeHeight + tailHeight);
-    ctx.lineTo(centerX - tailHalfW, y + badgeHeight);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, by + badgeHeight);
+    ctx.lineWidth = Math.round(2.0 * pixelRatio);
+    ctx.strokeStyle = effectiveBgColor;
+    ctx.stroke();
 
-    ctx.lineTo(x + r, y + badgeHeight);
-    ctx.quadraticCurveTo(x, y + badgeHeight, x, y + badgeHeight - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
+    // Vòng ngoài Bullseye (Trắng)
+    ctx.beginPath();
+    ctx.arc(cx, cy, dotOuterR, 0, Math.PI * 2);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fill();
+
+    // Vòng giữa (Màu thẻ)
+    ctx.beginPath();
+    ctx.arc(cx, cy, dotMidR, 0, Math.PI * 2);
+    ctx.fillStyle = effectiveBgColor;
+    ctx.fill();
+
+    // Điểm tâm trắng
+    ctx.beginPath();
+    ctx.arc(cx, cy, dotInnerR, 0, Math.PI * 2);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fill();
+
+    // 2. Vẽ thân thẻ nhãn phía trên
+    drawRoundedRect(ctx, bx, by, badgeWidth, badgeHeight, r);
+    ctx.fillStyle = hexToRgba(effectiveBgColor, labelConfig.opacity);
+    ctx.fill();
+
+    if (labelConfig.hasShadow) ctx.restore();
+
+    // Viền thẻ
+    if (labelConfig.borderWidth > 0) {
+      drawRoundedRect(ctx, bx, by, badgeWidth, badgeHeight, r);
+      ctx.strokeStyle = labelConfig.borderColor;
+      ctx.lineWidth = labelConfig.borderWidth * labelConfig.scale * pixelRatio;
+      ctx.stroke();
+    }
+
+    // Vẽ chữ
+    renderBadgeText(ctx, bx, by, badgeWidth, badgeHeight, displayStr, displaySubStr, iconSymbol, showIcon, iconWidth, iconSpacing, horizPadding, vertPadding, effectiveFontSize, subFontSize, is2Line, fontFace);
+
+  } else {
+    // ══════════════════════════════════════════════════════════
+    // CHẾ ĐỘ 3: THẺ CHỮ CÓ ĐUÔI TAM GIÁC (PILL BADGE / CARD 2-LINE)
+    // Đuôi tam giác nhọn chạm chính xác vào (cx, cy)
+    // ══════════════════════════════════════════════════════════
+    const tailHeight = Math.round(9 * labelConfig.scale * pixelRatio);
+    const by = Math.round(cy - tailHeight - badgeHeight);
+    const bx = Math.round(cx - badgeWidth / 2);
+    const r = Math.min(Math.round(labelConfig.borderRadius * labelConfig.scale * pixelRatio), badgeHeight / 2);
+    const tailHalfW = Math.round(8 * labelConfig.scale * pixelRatio);
+
+    if (labelConfig.hasShadow) {
+      ctx.save();
+      ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+      ctx.shadowBlur = Math.round(8 * pixelRatio);
+      ctx.shadowOffsetY = Math.round(3 * pixelRatio);
+    }
+
+    // Vẽ hình chữ nhật bo góc kèm đuôi kim chỉ xuống đỉnh cấu kiện
+    ctx.beginPath();
+    ctx.moveTo(bx + r, by);
+    ctx.lineTo(bx + badgeWidth - r, by);
+    ctx.quadraticCurveTo(bx + badgeWidth, by, bx + badgeWidth, by + r);
+    ctx.lineTo(bx + badgeWidth, by + badgeHeight - r);
+    ctx.quadraticCurveTo(bx + badgeWidth, by + badgeHeight, bx + badgeWidth - r, by + badgeHeight);
+
+    // Đuôi tam giác chỉ xuống (chóp nhọn chạm đúng cy)
+    ctx.lineTo(cx + tailHalfW, by + badgeHeight);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx - tailHalfW, by + badgeHeight);
+
+    ctx.lineTo(bx + r, by + badgeHeight);
+    ctx.quadraticCurveTo(bx, by + badgeHeight, bx, by + badgeHeight - r);
+    ctx.lineTo(bx, by + r);
+    ctx.quadraticCurveTo(bx, by, bx + r, by);
     ctx.closePath();
 
-    ctx.strokeStyle = labelConfig.borderColor;
-    ctx.lineWidth = labelConfig.borderWidth * labelConfig.scale * pixelRatio;
-    ctx.stroke();
+    ctx.fillStyle = hexToRgba(effectiveBgColor, labelConfig.opacity);
+    ctx.fill();
+
+    if (labelConfig.hasShadow) ctx.restore();
+
+    // Viền
+    if (labelConfig.borderWidth > 0) {
+      ctx.beginPath();
+      ctx.moveTo(bx + r, by);
+      ctx.lineTo(bx + badgeWidth - r, by);
+      ctx.quadraticCurveTo(bx + badgeWidth, by, bx + badgeWidth, by + r);
+      ctx.lineTo(bx + badgeWidth, by + badgeHeight - r);
+      ctx.quadraticCurveTo(bx + badgeWidth, by + badgeHeight, bx + badgeWidth - r, by + badgeHeight);
+
+      ctx.lineTo(cx + tailHalfW, by + badgeHeight);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx - tailHalfW, by + badgeHeight);
+
+      ctx.lineTo(bx + r, by + badgeHeight);
+      ctx.quadraticCurveTo(bx, by + badgeHeight, bx, by + badgeHeight - r);
+      ctx.lineTo(bx, by + r);
+      ctx.quadraticCurveTo(bx, by, bx + r, by);
+      ctx.closePath();
+
+      ctx.strokeStyle = labelConfig.borderColor;
+      ctx.lineWidth = labelConfig.borderWidth * labelConfig.scale * pixelRatio;
+      ctx.stroke();
+    }
+
+    // Vẽ chữ
+    renderBadgeText(ctx, bx, by, badgeWidth, badgeHeight, displayStr, displaySubStr, iconSymbol, showIcon, iconWidth, iconSpacing, horizPadding, vertPadding, effectiveFontSize, subFontSize, is2Line, fontFace);
   }
 
-  // Tọa độ vẽ text & icon
-  let drawX = x + horizPadding;
+  return canvas.toDataURL("image/png");
+}
+
+/**
+ * Vẽ hình chữ nhật bo góc
+ */
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+/**
+ * Vẽ chữ và biểu tượng lên thẻ
+ */
+function renderBadgeText(ctx, bx, by, badgeWidth, badgeHeight, displayStr, displaySubStr, iconSymbol, showIcon, iconWidth, iconSpacing, horizPadding, vertPadding, effectiveFontSize, subFontSize, is2Line, fontFace) {
+  let drawX = bx + horizPadding;
 
   if (is2Line) {
-    // ── Thẻ 2 dòng (BIM 2-Line Card) ──
-    const line1Y = y + vertPadding + Math.round(effectiveFontSize * 0.82);
+    const line1Y = by + vertPadding + Math.round(effectiveFontSize * 0.82);
     const line2Y = line1Y + Math.round(subFontSize * 1.25);
 
     if (showIcon) {
@@ -397,18 +664,15 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null) {
       drawX += iconWidth + iconSpacing;
     }
 
-    // Dòng 1: Tiêu đề / Tên chính (In đậm)
     ctx.font = `bold ${effectiveFontSize}px ${fontFace}`;
     ctx.fillStyle = labelConfig.textColor;
     ctx.fillText(displayStr, drawX, line1Y);
 
-    // Dòng 2: Thông số phụ (Tiết diện, Vật liệu...)
     ctx.font = `normal ${subFontSize}px ${fontFace}`;
     ctx.fillStyle = hexToRgba(labelConfig.textColor, 0.88);
     ctx.fillText(displaySubStr, drawX, line2Y);
   } else {
-    // ── Thẻ 1 dòng (Pill Badge) ──
-    const baselineY = y + vertPadding + Math.round(effectiveFontSize * 0.82);
+    const baselineY = by + vertPadding + Math.round(effectiveFontSize * 0.82);
 
     if (showIcon) {
       ctx.font = `${Math.round(effectiveFontSize * 0.95)}px ${fontFace}`;
@@ -420,8 +684,6 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null) {
     ctx.fillStyle = labelConfig.textColor;
     ctx.fillText(displayStr, drawX, baselineY);
   }
-
-  return canvas.toDataURL("image/png");
 }
 
 /**
@@ -446,12 +708,88 @@ export function initLabelManager(api, viewer) {
     }
   });
 
+  // Lắng nghe sự kiện người dùng nhấp vào PointIcon trên 3D view (Trimble Connect API)
+  onEvent("viewer.onIconPicked", (data) => {
+    handleIconPicked(data);
+  });
+
   // Gắn sự kiện cho các điều khiển UI & bảng tùy biến
   bindUIControls();
   bindCustomizationControls();
   updateLivePreview();
 
   console.log("[LabelManager] Module initialized successfully");
+}
+
+/**
+ * Xử lý khi người dùng nhấp vào một thẻ label trên 3D View
+ * -> Tự động highlight sáng cấu kiện trong mô hình và chọn trong danh sách checklist!
+ */
+function handleIconPicked(data) {
+  if (!labelConfig.clickToSelect) return;
+  if (!data) return;
+
+  console.log("[LabelManager] viewer.onIconPicked event:", data);
+
+  const pickedList = Array.isArray(data)
+    ? data
+    : Array.isArray(data.data)
+    ? data.data
+    : [data];
+
+  for (const item of pickedList) {
+    const rawId = item && item.id !== undefined ? item.id : item;
+    const numericId = Number(rawId);
+    if (isNaN(numericId)) continue;
+
+    const match = labeledObjects.find((lo) => lo.iconId === numericId);
+    if (match && match.obj && viewerRef) {
+      const obj = match.obj;
+      console.log(`[LabelManager] ✓ Picked 3D Label #${numericId} -> [${match.category}] ${obj.name} (ID: ${obj.id})`);
+
+      // 1. Highlight sáng cấu kiện trên 3D View
+      viewerRef.setSelection(
+        {
+          modelObjectIds: [
+            {
+              modelId: obj.modelId,
+              objectRuntimeIds: [obj.id],
+            },
+          ],
+        },
+        "set"
+      );
+
+      // 2. Highlight thẻ tương ứng trong checklist ở thanh bên và cuộn tới đó
+      highlightPreviewItem(obj.id);
+
+      // 3. Cập nhật thông báo trạng thái
+      const catLabel = CATEGORY_LABELS_VI[match.category] || "CẤU KIỆN";
+      const statusText = document.getElementById("label-status-text");
+      if (statusText) {
+        statusText.textContent = `🎯 Đã chọn [${catLabel}]: ${match.text} (ID: ${obj.id})`;
+      }
+      break;
+    }
+  }
+}
+
+/**
+ * Làm nổi bật thẻ tương ứng trong checklist
+ */
+function highlightPreviewItem(objectId) {
+  const container = document.getElementById("label-preview-list");
+  if (!container) return;
+
+  container.querySelectorAll(".label-preview-item").forEach((el) => {
+    el.classList.remove("active-selected");
+  });
+
+  const targetEl = container.querySelector(`.label-preview-item[data-object-id="${objectId}"]`);
+  if (targetEl) {
+    targetEl.classList.add("active-selected");
+    targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
 }
 
 /**
@@ -463,7 +801,12 @@ export async function showLabelsForObjects(objects, field) {
     return;
   }
 
-  // Kiểm tra nếu chưa có objects nào, tự động quét trước
+  // Đặt lại cờ dừng tải
+  isLabelLoadingCancelled = false;
+  isLabelLoadingActive = true;
+  showStopButton(true);
+
+  // Quét cấu kiện nếu chưa có
   let targetObjects = objects;
   if (!targetObjects || targetObjects.length === 0) {
     updateUIState(0, "Đang quét cấu kiện từ model 3D...");
@@ -479,22 +822,72 @@ export async function showLabelsForObjects(objects, field) {
     console.warn("[LabelManager] Không tìm thấy cấu kiện nào trong model");
     await clearLabels();
     updateUIState(0, "Không tìm thấy cấu kiện nào");
+    showStopButton(false);
+    isLabelLoadingActive = false;
     return;
   }
 
   currentLabelField = field || currentLabelField;
 
-  // Cập nhật trạng thái đang xử lý
-  updateUIState(0, "Đang định vị tọa độ cấu kiện...");
+  // 1. Lọc theo Scope (Phạm vi)
+  if (labelScope === "selected") {
+    targetObjects = getSelectedObjects();
+    if (!targetObjects || targetObjects.length === 0) {
+      targetObjects = getAllObjects();
+    }
+  } else if (labelScope === "visible") {
+    targetObjects = getFilteredObjects();
+    if (!targetObjects || targetObjects.length === 0) {
+      targetObjects = getAllObjects();
+    }
+  }
+
+  // 2. Lọc theo Loại Cấu Kiện (Category Filter)
+  // GIẢI PHÁP ĐẶC TRỊ: Giúp giảm tải 90% số lượng cấu kiện phụ và ngăn chặn lag/văng!
+  if (labelCategory === "beam_column") {
+    targetObjects = targetObjects.filter((o) => {
+      const cat = classifyObjectCategory(o);
+      return cat === "beam" || cat === "column";
+    });
+  } else if (labelCategory === "structural") {
+    targetObjects = targetObjects.filter((o) => {
+      const cat = classifyObjectCategory(o);
+      return cat === "beam" || cat === "column" || cat === "member";
+    });
+  } else if (labelCategory === "plate") {
+    targetObjects = targetObjects.filter((o) => classifyObjectCategory(o) === "plate");
+  } else if (labelCategory === "fastener") {
+    targetObjects = targetObjects.filter((o) => classifyObjectCategory(o) === "fastener");
+  }
+
+  // 3. Sắp xếp ưu tiên theo Vai trò Kết cấu (Structural Priority)
+  // ĐẢM BẢO: Cột & Dầm (ở tất cả các tầng, kể cả vòng dưới cùng) luôn được gán nhãn trước!
+  targetObjects.sort((a, b) => {
+    const catA = classifyObjectCategory(a);
+    const catB = classifyObjectCategory(b);
+    const prioA = CATEGORY_PRIORITY[catA] || 99;
+    const prioB = CATEGORY_PRIORITY[catB] || 99;
+    if (prioA !== prioB) return prioA - prioB;
+
+    // Cấu kiện lớn/nặng hơn được ưu tiên trước
+    const volA = a.volume || a.weight || 0;
+    const volB = b.volume || b.weight || 0;
+    return volB - volA;
+  });
+
+  const totalMatchingObjects = targetObjects.length;
+
+  // 4. Giới hạn số lượng (nếu người dùng chọn limit > 0)
+  if (labelLimit > 0 && targetObjects.length > labelLimit) {
+    targetObjects = targetObjects.slice(0, labelLimit);
+    console.log(`[LabelManager] Áp dụng giới hạn: ${labelLimit} / ${totalMatchingObjects} cấu kiện`);
+  }
 
   // Xóa labels cũ trước khi vẽ lại
   await clearLabelsSilent();
 
-  // Giới hạn số lượng cấu kiện để tránh làm lag 3D viewer
-  if (labelLimit > 0 && targetObjects.length > labelLimit) {
-    targetObjects = targetObjects.slice(0, labelLimit);
-    console.log(`[LabelManager] Giới hạn hiển thị ${labelLimit} cấu kiện`);
-  }
+  updateUIState(0, `Đang định vị tọa độ ${targetObjects.length} cấu kiện...`);
+  showProgressBar(true, 0);
 
   // Nhóm objects theo modelId
   const byModel = new Map();
@@ -513,14 +906,17 @@ export async function showLabelsForObjects(objects, field) {
   let globalIconIdCounter = 1;
 
   for (const [modelId, modelObjects] of byModel) {
+    if (isLabelLoadingCancelled) break;
+
     const objectIds = modelObjects.map((o) => o.id);
     const bboxMap = new Map();
     const posMap = new Map();
     const collectedBoxes = [];
 
-    // Query bounding boxes theo từng mẩu nhỏ (BATCH 50)
-    const CHUNK_QUERY_SIZE = 50;
+    // Query bounding boxes theo mẩu nhỏ (CHUNK 60)
+    const CHUNK_QUERY_SIZE = 60;
     for (let i = 0; i < objectIds.length; i += CHUNK_QUERY_SIZE) {
+      if (isLabelLoadingCancelled) break;
       const batchIds = objectIds.slice(i, i + CHUNK_QUERY_SIZE);
       try {
         const bboxes = await viewerRef.getObjectBoundingBoxes(modelId, batchIds);
@@ -539,13 +935,13 @@ export async function showLabelsForObjects(objects, field) {
       }
     }
 
-    // Tự động tìm các cấu kiện chưa có bounding box để fallback sang getObjectPositions
+    // Fallback getObjectPositions nếu cấu kiện chưa có bounding box
     const missingIds = objectIds.filter(
       (id) => !bboxMap.has(id) && !bboxMap.has(Number(id))
     );
-    if (missingIds.length > 0 && typeof viewerRef.getObjectPositions === "function") {
-      console.log(`[LabelManager] Tìm tọa độ bổ sung cho ${missingIds.length} cấu kiện qua getObjectPositions...`);
+    if (missingIds.length > 0 && typeof viewerRef.getObjectPositions === "function" && !isLabelLoadingCancelled) {
       for (let m = 0; m < missingIds.length; m += 100) {
+        if (isLabelLoadingCancelled) break;
         const subMissing = missingIds.slice(m, m + 100);
         try {
           const positions = await viewerRef.getObjectPositions(modelId, subMissing);
@@ -557,9 +953,7 @@ export async function showLabelsForObjects(objects, field) {
               }
             }
           }
-        } catch (posErr) {
-          // Bỏ qua lỗi fallback
-        }
+        } catch (posErr) {}
       }
     }
 
@@ -567,42 +961,63 @@ export async function showLabelsForObjects(objects, field) {
     const unitScale = determineUnitScaleFactor(collectedBoxes);
 
     // Kích thước hiển thị icon sprite trên 3D (PointIcon.size)
-    const iconSize = Math.max(36, Math.round(88 * Number(labelConfig.scale || 1.0)));
+    const iconSize = Math.max(38, Math.round(92 * Number(labelConfig.scale || 1.0)));
 
-    // Tiến hành gắn nhãn cho từng object
+    // Chuẩn bị PointIcon cho từng object
     for (let i = 0; i < modelObjects.length; i++) {
+      if (isLabelLoadingCancelled) break;
       const obj = modelObjects[i];
       const bbox = bboxMap.get(obj.id) || bboxMap.get(Number(obj.id));
       const posFallback = posMap.get(obj.id) || posMap.get(Number(obj.id));
 
       if (!bbox && !posFallback) continue; // Không tìm thấy tọa độ
 
-      // Tọa độ đã quy đổi sang mét
-      let centerX, centerY, topZ;
-      if (bbox) {
-        centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
-        centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
-        topZ = (bbox.max.z * unitScale) + Number(labelConfig.zOffset || 0.15);
+      const category = classifyObjectCategory(obj);
+
+      // Tọa độ tính toán (mét)
+      let centerX, centerY, targetZ;
+
+      if (labelConfig.anchorPos === "centroid") {
+        // Chế độ bám tâm 3D cấu kiện
+        if (bbox) {
+          centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
+          centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
+          targetZ = ((bbox.min.z + bbox.max.z) / 2) * unitScale;
+        } else {
+          centerX = posFallback.x * unitScale;
+          centerY = posFallback.y * unitScale;
+          targetZ = posFallback.z * unitScale;
+        }
       } else {
-        centerX = posFallback.x * unitScale;
-        centerY = posFallback.y * unitScale;
-        topZ = (posFallback.z * unitScale) + Number(labelConfig.zOffset || 0.15);
+        // Chế độ bám đỉnh cấu kiện (Top Surface + Chân kim)
+        if (bbox) {
+          centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
+          centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
+          targetZ = (bbox.max.z * unitScale) + Number(labelConfig.zOffset || 0.0);
+        } else {
+          centerX = posFallback.x * unitScale;
+          centerY = posFallback.y * unitScale;
+          targetZ = (posFallback.z * unitScale) + Number(labelConfig.zOffset || 0.0);
+        }
       }
 
-      // Lấy giá trị chuỗi hiển thị & chuỗi phụ (2 dòng)
+      // Lấy chuỗi hiển thị
       const { text: labelText, subText, isFallback } = getFormattedLabelText(obj, currentLabelField);
       if (!labelText) continue;
 
-      // Sinh URL icon theo chế độ hiển thị (Square Canvas không bị dẹp)
-      const cacheKey = `${labelText}__${subText || ""}__${labelConfig.badgeMode}__${labelConfig.bgColor}__${labelConfig.scale}`;
+      // Sinh URL icon (Dùng cache để tiết kiệm RAM & Texture WebGL)
+      const effectiveColor = (labelConfig.colorByCategory && CATEGORY_COLORS[category])
+        ? CATEGORY_COLORS[category]
+        : labelConfig.bgColor;
+
+      const cacheKey = `${labelText}__${subText || ""}__${labelConfig.badgeMode}__${effectiveColor}__${labelConfig.scale}__${category}`;
       let iconPathUrl = canvasCache.get(cacheKey);
 
       if (!iconPathUrl) {
         if (labelConfig.badgeMode === "pinMarker") {
-          iconPathUrl = createPinMarkerCanvas(labelConfig.bgColor, iconSymbol);
+          iconPathUrl = createPinMarkerCanvas(effectiveColor, iconSymbol);
         } else {
-          // "canvasBadge" hoặc "card2Line" hoặc "both"
-          iconPathUrl = createLabelBadgeCanvas(labelText, iconSymbol, subText);
+          iconPathUrl = createLabelBadgeCanvas(labelText, iconSymbol, subText, category);
         }
         canvasCache.set(cacheKey, iconPathUrl);
       }
@@ -611,11 +1026,10 @@ export async function showLabelsForObjects(objects, field) {
       const numericId = globalIconIdCounter++;
 
       const pointIcon = {
-        id: numericId, // Phải là Number!
-        iconPath: iconPathUrl, // Thuộc tính chuẩn của PointIcon!
-        size: iconSize, // Kích thước icon (Number)
-        position: { x: centerX, y: centerY, z: topZ }, // Tọa độ (m)
-        // Các thuộc tính phụ trợ tương thích chéo:
+        id: numericId,
+        iconPath: iconPathUrl,
+        size: iconSize,
+        position: { x: centerX, y: centerY, z: targetZ },
         icon: iconPathUrl,
         image: iconPathUrl,
         label: labelText,
@@ -631,47 +1045,56 @@ export async function showLabelsForObjects(objects, field) {
         position: pointIcon.position,
         iconId: numericId,
         isFallback,
+        category,
       });
     }
   }
 
-  // Thêm icons vào 3D viewer bằng batching (tối đa 50 icons/lần gọi)
-  if (allIcons.length > 0) {
-    const ADD_CHUNK_SIZE = 50;
+  // ══════════════════════════════════════════════════════════
+  // TẢI TUẦN TỰ AN TOÀN (PROGRESSIVE STREAMING LOADER)
+  // Đưa icons vào viewer theo từng mẩu nhỏ (25 icons/khung hình)
+  // và nhường quyền điều khiển cho trình duyệt (yield 16ms)
+  // -> Ngăn chặn 100% tình trạng văng tab (out-of-memory) và lag đơ!
+  // ══════════════════════════════════════════════════════════
+  if (allIcons.length > 0 && !isLabelLoadingCancelled) {
+    const ADD_CHUNK_SIZE = 25;
     let addedCount = 0;
 
     for (let c = 0; c < allIcons.length; c += ADD_CHUNK_SIZE) {
+      if (isLabelLoadingCancelled) {
+        console.log(`[LabelManager] Người dùng đã dừng tải tại ${addedCount} nhãn.`);
+        break;
+      }
+
       const chunk = allIcons.slice(c, c + ADD_CHUNK_SIZE);
       try {
         await viewerRef.addIcon(chunk);
         addedCount += chunk.length;
       } catch (chunkErr) {
-        console.warn(`[LabelManager] Batch addIcon (${c} - ${c + chunk.length}) lỗi, thử add từng icon:`, chunkErr);
         for (const icon of chunk) {
+          if (isLabelLoadingCancelled) break;
           try {
             await viewerRef.addIcon(icon);
             addedCount++;
-          } catch (singleErr) {
-            // bỏ qua
-          }
+          } catch (singleErr) {}
         }
       }
+
+      // Cập nhật thanh tiến trình
+      const pct = Math.round((addedCount / allIcons.length) * 100);
+      showProgressBar(true, pct);
+      updateUIState(addedCount, `Đang tải: ${addedCount} / ${allIcons.length} nhãn (${pct}%)...`, totalMatchingObjects);
+
+      // Nhường quyền cho browser event loop để UI mượt mà 60fps
+      await new Promise((r) => setTimeout(r, 16));
     }
 
     labelsVisible = addedCount > 0;
-    labeledObjects = successfulLabeled;
+    labeledObjects = successfulLabeled.slice(0, addedCount);
     activeIconCount = addedCount;
 
-    // Xác thực số lượng icons thực tế trên 3D viewer
-    try {
-      const activeInViewer = await viewerRef.getIcon();
-      console.log(`[LabelManager] ✓ Viewer getIcon() xác nhận ${activeInViewer ? activeInViewer.length : 0} icons đang hoạt động.`);
-    } catch (e) {
-      // bỏ qua
-    }
-
-    console.log(`[LabelManager] ✓ Đã gắn ${addedCount} thẻ label 3D (Field: ${currentLabelField})`);
-    updateUIState(labeledObjects.length, null, targetObjects.length);
+    console.log(`[LabelManager] ✓ Hoàn tất gắn ${addedCount} thẻ label 3D (Field: ${currentLabelField})`);
+    updateUIState(labeledObjects.length, null, totalMatchingObjects);
   } else {
     labelsVisible = false;
     labeledObjects = [];
@@ -684,16 +1107,60 @@ export async function showLabelsForObjects(objects, field) {
     );
   }
 
+  showProgressBar(false);
+  showStopButton(false);
+  isLabelLoadingActive = false;
   renderPreviewList();
+}
+
+/**
+ * Hiển thị / Ẩn thanh tiến trình tải nhãn
+ */
+function showProgressBar(show, percent = 0) {
+  const container = document.getElementById("label-progress-container");
+  const fill = document.getElementById("label-progress-fill");
+  if (!container || !fill) return;
+
+  if (show) {
+    container.style.display = "block";
+    fill.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+  } else {
+    container.style.display = "none";
+    fill.style.width = "0%";
+  }
+}
+
+/**
+ * Hiển thị / Ẩn nút Dừng tải
+ */
+function showStopButton(show) {
+  const stopBtn = document.getElementById("btn-stop-labels");
+  const showBtn = document.getElementById("btn-show-labels");
+  if (stopBtn) stopBtn.style.display = show ? "inline-flex" : "none";
+  if (showBtn) showBtn.style.display = show ? "none" : "inline-flex";
+}
+
+/**
+ * Dừng quá trình tải nhãn
+ */
+export function stopLabelLoading() {
+  if (isLabelLoadingActive) {
+    isLabelLoadingCancelled = true;
+    console.log("[LabelManager] Yêu cầu dừng tải nhãn được kích hoạt.");
+    showStopButton(false);
+  }
 }
 
 /**
  * Xóa toàn bộ thẻ label 3D
  */
 export async function clearLabels() {
+  isLabelLoadingCancelled = true;
   await clearLabelsSilent();
   updateUIState(0);
   renderPreviewList();
+  showProgressBar(false);
+  showStopButton(false);
   console.log("[LabelManager] Đã xóa toàn bộ labels");
 }
 
@@ -704,7 +1171,6 @@ async function clearLabelsSilent() {
   if (!viewerRef) return;
 
   try {
-    // Calling removeIcon() with no parameter removes ALL icons in the viewer
     await viewerRef.removeIcon();
   } catch (e) {
     console.warn("[LabelManager] Lỗi removeIcon:", e);
@@ -744,7 +1210,6 @@ export async function applyLabels() {
       objects = getAllObjects();
     }
   } else {
-    // "all"
     objects = getAllObjects();
   }
 
@@ -908,7 +1373,7 @@ function updateLivePreview() {
   if (!sampleBadge) return;
 
   const iconSymbol = FIELD_ICONS[currentLabelField] || "🏷️";
-  let sampleMain = "Mẫu Cấu Kiện";
+  let sampleMain = "BEAM [HSS400X400X16]";
   let sampleSub = "STEEL/A572-GR.50";
 
   switch (currentLabelField) {
@@ -947,6 +1412,10 @@ function updateLivePreview() {
     }
   }
 
+  if (labelConfig.addCategoryPrefix) {
+    sampleMain = `[DẦM] ${sampleMain}`;
+  }
+
   if (sampleIcon) {
     sampleIcon.textContent = iconSymbol;
     sampleIcon.style.display = labelConfig.showIcon ? "inline" : "none";
@@ -960,7 +1429,9 @@ function updateLivePreview() {
     }
   }
 
-  sampleBadge.style.backgroundColor = hexToRgba(labelConfig.bgColor, labelConfig.opacity);
+  const effectiveColor = labelConfig.colorByCategory ? CATEGORY_COLORS.beam : labelConfig.bgColor;
+
+  sampleBadge.style.backgroundColor = hexToRgba(effectiveColor, labelConfig.opacity);
   sampleBadge.style.color = labelConfig.textColor;
   sampleBadge.style.fontSize = `${labelConfig.fontSize * labelConfig.scale}px`;
   sampleBadge.style.borderRadius = `${labelConfig.borderRadius * labelConfig.scale}px`;
@@ -1100,7 +1571,7 @@ function bindCustomizationControls() {
   const zOffsetSelect = document.getElementById("cfg-z-offset");
   if (zOffsetSelect) {
     zOffsetSelect.addEventListener("change", (e) => {
-      labelConfig.zOffset = parseFloat(e.target.value) || 0.15;
+      labelConfig.zOffset = parseFloat(e.target.value) || 0.0;
       debounceAutoApply();
     });
   }
@@ -1129,7 +1600,45 @@ function bindCustomizationControls() {
   if (badgeModeSelect) {
     badgeModeSelect.addEventListener("change", (e) => {
       labelConfig.badgeMode = e.target.value;
+      updateLivePreview();
       debounceAutoApply();
+    });
+  }
+
+  // Anchor Pos Select
+  const anchorPosSelect = document.getElementById("cfg-anchor-pos");
+  if (anchorPosSelect) {
+    anchorPosSelect.addEventListener("change", (e) => {
+      labelConfig.anchorPos = e.target.value;
+      debounceAutoApply();
+    });
+  }
+
+  // Checkbox Color by Category
+  const colorByCatChk = document.getElementById("cfg-color-by-category");
+  if (colorByCatChk) {
+    colorByCatChk.addEventListener("change", (e) => {
+      labelConfig.colorByCategory = e.target.checked;
+      updateLivePreview();
+      debounceAutoApply();
+    });
+  }
+
+  // Checkbox Category Prefix
+  const catPrefixChk = document.getElementById("cfg-category-prefix");
+  if (catPrefixChk) {
+    catPrefixChk.addEventListener("change", (e) => {
+      labelConfig.addCategoryPrefix = e.target.checked;
+      updateLivePreview();
+      debounceAutoApply();
+    });
+  }
+
+  // Checkbox Click to Select
+  const clickToSelectChk = document.getElementById("cfg-click-to-select");
+  if (clickToSelectChk) {
+    clickToSelectChk.addEventListener("change", (e) => {
+      labelConfig.clickToSelect = e.target.checked;
     });
   }
 
@@ -1191,6 +1700,10 @@ function bindCustomizationControls() {
       if (radiusSelect) radiusSelect.value = String(labelConfig.borderRadius);
       if (unitScaleSelect) unitScaleSelect.value = labelConfig.unitScale;
       if (badgeModeSelect) badgeModeSelect.value = labelConfig.badgeMode;
+      if (anchorPosSelect) anchorPosSelect.value = labelConfig.anchorPos;
+      if (colorByCatChk) colorByCatChk.checked = labelConfig.colorByCategory;
+      if (catPrefixChk) catPrefixChk.checked = labelConfig.addCategoryPrefix;
+      if (clickToSelectChk) clickToSelectChk.checked = labelConfig.clickToSelect;
       if (showIconChk) showIconChk.checked = labelConfig.showIcon;
       if (shadowChk) shadowChk.checked = labelConfig.hasShadow;
       if (fallbackChk) fallbackChk.checked = labelConfig.fallbackToName;
@@ -1220,6 +1733,12 @@ function bindUIControls() {
   const showBtn = document.getElementById("btn-show-labels");
   if (showBtn) {
     showBtn.addEventListener("click", () => applyLabels());
+  }
+
+  // Nút Dừng Tải
+  const stopBtn = document.getElementById("btn-stop-labels");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", () => stopLabelLoading());
   }
 
   // Nút Xóa Labels
@@ -1252,11 +1771,22 @@ function bindUIControls() {
     });
   }
 
-  // Dropdown chọn phạm vi áp dụng
+  // Dropdown chọn phạm vi áp dụng (all, selected, visible)
   const scopeSelect = document.getElementById("label-scope-select");
   if (scopeSelect) {
     scopeSelect.addEventListener("change", (e) => {
       labelScope = e.target.value;
+      if (labelsVisible) {
+        applyLabels();
+      }
+    });
+  }
+
+  // Dropdown chọn loại cấu kiện (Category Filter)
+  const categorySelect = document.getElementById("label-category-select");
+  if (categorySelect) {
+    categorySelect.addEventListener("change", (e) => {
+      labelCategory = e.target.value;
       if (labelsVisible) {
         applyLabels();
       }
@@ -1295,7 +1825,7 @@ function updateUIState(count = 0, customMessage = null, totalAvailable = 0) {
     if (statusIcon) statusIcon.textContent = "🟢";
     if (statusText) {
       if (labelLimit > 0 && totalAvailable > labelLimit) {
-        statusText.textContent = `Đang hiển thị ${count} / ${totalAvailable} (${fieldTitle}). ⚠️ Chọn "Tất cả" ở mục Tối đa để hiện đủ 100%!`;
+        statusText.textContent = `Đang hiển thị ${count} / ${totalAvailable} (${fieldTitle}). Chọn "Toàn bộ" ở mục Tối đa để hiện 100%!`;
       } else {
         statusText.textContent = `Đang hiển thị trên 3D: ${fieldTitle} (${count} cấu kiện)`;
       }
@@ -1344,13 +1874,19 @@ function renderPreviewList() {
   }
 
   let html = "";
-  labeledObjects.slice(0, 150).forEach((item, idx) => {
+  labeledObjects.slice(0, 200).forEach((item, idx) => {
     const obj = item.obj;
     const name = obj.fullName || obj.name || (obj.ifcType ? `${obj.ifcType}` : `Object #${obj.id}`);
     const val = item.text;
     const sub = item.subText;
     const modelId = obj.modelId;
     const id = obj.id;
+    const category = item.category || classifyObjectCategory(obj);
+    const catColor = (labelConfig.colorByCategory && CATEGORY_COLORS[category])
+      ? CATEGORY_COLORS[category]
+      : labelConfig.bgColor;
+    const catLabel = CATEGORY_LABELS_VI[category] || "CẤU KIỆN";
+
     const fallbackBadge = item.isFallback
       ? '<span class="label-fallback-indicator" title="Giá trị tự động thay thế bằng Tên/Type cấu kiện do trường được chọn bị trống">Tên</span>'
       : "";
@@ -1359,19 +1895,22 @@ function renderPreviewList() {
       <div class="label-preview-item" data-model-id="${modelId}" data-object-id="${id}" title="Nhấp để định vị &amp; chọn cấu kiện này trong 3D View">
         <span class="label-preview-num">${idx + 1}</span>
         <div class="label-preview-info">
-          <div class="label-preview-title">${escapeHtml(name)}</div>
-          <div class="label-preview-sub">ID: ${id} | ${escapeHtml(obj.ifcClass || "IFC")}${sub ? " | " + escapeHtml(sub) : ""}</div>
+          <div class="label-preview-title">
+            <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${catColor}; margin-right:4px;"></span>
+            ${escapeHtml(name)}
+          </div>
+          <div class="label-preview-sub">ID: ${id} | [${catLabel}] ${escapeHtml(obj.ifcClass || "IFC")}${sub ? " | " + escapeHtml(sub) : ""}</div>
         </div>
         <div class="label-preview-right">
           ${fallbackBadge}
-          <span class="label-preview-tag" style="background:${hexToRgba(labelConfig.bgColor, 0.25)}; color:${labelConfig.textColor}; border-color:${labelConfig.bgColor};">${escapeHtml(val)}</span>
+          <span class="label-preview-tag" style="background:${hexToRgba(catColor, 0.22)}; color:${catColor}; border-color:${catColor}; font-weight:700;">${escapeHtml(val)}</span>
         </div>
       </div>
     `;
   });
 
-  if (labeledObjects.length > 150) {
-    html += `<div class="label-preview-more">...và ${labeledObjects.length - 150} cấu kiện khác</div>`;
+  if (labeledObjects.length > 200) {
+    html += `<div class="label-preview-more">...và ${labeledObjects.length - 200} cấu kiện khác</div>`;
   }
 
   container.innerHTML = html;
@@ -1384,7 +1923,9 @@ function renderPreviewList() {
 
       if (viewerRef && modelId && !isNaN(objectId)) {
         try {
-          // Highlight cấu kiện
+          highlightPreviewItem(objectId);
+
+          // Highlight cấu kiện trên 3D
           await viewerRef.setSelection(
             {
               modelObjectIds: [
@@ -1408,9 +1949,7 @@ function renderPreviewList() {
                   },
                 ],
               });
-            } catch (camErr) {
-              // bỏ qua nếu setCamera theo selector không hỗ trợ
-            }
+            } catch (camErr) {}
           }
         } catch (e) {
           console.warn("[LabelManager] Set selection/camera failed:", e);

@@ -2489,6 +2489,31 @@ tr.container-selected td {
   font-style: italic;
 }
 
+.label-preview-item.active-selected {
+  background: rgba(59, 130, 246, 0.22) !important;
+  border-color: #3B82F6 !important;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.45), inset 0 0 8px rgba(59, 130, 246, 0.2);
+  transform: translateX(4px);
+}
+
+.label-progress-wrapper {
+  margin: 6px 0 2px 0;
+  background: rgba(15, 23, 42, 0.7);
+  border-radius: 4px;
+  height: 6px;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.label-progress-fill {
+  background: linear-gradient(90deg, #3B82F6, #10B981);
+  height: 100%;
+  width: 0%;
+  transition: width 0.12s ease;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
 /* ===== 3D LABEL CUSTOMIZATION ACCORDION & CONTROLS ===== */
 .label-custom-accordion {
   border: 1px solid var(--border);
