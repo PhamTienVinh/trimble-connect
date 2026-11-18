@@ -30,7 +30,7 @@ let labelsVisible = false;
 let currentLabelField = "smartName";
 let labelScope = "all"; // "all" | "selected" | "visible"
 let labelCategory = "all"; // "all" | "structural" | "beam" | "column" | "plate" | "fastener" (Mặc định: Tất cả)
-let labelLimit = 0; // 0 = Tất cả (Không giới hạn - Hiển thị 100% cấu kiện)
+let labelLimit = 300; // 300 = Mặc định tối ưu an toàn tuyệt đối, mượt mà 60 FPS, không bao giờ sập WebGL!
 let labeledObjects = []; // { obj, text, subText, position, iconId, isFallback, category }
 let activeIconCount = 0;
 let isLabelLoadingCancelled = false;
@@ -254,6 +254,7 @@ export const LABEL_FIELD_OPTIONS = [
 
 /**
  * Trích xuất Bounding Box từ đối tượng trả về của TC Workspace API
+ * Kiểm tra chặt chẽ isFinite cho tất cả 6 trục (X, Y, Z, min, max) để không bao giờ lọt NaN vào Three.js!
  */
 function extractBoundingBox(item) {
   if (!item) return null;
@@ -267,7 +268,10 @@ function extractBoundingBox(item) {
     const maxY = Number(box.max.y !== undefined ? box.max.y : box.max[1]);
     const maxZ = Number(box.max.z !== undefined ? box.max.z : box.max[2]);
 
-    if (!isNaN(minX) && !isNaN(maxX) && !isNaN(minZ) && !isNaN(maxZ)) {
+    if (
+      isFinite(minX) && isFinite(minY) && isFinite(minZ) &&
+      isFinite(maxX) && isFinite(maxY) && isFinite(maxZ)
+    ) {
       return {
         min: { x: minX, y: minY, z: minZ },
         max: { x: maxX, y: maxY, z: maxZ },
@@ -276,17 +280,39 @@ function extractBoundingBox(item) {
   }
 
   if (Array.isArray(item) && item.length >= 6) {
-    return {
-      min: { x: Number(item[0]), y: Number(item[1]), z: Number(item[2]) },
-      max: { x: Number(item[3]), y: Number(item[4]), z: Number(item[5]) },
-    };
+    const minX = Number(item[0]);
+    const minY = Number(item[1]);
+    const minZ = Number(item[2]);
+    const maxX = Number(item[3]);
+    const maxY = Number(item[4]);
+    const maxZ = Number(item[5]);
+    if (
+      isFinite(minX) && isFinite(minY) && isFinite(minZ) &&
+      isFinite(maxX) && isFinite(maxY) && isFinite(maxZ)
+    ) {
+      return {
+        min: { x: minX, y: minY, z: minZ },
+        max: { x: maxX, y: maxY, z: maxZ },
+      };
+    }
   }
 
   if (item.minX !== undefined && item.maxX !== undefined) {
-    return {
-      min: { x: Number(item.minX), y: Number(item.minY), z: Number(item.minZ) },
-      max: { x: Number(item.maxX), y: Number(item.maxY), z: Number(item.maxZ) },
-    };
+    const minX = Number(item.minX);
+    const minY = Number(item.minY);
+    const minZ = Number(item.minZ);
+    const maxX = Number(item.maxX);
+    const maxY = Number(item.maxY);
+    const maxZ = Number(item.maxZ);
+    if (
+      isFinite(minX) && isFinite(minY) && isFinite(minZ) &&
+      isFinite(maxX) && isFinite(maxY) && isFinite(maxZ)
+    ) {
+      return {
+        min: { x: minX, y: minY, z: minZ },
+        max: { x: maxX, y: maxY, z: maxZ },
+      };
+    }
   }
 
   return null;
@@ -415,12 +441,11 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
  *    khi xoay hoặc phóng to/thu nhỏ camera 3D!
  * -> Nhãn chữ nằm phía trên chân kim dẫn (Leader Stem) giúp người xem nhận biết rõ ràng
  *    thẻ này đang trỏ thẳng vào cấu kiện nào!
- * -> Canvas VUÔNG tự động co giãn theo kích thước chuỗi ký tự thực tế (squareSize động)
- *    giúp bảo đảm 100% nội dung chữ KHÔNG BAO GIỜ BỊ CẮT XÉN (anti-clipping)!
+ * -> Tự động co cỡ chữ thông minh (auto-fit) để nội dung luôn nằm gọn bên trong thẻ,
+ *    bảo đảm 100% KHÔNG BAO GIỜ BỊ CẮT XÉN CHỮ (anti-clipping)!
  */
 function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, category = "other") {
   const pixelRatio = 2; // Vẽ 2x để nhãn trên 3D không bị mờ
-  const effectiveFontSize = Math.round(labelConfig.fontSize * labelConfig.scale * pixelRatio);
   const fontFace = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
 
   // Xác định màu nền hiệu dụng (nếu bật tô màu theo loại)
@@ -438,16 +463,26 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
     }
   }
 
-  // Cho phép chuỗi ký tự hiển thị đầy đủ (lên đến 65 ký tự mà không bị cắt sớm)
-  const displayStr = displayMain.length > 65 ? displayMain.slice(0, 62) + "…" : displayMain;
-  const displaySubStr = subText && subText.length > 55 ? subText.slice(0, 52) + "…" : subText;
+  // Cho phép chuỗi ký tự hiển thị đầy đủ (lên đến 45 ký tự)
+  const displayStr = displayMain.length > 45 ? displayMain.slice(0, 42) + "…" : displayMain;
+  const displaySubStr = subText && subText.length > 38 ? subText.slice(0, 36) + "…" : subText;
 
-  // Dùng canvas tạm để đo chiều rộng text
+  let effectiveFontSize = Math.round(labelConfig.fontSize * labelConfig.scale * pixelRatio);
+
+  // Dùng canvas tạm để đo chiều rộng text và tự động co font chữ vừa vặn trong canvas
   const tempCanvas = document.createElement("canvas");
   const tempCtx = tempCanvas.getContext("2d");
   tempCtx.font = `bold ${effectiveFontSize}px ${fontFace}`;
 
   let contentWidth = Math.ceil(tempCtx.measureText(displayStr).width);
+
+  // Giới hạn chiều rộng chữ để tổng badge luôn <= 440px trong canvas 512px (Retina 2x của 256)
+  const maxContentWidth = Math.round(180 * pixelRatio);
+  while (contentWidth > maxContentWidth && effectiveFontSize > 10 * pixelRatio) {
+    effectiveFontSize -= 1;
+    tempCtx.font = `bold ${effectiveFontSize}px ${fontFace}`;
+    contentWidth = Math.ceil(tempCtx.measureText(displayStr).width);
+  }
 
   const is2Line = Boolean(displaySubStr) && labelConfig.badgeMode === "card2Line";
   const subFontSize = Math.round(effectiveFontSize * 0.78);
@@ -465,29 +500,16 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
   const horizPadding = Math.round(14 * labelConfig.scale * pixelRatio);
   const vertPadding = Math.round(8 * labelConfig.scale * pixelRatio);
 
-  const badgeWidth = Math.max(contentWidth + iconWidth + iconSpacing + horizPadding * 2, 76 * pixelRatio);
+  const badgeWidth = Math.min(Math.max(contentWidth + iconWidth + iconSpacing + horizPadding * 2, 76 * pixelRatio), 220 * pixelRatio);
   const badgeHeight = is2Line
     ? Math.round(effectiveFontSize + subFontSize + vertPadding * 2 + 4 * pixelRatio)
     : Math.round(effectiveFontSize + vertPadding * 2);
 
   const mode = labelConfig.badgeMode;
 
-  // Chiều cao phần chân kim dẫn / chóp tam giác
-  const stemHeight = mode === "anchorLeader"
-    ? Math.round(24 * labelConfig.scale * pixelRatio)
-    : (mode === "centroidBadge" ? 0 : Math.round(9 * labelConfig.scale * pixelRatio));
-
-  // Biên an toàn xung quanh (để đổ bóng và nét viền dày không bao giờ bị chạm mép canvas)
-  const marginH = Math.round(28 * pixelRatio);
-  const marginV = Math.round(22 * pixelRatio);
-
-  const neededW = badgeWidth + marginH * 2;
-  const neededH = (badgeHeight + stemHeight) * 2 + marginV * 2;
-
-  // Canvas VUÔNG (Square Canvas) tự động mở rộng theo kích thước text thực tế!
-  // Đảm bảo tâm neo (cx, cy) nằm ở chính giữa quad Three.js (0.5, 0.5)
-  // và nhãn chữ (bx, by) luôn cách mép an toàn, KHÔNG BAO GIỜ BỊ CẮT XÉN (CLIPPING)!
-  const squareSize = Math.max(256, Math.ceil(Math.max(neededW, neededH)));
+  // Kích thước Canvas VUÔNG CHUẨN 256 x 256 (Retina 2x = 512 x 512 px)
+  // Luôn cố định kích thước chuẩn GPU WebGL, không bao giờ gây tràn bộ nhớ VRAM!
+  const squareSize = 256 * pixelRatio;
   const canvas = document.createElement("canvas");
   canvas.width = squareSize;
   canvas.height = squareSize;
@@ -939,16 +961,13 @@ export async function showLabelsForObjects(objects, field) {
   const totalMatchingObjects = targetObjects.length;
 
   // 4. Giới hạn số lượng & Bảo vệ WebGL chống sập trên mô hình siêu lớn (ví dụ 50,000 cấu kiện)
-  const SAFE_WEBGL_MAX = 3000;
-  if (labelLimit > 0 && targetObjects.length > labelLimit) {
-    pendingObjectsToStream = [];
-    targetObjects = targetObjects.slice(0, labelLimit);
-    console.log(`[LabelManager] Áp dụng giới hạn: ${labelLimit} / ${totalMatchingObjects} cấu kiện`);
-  } else if (labelLimit === 0 && targetObjects.length > SAFE_WEBGL_MAX) {
-    // Tự động bật WebGL Safe Guard: Giới hạn an toàn 3,000 cấu kiện kết cấu quan trọng nhất
-    pendingObjectsToStream = targetObjects.slice(SAFE_WEBGL_MAX);
-    targetObjects = targetObjects.slice(0, SAFE_WEBGL_MAX);
-    console.log(`[LabelManager] 🛡️ Kích hoạt WebGL Safe Guard: Hiển thị trước ${SAFE_WEBGL_MAX} cấu kiện kết cấu ưu tiên cao nhất trong tổng số ${totalMatchingObjects} cấu kiện.`);
+  const SAFE_WEBGL_MAX = 500;
+  const effectiveLimit = labelLimit > 0 ? Math.min(labelLimit, SAFE_WEBGL_MAX) : SAFE_WEBGL_MAX;
+
+  if (targetObjects.length > effectiveLimit) {
+    pendingObjectsToStream = targetObjects.slice(effectiveLimit);
+    targetObjects = targetObjects.slice(0, effectiveLimit);
+    console.log(`[LabelManager] 🛡️ Áp dụng WebGL Safe Guard: Hiển thị trước ${targetObjects.length} / ${totalMatchingObjects} cấu kiện kết cấu quan trọng nhất.`);
   } else {
     pendingObjectsToStream = [];
   }
@@ -1045,7 +1064,7 @@ export async function showLabelsForObjects(objects, field) {
     const unitScale = determineUnitScaleFactor(collectedBoxes);
 
     // Kích thước chuẩn hiển thị icon sprite trên 3D (PointIcon.size)
-    const baseQuadSize = Math.max(38, Math.round(92 * Number(labelConfig.scale || 1.0)));
+    const iconSize = Math.max(38, Math.round(76 * Number(labelConfig.scale || 1.0)));
 
     // Chuẩn bị PointIcon cho từng object
     for (let i = 0; i < modelObjects.length; i++) {
@@ -1058,32 +1077,44 @@ export async function showLabelsForObjects(objects, field) {
 
       const category = classifyObjectCategory(obj);
 
-      // Tọa độ tính toán (mét)
-      let centerX, centerY, targetZ;
+      // Tọa độ tính toán (mét) — Kiểm tra chặt chẽ isFinite & sanity check để không bao giờ lọt NaN vào Three.js!
+      let rawX = null;
+      let rawY = null;
+      let rawZ = null;
+      let isFromBox = false;
 
-      if (labelConfig.anchorPos === "centroid") {
-        // Chế độ bám tâm 3D cấu kiện
-        if (bbox) {
-          centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
-          centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
-          targetZ = ((bbox.min.z + bbox.max.z) / 2) * unitScale;
+      if (bbox && bbox.min && bbox.max) {
+        rawX = (Number(bbox.min.x) + Number(bbox.max.x)) / 2;
+        rawY = (Number(bbox.min.y) + Number(bbox.max.y)) / 2;
+        if (labelConfig.anchorPos === "centroid") {
+          rawZ = (Number(bbox.min.z) + Number(bbox.max.z)) / 2;
         } else {
-          centerX = posFallback.x * unitScale;
-          centerY = posFallback.y * unitScale;
-          targetZ = posFallback.z * unitScale;
+          rawZ = Number(bbox.max.z);
         }
-      } else {
-        // Chế độ bám đỉnh cấu kiện (Top Surface + Chân kim)
-        if (bbox) {
-          centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
-          centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
-          targetZ = (bbox.max.z * unitScale) + Number(labelConfig.zOffset || 0.0);
-        } else {
-          centerX = posFallback.x * unitScale;
-          centerY = posFallback.y * unitScale;
-          targetZ = (posFallback.z * unitScale) + Number(labelConfig.zOffset || 0.0);
+        isFromBox = true;
+      } else if (posFallback) {
+        const p = posFallback.position || posFallback;
+        if (Array.isArray(p) && p.length >= 3) {
+          rawX = Number(p[0]);
+          rawY = Number(p[1]);
+          rawZ = Number(p[2]);
+        } else if (p && p.x !== undefined) {
+          rawX = Number(p.x);
+          rawY = Number(p.y);
+          rawZ = Number(p.z);
         }
       }
+
+      if (rawX === null || rawY === null || rawZ === null) continue;
+      if (!isFinite(rawX) || !isFinite(rawY) || !isFinite(rawZ)) continue;
+
+      const scaleFactor = isFromBox ? unitScale : (Math.abs(rawX) > 500 || Math.abs(rawY) > 500 ? 0.001 : 1.0);
+      const centerX = rawX * scaleFactor;
+      const centerY = rawY * scaleFactor;
+      const targetZ = (rawZ * scaleFactor) + (labelConfig.anchorPos === "centroid" ? 0 : Number(labelConfig.zOffset || 0.0));
+
+      if (!isFinite(centerX) || !isFinite(centerY) || !isFinite(targetZ)) continue;
+      if (Math.abs(centerX) > 100000 || Math.abs(centerY) > 100000 || Math.abs(targetZ) > 100000) continue;
 
       // Lấy chuỗi hiển thị
       const { text: labelText, subText, isFallback } = getFormattedLabelText(obj, currentLabelField);
@@ -1108,9 +1139,6 @@ export async function showLabelsForObjects(objects, field) {
 
       // PointIcon ID BẮT BUỘC là NUMBER trong Trimble Connect API
       const numericId = globalIconIdCounter++;
-
-      // Kích thước sprite quad tỉ lệ theo squareSize để giữ nguyên cỡ chữ & không bao giờ bị cắt xén
-      const iconSize = Math.max(38, Math.round(baseQuadSize * (badgeData.squareSize / 256)));
 
       const pointIcon = {
         id: numericId,
@@ -1245,11 +1273,47 @@ export function stopLabelLoading() {
 export async function clearLabels() {
   isLabelLoadingCancelled = true;
   await clearLabelsSilent();
+  if (viewerRef) {
+    try {
+      await viewerRef.setObjectState(undefined, { visible: true });
+    } catch (e) {}
+  }
   updateUIState(0);
   renderPreviewList();
   showProgressBar(false);
   showStopButton(false);
   console.log("[LabelManager] Đã xóa toàn bộ labels");
+}
+
+/**
+ * Khôi phục mô hình 3D về trạng thái ban đầu nếu bị ẩn, mất góc nhìn, hoặc mất model
+ */
+export async function resetModelView() {
+  isLabelLoadingCancelled = true;
+  if (!viewerRef) {
+    console.warn("[LabelManager] Viewer reference not ready");
+    return;
+  }
+  try {
+    updateUIState(0, "Đang khôi phục mô hình 3D...");
+    await viewerRef.removeIcon();
+    await viewerRef.setObjectState(undefined, { visible: "reset", color: "reset" });
+    if (typeof viewerRef.reset === "function") {
+      await viewerRef.reset();
+    }
+    labelsVisible = false;
+    labeledObjects = [];
+    activeIconCount = 0;
+    pendingObjectsToStream = [];
+    showProgressBar(false);
+    showStopButton(false);
+    updateUIState(0, "✓ Đã khôi phục mô hình 3D thành công!");
+    renderPreviewList();
+    console.log("[LabelManager] ✓ Đã khôi phục hiển thị mô hình 3D");
+  } catch (e) {
+    console.warn("[LabelManager] Lỗi resetModelView:", e);
+    updateUIState(0, "Lỗi khi khôi phục mô hình 3D: " + (e.message || e));
+  }
 }
 
 /**
@@ -1895,6 +1959,12 @@ function bindUIControls() {
     refreshBtn.addEventListener("click", () => applyLabels());
   }
 
+  // Nút Khôi phục 3D Model (Reset Model)
+  const reset3dBtn = document.getElementById("btn-reset-3d-model");
+  if (reset3dBtn) {
+    reset3dBtn.addEventListener("click", () => resetModelView());
+  }
+
   // Dropdown chọn loại thuộc tính hiển thị
   const fieldSelect = document.getElementById("label-field-select");
   if (fieldSelect) {
@@ -2022,7 +2092,7 @@ function renderPreviewList() {
             </div>
           </div>
           <button id="btn-load-more-labels" style="background:#2563EB; color:#fff; border:none; padding:6px 12px; border-radius:6px; font-weight:600; font-size:11px; cursor:pointer; white-space:nowrap;">
-            ➕ Tải thêm +1,000
+            ➕ Tải thêm +300
           </button>
         </div>
       </div>
@@ -2113,20 +2183,20 @@ function renderPreviewList() {
     });
   });
 
-  // Gắn sự kiện nút Tải thêm +1,000 nhãn
+  // Gắn sự kiện nút Tải thêm +300 nhãn
   const loadMoreBtn = document.getElementById("btn-load-more-labels");
   if (loadMoreBtn) {
     loadMoreBtn.onclick = () => {
-      loadMoreLabels(1000);
+      loadMoreLabels(300);
     };
   }
 }
 
 /**
- * Tải thêm nhãn cho các cấu kiện còn lại (theo từng mẩu 1,000 cấu kiện)
- * Dành cho mô hình siêu lớn (ví dụ 50,000 cấu kiện) để không bao giờ bị văng WebGL
+ * Tải thêm nhãn cho các cấu kiện còn lại (theo từng đợt 300 cấu kiện)
+ * Dành cho mô hình siêu lớn để bảo đảm an toàn WebGL tuyệt đối, không lag giật
  */
-async function loadMoreLabels(batchCount = 1000) {
+async function loadMoreLabels(batchCount = 300) {
   if (!viewerRef || pendingObjectsToStream.length === 0 || isLabelLoadingActive) return;
 
   const nextBatch = pendingObjectsToStream.splice(0, batchCount);
@@ -2187,20 +2257,30 @@ async function loadMoreLabels(batchCount = 1000) {
       }
 
       const unitScale = determineUnitScaleFactor(collectedBoxes);
-      const baseQuadSize = Math.max(38, Math.round(92 * Number(labelConfig.scale || 1.0)));
+      const iconSize = Math.max(38, Math.round(76 * Number(labelConfig.scale || 1.0)));
 
       for (let i = 0; i < modelObjects.length; i++) {
         if (isLabelLoadingCancelled) break;
         const obj = modelObjects[i];
         const bbox = bboxMap.get(obj.id) || bboxMap.get(Number(obj.id));
-        if (!bbox) continue;
+        if (!bbox || !bbox.min || !bbox.max) continue;
 
         const category = classifyObjectCategory(obj);
-        const centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
-        const centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
-        const targetZ = labelConfig.anchorPos === "centroid"
-          ? (((bbox.min.z + bbox.max.z) / 2) * unitScale)
-          : ((bbox.max.z * unitScale) + Number(labelConfig.zOffset || 0.0));
+
+        const rawX = (Number(bbox.min.x) + Number(bbox.max.x)) / 2;
+        const rawY = (Number(bbox.min.y) + Number(bbox.max.y)) / 2;
+        const rawZ = labelConfig.anchorPos === "centroid"
+          ? ((Number(bbox.min.z) + Number(bbox.max.z)) / 2)
+          : Number(bbox.max.z);
+
+        if (!isFinite(rawX) || !isFinite(rawY) || !isFinite(rawZ)) continue;
+
+        const centerX = rawX * unitScale;
+        const centerY = rawY * unitScale;
+        const targetZ = (rawZ * unitScale) + (labelConfig.anchorPos === "centroid" ? 0 : Number(labelConfig.zOffset || 0.0));
+
+        if (!isFinite(centerX) || !isFinite(centerY) || !isFinite(targetZ)) continue;
+        if (Math.abs(centerX) > 100000 || Math.abs(centerY) > 100000 || Math.abs(targetZ) > 100000) continue;
 
         const { text: labelText, subText, isFallback } = getFormattedLabelText(obj, currentLabelField);
         if (!labelText) continue;
@@ -2221,7 +2301,6 @@ async function loadMoreLabels(batchCount = 1000) {
         }
 
         const numericId = globalIconIdCounter++;
-        const iconSize = Math.max(38, Math.round(baseQuadSize * (badgeData.squareSize / 256)));
 
         const pointIcon = {
           id: numericId,

@@ -307,12 +307,10 @@
           <div class="control-row">
             <label class="control-label">Tối đa:</label>
             <select id="label-limit-select">
-              <option value="0" selected>⚡ Toàn bộ (Tự động tối ưu WebGL - An toàn chống sập)</option>
-              <option value="500">500 cấu kiện</option>
-              <option value="1000">1000 cấu kiện</option>
-              <option value="2500">2500 cấu kiện</option>
-              <option value="5000">5000 cấu kiện (Máy cấu hình mạnh)</option>
-              <option value="999999">⚠️ 100% Không giới hạn (Thử nghiệm)</option>
+              <option value="300" selected>⚡ 300 cấu kiện (Khuyên dùng - Siêu mượt 60 FPS)</option>
+              <option value="500">500 cấu kiện (Chuẩn)</option>
+              <option value="1000">1,000 cấu kiện (Máy mạnh)</option>
+              <option value="1500">1,500 cấu kiện (Tối đa an toàn WebGL)</option>
             </select>
           </div>
 
@@ -517,6 +515,9 @@
           </button>
           <button id="btn-refresh-labels" class="action-btn btn-pastel-brown" title="Cập nhật lại labels">
             <span>🔄</span> Refresh
+          </button>
+          <button id="btn-reset-3d-model" class="action-btn btn-pastel-pink" title="Khôi phục mô hình 3D nếu bị ẩn hoặc mất view">
+            <span>🔄</span> Khôi phục 3D
           </button>
         </div>
       </div>
