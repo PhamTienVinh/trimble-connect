@@ -266,6 +266,7 @@
               <option value="ifcClass">🧱 IFC Class</option>
               <option value="material">🪨 Vật liệu</option>
               <option value="weight">⚖️ Khối lượng (kg)</option>
+              <option value="volume">📦 Thể tích (m³)</option>
               <option value="type">📦 Object Type</option>
               <option value="revitType">🔧 Revit Type</option>
               <option value="revitFamily">🏠 Revit Family</option>
@@ -291,6 +292,142 @@
               <option value="1000">1000 labels</option>
               <option value="0">Tất cả (không giới hạn)</option>
             </select>
+          </div>
+
+          <!-- Collapsible Customization Section -->
+          <div class="label-custom-accordion" id="label-custom-accordion">
+            <div class="label-custom-header" id="label-custom-header" title="Nhấp để mở/đóng bảng tùy biến nhãn">
+              <div class="label-custom-title">
+                <span>🎨</span>
+                <span>Tùy biến màu sắc, cỡ chữ &amp; độ to nhỏ</span>
+              </div>
+              <span class="label-custom-toggle-icon" id="label-custom-toggle-icon">▼</span>
+            </div>
+
+            <div class="label-custom-body" id="label-custom-body">
+              <!-- Live Preview of Label -->
+              <div class="label-live-preview-box">
+                <span class="preview-label-title">Xem trước mẫu nhãn:</span>
+                <div class="preview-badge-wrapper">
+                  <div id="label-preview-badge-sample" class="label-preview-badge-sample">
+                    <span id="preview-sample-icon">🏷️</span>
+                    <span id="preview-sample-text">Mẫu Nhãn Cấu Kiện</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Color Presets -->
+              <div class="config-row">
+                <span class="config-label">Màu nhanh:</span>
+                <div class="color-presets" id="color-presets">
+                  <button type="button" class="color-dot active" data-color="#2563EB" style="background:#2563EB;" title="Xanh dương"></button>
+                  <button type="button" class="color-dot" data-color="#7C3AED" style="background:#7C3AED;" title="Tím"></button>
+                  <button type="button" class="color-dot" data-color="#059669" style="background:#059669;" title="Xanh ngọc"></button>
+                  <button type="button" class="color-dot" data-color="#D97706" style="background:#D97706;" title="Hổ phách"></button>
+                  <button type="button" class="color-dot" data-color="#DC2626" style="background:#DC2626;" title="Đỏ"></button>
+                  <button type="button" class="color-dot" data-color="#0F172A" style="background:#0F172A; border:1px solid #475569;" title="Đen tối"></button>
+                  <button type="button" class="color-dot" data-color="#FFFFFF" data-text="#0F172A" style="background:#FFFFFF;" title="Trắng sáng"></button>
+                </div>
+              </div>
+
+              <!-- Detailed Color Pickers -->
+              <div class="config-grid-2">
+                <div class="config-item">
+                  <label for="cfg-bg-color" class="config-sublabel">Màu nền:</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="cfg-bg-color" value="#2563EB" />
+                    <span class="color-hex" id="cfg-bg-color-hex">#2563EB</span>
+                  </div>
+                </div>
+                <div class="config-item">
+                  <label for="cfg-text-color" class="config-sublabel">Màu chữ:</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="cfg-text-color" value="#FFFFFF" />
+                    <span class="color-hex" id="cfg-text-color-hex">#FFFFFF</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="config-grid-2">
+                <div class="config-item">
+                  <label for="cfg-border-color" class="config-sublabel">Màu viền:</label>
+                  <div class="color-input-wrapper">
+                    <input type="color" id="cfg-border-color" value="#FFFFFF" />
+                    <span class="color-hex" id="cfg-border-color-hex">#FFFFFF</span>
+                  </div>
+                </div>
+                <div class="config-item">
+                  <label for="cfg-border-width" class="config-sublabel">Độ dày viền:</label>
+                  <select id="cfg-border-width">
+                    <option value="0">Không viền</option>
+                    <option value="1">1px (Mảnh)</option>
+                    <option value="1.5" selected>1.5px (Vừa)</option>
+                    <option value="2.5">2.5px (Đậm)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Sliders: Font size & Scale -->
+              <div class="config-row-slider">
+                <div class="slider-header">
+                  <span class="config-label">Cỡ chữ:</span>
+                  <span class="slider-val" id="cfg-font-size-val">13px</span>
+                </div>
+                <input type="range" id="cfg-font-size" min="9" max="22" step="1" value="13" class="config-slider" />
+              </div>
+
+              <div class="config-row-slider">
+                <div class="slider-header">
+                  <span class="config-label">Độ to nhỏ (Scale):</span>
+                  <span class="slider-val" id="cfg-scale-val">1.0x</span>
+                </div>
+                <input type="range" id="cfg-scale" min="0.6" max="2.0" step="0.1" value="1.0" class="config-slider" />
+              </div>
+
+              <!-- Z-Offset & Border Radius -->
+              <div class="config-grid-2">
+                <div class="config-item">
+                  <label for="cfg-z-offset" class="config-sublabel">Độ cao nhãn:</label>
+                  <select id="cfg-z-offset">
+                    <option value="0.05">Sát đỉnh (+5cm)</option>
+                    <option value="0.15" selected>Vừa (+15cm)</option>
+                    <option value="0.35">Cao (+35cm)</option>
+                    <option value="0.70">Rất cao (+70cm)</option>
+                  </select>
+                </div>
+                <div class="config-item">
+                  <label for="cfg-border-radius" class="config-sublabel">Bo góc:</label>
+                  <select id="cfg-border-radius">
+                    <option value="0">Vuông vức</option>
+                    <option value="4">Bo nhẹ (4px)</option>
+                    <option value="8" selected>Bo vừa (8px)</option>
+                    <option value="16">Tròn Pill (16px)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Options Checkboxes -->
+              <div class="config-checkboxes">
+                <label class="config-chk-label">
+                  <input type="checkbox" id="cfg-show-icon" checked />
+                  <span>Hiện biểu tượng icon</span>
+                </label>
+                <label class="config-chk-label">
+                  <input type="checkbox" id="cfg-has-shadow" checked />
+                  <span>Đổ bóng 3D nổi bật</span>
+                </label>
+                <label class="config-chk-label">
+                  <input type="checkbox" id="cfg-fallback-name" checked />
+                  <span>Dùng Tên nếu trường trống</span>
+                </label>
+              </div>
+
+              <div class="config-actions">
+                <button type="button" id="btn-reset-label-style" class="btn-subtle" title="Khôi phục cài đặt mặc định">
+                  <span>↺</span> Mặc định
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -333,25 +470,24 @@
             <div class="label-guide-steps">
               <div class="label-guide-step">
                 <span class="step-num">1</span>
-                <span>Chọn loại thông tin cần hiển thị (Tên, Assembly, Profile...)</span>
+                <span>Chọn trường thông tin: <strong>Tên Object</strong>, <strong>Assembly Pos</strong>, <strong>Khối lượng</strong>...</span>
               </div>
               <div class="label-guide-step">
                 <span class="step-num">2</span>
-                <span>Chọn phạm vi: tất cả objects, chỉ đã chọn, hoặc đang filtered</span>
+                <span>Tùy chỉnh <strong>màu sắc, cỡ chữ, độ to nhỏ</strong> tại mục tùy biến nếu cần</span>
               </div>
               <div class="label-guide-step">
                 <span class="step-num">3</span>
-                <span>Nhấn <strong>"Hiện Labels"</strong> để gắn labels lên 3D view</span>
+                <span>Nhấn nút <strong style="color:var(--success);">"Hiện Labels"</strong> để gắn thẻ lên mô hình 3D</span>
               </div>
               <div class="label-guide-step">
                 <span class="step-num">4</span>
-                <span>Dùng <strong>"Ẩn/Hiện"</strong> để toggle, hoặc <strong>"Xóa Labels"</strong> để gỡ bỏ</span>
+                <span>Nhấp vào từng mục trong danh sách checklist để <strong>tự động định vị cấu kiện</strong> trên 3D</span>
               </div>
             </div>
             <div class="label-guide-tips">
-              <p>💡 <strong>Mẹo:</strong> Labels sẽ hiển thị trên đỉnh mỗi cấu kiện trong 3D Viewer</p>
-              <p>⚡ <strong>Hiệu suất:</strong> Giới hạn số labels để giữ viewer mượt mà</p>
-              <p>🔄 <strong>Check list:</strong> Dùng labels để kiểm tra trực quan thông tin từng cấu kiện</p>
+              <p>💡 <strong>Mẹo:</strong> Nếu cấu kiện không có Profile Name, hệ thống sẽ tự động dùng Tên cấu kiện thay thế để không bị trống nhãn!</p>
+              <p>⚡ <strong>Hiệu năng:</strong> Đặt giới hạn 200 - 500 labels để xoay/zoom mô hình 3D mượt mà nhất.</p>
             </div>
           </div>
         </div>

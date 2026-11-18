@@ -321,7 +321,7 @@ export function getAssemblyContainers() {
 }
 
 // ── Object Scanning ──
-async function scanObjects() {
+export async function scanObjects() {
   showLoading(true);
   allObjects = [];
 
