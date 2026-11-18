@@ -44,8 +44,8 @@ const DEFAULT_LABEL_CONFIG = {
   borderColor: "#FFFFFF", // Màu viền
   borderWidth: 1.5, // Độ dày viền (px)
   borderRadius: 8, // Bo góc (px)
-  fontSize: 13, // Cỡ chữ (px)
-  scale: 1.0, // Độ to nhỏ (tỉ lệ)
+  fontSize: 16, // Cỡ chữ (px) — Đã tăng lên 16px to rõ ràng, dễ đọc trên 3D
+  scale: 1.15, // Độ to nhỏ (tỉ lệ) — Mặc định 1.15x hiển thị to bản, sắc nét
   opacity: 0.95, // Độ mờ nền
   zOffset: 0.0, // Độ cao nhô khỏi bề mặt (m) — 0.0 = chân ghim chạm đúng bề mặt cấu kiện
   unitScale: "auto", // "auto" | "mm" | "m"
@@ -366,12 +366,11 @@ function hexToRgba(hex, alpha = 1.0) {
 }
 
 /**
- * Tạo icon Ghim 3D dạng Pin Marker sắc nét trong Square Canvas (Retina 2x PNG)
+ * Tạo icon Ghim 3D dạng Pin Marker sắc nét trong Square Canvas (512x512 PNG)
  * Điểm chóp nhọn của ghim đặt chính xác tại (cx, cy) để chạm đúng bề mặt 3D!
  */
 function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
-  const pixelRatio = 2;
-  const squareSize = 160 * pixelRatio;
+  const squareSize = 512;
   const canvas = document.createElement("canvas");
   canvas.width = squareSize;
   canvas.height = squareSize;
@@ -379,11 +378,11 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
 
   ctx.clearRect(0, 0, squareSize, squareSize);
 
-  const cx = squareSize / 2;
-  const cy = squareSize / 2; // Điểm ghim chạm đúng tâm 3D!
+  const cx = squareSize / 2; // 256
+  const cy = squareSize / 2; // 256 — Điểm ghim chạm đúng tâm 3D!
 
-  const headR = 24 * pixelRatio;
-  const headCy = cy - 36 * pixelRatio;
+  const headR = 56;
+  const headCy = cy - 88;
   const tipX = cx;
   const tipY = cy;
 
@@ -391,8 +390,8 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
   if (labelConfig.hasShadow) {
     ctx.save();
     ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-    ctx.shadowBlur = 8 * pixelRatio;
-    ctx.shadowOffsetY = 3 * pixelRatio;
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 6;
   }
 
   // Pin outer path
@@ -408,18 +407,18 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
   }
 
   // White border
-  ctx.lineWidth = 3 * pixelRatio;
+  ctx.lineWidth = 6;
   ctx.strokeStyle = "#FFFFFF";
   ctx.stroke();
 
   // Inner white circle
   ctx.beginPath();
-  ctx.arc(cx, headCy, 16 * pixelRatio, 0, Math.PI * 2);
+  ctx.arc(cx, headCy, 38, 0, Math.PI * 2);
   ctx.fillStyle = "#FFFFFF";
   ctx.fill();
 
   // Symbol inside
-  ctx.font = `${Math.round(16 * pixelRatio)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.font = `bold 36px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(textSymbol, cx, headCy);
@@ -431,7 +430,7 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
 }
 
 /**
- * Vẽ thẻ nhãn tùy biến lên HTML5 Canvas sắc nét (Retina 2x)
+ * Vẽ thẻ nhãn tùy biến lên HTML5 Canvas sắc nét (512x512 PNG)
  * Trả về Data URI PNG Base64 trong Canvas VUÔNG (Square Canvas)
  *
  * ĐẶC BIỆT:
@@ -439,13 +438,12 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
  * Bằng cách đặt điểm chân kim Bullseye ◉ tại TÂM CANVAS (cx, cy):
  * -> Chân kim Bullseye ◉ sẽ 100% khóa chặt vào bề mặt cấu kiện, KHÔNG BAO GIỜ BỊ LỆCH
  *    khi xoay hoặc phóng to/thu nhỏ camera 3D!
- * -> Nhãn chữ nằm phía trên chân kim dẫn (Leader Stem) giúp người xem nhận biết rõ ràng
- *    thẻ này đang trỏ thẳng vào cấu kiện nào!
+ * -> Nhãn chữ to, rõ ràng, đậm nét phía trên chân kim dẫn (Leader Stem) giúp người xem
+ *    nhận biết từ xa thẻ này đang trỏ thẳng vào cấu kiện nào!
  * -> Tự động co cỡ chữ thông minh (auto-fit) để nội dung luôn nằm gọn bên trong thẻ,
  *    bảo đảm 100% KHÔNG BAO GIỜ BỊ CẮT XÉN CHỮ (anti-clipping)!
  */
 function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, category = "other") {
-  const pixelRatio = 2; // Vẽ 2x để nhãn trên 3D không bị mờ
   const fontFace = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
 
   // Xác định màu nền hiệu dụng (nếu bật tô màu theo loại)
@@ -467,7 +465,9 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
   const displayStr = displayMain.length > 45 ? displayMain.slice(0, 42) + "…" : displayMain;
   const displaySubStr = subText && subText.length > 38 ? subText.slice(0, 36) + "…" : subText;
 
-  let effectiveFontSize = Math.round(labelConfig.fontSize * labelConfig.scale * pixelRatio);
+  // Cỡ chữ vẽ trên canvas 512px: Đảm bảo chữ to, rõ ràng và tỷ lệ chuẩn
+  // Với fontSize = 16 và scale = 1.15 -> effectiveFontSize = 40px trên canvas 512px
+  let effectiveFontSize = Math.round(Math.max(14, labelConfig.fontSize) * 2.2 * Math.max(0.75, labelConfig.scale));
 
   // Dùng canvas tạm để đo chiều rộng text và tự động co font chữ vừa vặn trong canvas
   const tempCanvas = document.createElement("canvas");
@@ -476,16 +476,16 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
 
   let contentWidth = Math.ceil(tempCtx.measureText(displayStr).width);
 
-  // Giới hạn chiều rộng chữ để tổng badge luôn <= 440px trong canvas 512px (Retina 2x của 256)
-  const maxContentWidth = Math.round(180 * pixelRatio);
-  while (contentWidth > maxContentWidth && effectiveFontSize > 10 * pixelRatio) {
+  // Chiều rộng tối đa cho chữ trong canvas 512px (chừa khoảng đệm an toàn)
+  const maxContentWidth = 380;
+  while (contentWidth > maxContentWidth && effectiveFontSize > 24) {
     effectiveFontSize -= 1;
     tempCtx.font = `bold ${effectiveFontSize}px ${fontFace}`;
     contentWidth = Math.ceil(tempCtx.measureText(displayStr).width);
   }
 
   const is2Line = Boolean(displaySubStr) && labelConfig.badgeMode === "card2Line";
-  const subFontSize = Math.round(effectiveFontSize * 0.78);
+  const subFontSize = Math.round(effectiveFontSize * 0.72);
 
   if (is2Line) {
     tempCtx.font = `normal ${subFontSize}px ${fontFace}`;
@@ -494,22 +494,24 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
   }
 
   const showIcon = labelConfig.showIcon && Boolean(iconSymbol);
-  const iconWidth = showIcon ? Math.round(effectiveFontSize * 1.1) : 0;
-  const iconSpacing = showIcon ? Math.round(effectiveFontSize * 0.4) : 0;
+  const iconWidth = showIcon ? Math.round(effectiveFontSize * 1.05) : 0;
+  const iconSpacing = showIcon ? Math.round(effectiveFontSize * 0.35) : 0;
 
-  const horizPadding = Math.round(14 * labelConfig.scale * pixelRatio);
-  const vertPadding = Math.round(8 * labelConfig.scale * pixelRatio);
+  const horizPadding = Math.round(24 * Math.max(0.8, labelConfig.scale));
+  const vertPadding = Math.round(14 * Math.max(0.8, labelConfig.scale));
 
-  const badgeWidth = Math.min(Math.max(contentWidth + iconWidth + iconSpacing + horizPadding * 2, 76 * pixelRatio), 220 * pixelRatio);
+  const badgeWidth = Math.min(
+    Math.max(contentWidth + iconWidth + iconSpacing + horizPadding * 2, 160),
+    470
+  );
   const badgeHeight = is2Line
-    ? Math.round(effectiveFontSize + subFontSize + vertPadding * 2 + 4 * pixelRatio)
-    : Math.round(effectiveFontSize + vertPadding * 2);
+    ? Math.round(effectiveFontSize + subFontSize + vertPadding * 2 + 10)
+    : Math.round(effectiveFontSize + vertPadding * 2 + 4);
 
   const mode = labelConfig.badgeMode;
 
-  // Kích thước Canvas VUÔNG CHUẨN 256 x 256 (Retina 2x = 512 x 512 px)
-  // Luôn cố định kích thước chuẩn GPU WebGL, không bao giờ gây tràn bộ nhớ VRAM!
-  const squareSize = 256 * pixelRatio;
+  // Kích thước Canvas VUÔNG CHUẨN 512 x 512 px (GPU Friendly)
+  const squareSize = 512;
   const canvas = document.createElement("canvas");
   canvas.width = squareSize;
   canvas.height = squareSize;
@@ -517,42 +519,37 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
 
   ctx.clearRect(0, 0, squareSize, squareSize);
 
-  const cx = squareSize / 2;
-  const cy = squareSize / 2; // Điểm neo chuẩn tại tâm 3D!
+  const cx = squareSize / 2; // 256
+  const cy = squareSize / 2; // 256 (Điểm neo chuẩn tại tâm 3D!)
 
   if (mode === "centroidBadge") {
     // ══════════════════════════════════════════════════════════
     // CHẾ ĐỘ 1: BÁM TÂM 3D CẤU KIỆN (CENTROID)
-    // Thẻ nằm ngay giữa tâm 3D của cấu kiện (trong lòng dầm/cột)
     // ══════════════════════════════════════════════════════════
     const bx = Math.round(cx - badgeWidth / 2);
     const by = Math.round(cy - badgeHeight / 2);
-    const r = Math.min(Math.round(labelConfig.borderRadius * labelConfig.scale * pixelRatio), badgeHeight / 2);
+    const r = Math.min(Math.round(labelConfig.borderRadius * 2.5), badgeHeight / 2);
 
-    // Đổ bóng
     if (labelConfig.hasShadow) {
       ctx.save();
       ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-      ctx.shadowBlur = Math.round(8 * pixelRatio);
-      ctx.shadowOffsetY = Math.round(3 * pixelRatio);
+      ctx.shadowBlur = 16;
+      ctx.shadowOffsetY = 6;
     }
 
-    // Vẽ hình chữ nhật bo góc
     drawRoundedRect(ctx, bx, by, badgeWidth, badgeHeight, r);
     ctx.fillStyle = hexToRgba(effectiveBgColor, labelConfig.opacity);
     ctx.fill();
 
     if (labelConfig.hasShadow) ctx.restore();
 
-    // Viền
     if (labelConfig.borderWidth > 0) {
       drawRoundedRect(ctx, bx, by, badgeWidth, badgeHeight, r);
       ctx.strokeStyle = labelConfig.borderColor;
-      ctx.lineWidth = labelConfig.borderWidth * labelConfig.scale * pixelRatio;
+      ctx.lineWidth = labelConfig.borderWidth * 2;
       ctx.stroke();
     }
 
-    // Vẽ chữ
     renderBadgeText(ctx, bx, by, badgeWidth, badgeHeight, displayStr, displaySubStr, iconSymbol, showIcon, iconWidth, iconSpacing, horizPadding, vertPadding, effectiveFontSize, subFontSize, is2Line, fontFace);
 
   } else if (mode === "anchorLeader") {
@@ -561,36 +558,35 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
     // - Điểm Bullseye ◉ nằm tại (cx, cy) chạm đúng bề mặt kim loại!
     // - Cột chân kim dẫn (Leader Stem) vươn lên nối vào thẻ nhãn!
     // ══════════════════════════════════════════════════════════
-    const stemHeight = Math.round(24 * labelConfig.scale * pixelRatio);
+    const stemHeight = Math.round(36 * Math.max(0.8, labelConfig.scale));
     const by = Math.round(cy - stemHeight - badgeHeight);
     const bx = Math.round(cx - badgeWidth / 2);
-    const r = Math.min(Math.round(labelConfig.borderRadius * labelConfig.scale * pixelRatio), badgeHeight / 2);
+    const r = Math.min(Math.round(labelConfig.borderRadius * 2.5), badgeHeight / 2);
 
-    // 1. Vẽ điểm neo Bullseye ◉ tại (cx, cy) chạm trực tiếp bề mặt
-    const dotOuterR = Math.round(5.5 * pixelRatio);
-    const dotMidR = Math.round(4.0 * pixelRatio);
-    const dotInnerR = Math.round(2.0 * pixelRatio);
+    // 1. Điểm neo Bullseye ◉ tại (cx, cy) chạm trực tiếp bề mặt
+    const dotOuterR = 13;
+    const dotMidR = 9;
+    const dotInnerR = 5;
 
-    // Đổ bóng cho chân kim & bullseye
     if (labelConfig.hasShadow) {
       ctx.save();
       ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
-      ctx.shadowBlur = Math.round(6 * pixelRatio);
-      ctx.shadowOffsetY = Math.round(2 * pixelRatio);
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetY = 4;
     }
 
     // Đường kim dẫn (Leader Stem)
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.lineTo(cx, by + badgeHeight);
-    ctx.lineWidth = Math.round(3.5 * pixelRatio);
+    ctx.lineWidth = 7;
     ctx.strokeStyle = "#FFFFFF";
     ctx.stroke();
 
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.lineTo(cx, by + badgeHeight);
-    ctx.lineWidth = Math.round(2.0 * pixelRatio);
+    ctx.lineWidth = 4;
     ctx.strokeStyle = effectiveBgColor;
     ctx.stroke();
 
@@ -623,7 +619,7 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
     if (labelConfig.borderWidth > 0) {
       drawRoundedRect(ctx, bx, by, badgeWidth, badgeHeight, r);
       ctx.strokeStyle = labelConfig.borderColor;
-      ctx.lineWidth = labelConfig.borderWidth * labelConfig.scale * pixelRatio;
+      ctx.lineWidth = labelConfig.borderWidth * 2;
       ctx.stroke();
     }
 
@@ -635,20 +631,19 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
     // CHẾ ĐỘ 3: THẺ CHỮ CÓ ĐUÔI TAM GIÁC (PILL BADGE / CARD 2-LINE)
     // Đuôi tam giác nhọn chạm chính xác vào (cx, cy)
     // ══════════════════════════════════════════════════════════
-    const tailHeight = Math.round(9 * labelConfig.scale * pixelRatio);
+    const tailHeight = Math.round(18 * Math.max(0.8, labelConfig.scale));
     const by = Math.round(cy - tailHeight - badgeHeight);
     const bx = Math.round(cx - badgeWidth / 2);
-    const r = Math.min(Math.round(labelConfig.borderRadius * labelConfig.scale * pixelRatio), badgeHeight / 2);
-    const tailHalfW = Math.round(8 * labelConfig.scale * pixelRatio);
+    const r = Math.min(Math.round(labelConfig.borderRadius * 2.5), badgeHeight / 2);
+    const tailHalfW = 16;
 
     if (labelConfig.hasShadow) {
       ctx.save();
       ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-      ctx.shadowBlur = Math.round(8 * pixelRatio);
-      ctx.shadowOffsetY = Math.round(3 * pixelRatio);
+      ctx.shadowBlur = 16;
+      ctx.shadowOffsetY = 6;
     }
 
-    // Vẽ hình chữ nhật bo góc kèm đuôi kim chỉ xuống đỉnh cấu kiện
     ctx.beginPath();
     ctx.moveTo(bx + r, by);
     ctx.lineTo(bx + badgeWidth - r, by);
@@ -656,7 +651,6 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
     ctx.lineTo(bx + badgeWidth, by + badgeHeight - r);
     ctx.quadraticCurveTo(bx + badgeWidth, by + badgeHeight, bx + badgeWidth - r, by + badgeHeight);
 
-    // Đuôi tam giác chỉ xuống (chóp nhọn chạm đúng cy)
     ctx.lineTo(cx + tailHalfW, by + badgeHeight);
     ctx.lineTo(cx, cy);
     ctx.lineTo(cx - tailHalfW, by + badgeHeight);
@@ -672,7 +666,6 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
 
     if (labelConfig.hasShadow) ctx.restore();
 
-    // Viền
     if (labelConfig.borderWidth > 0) {
       ctx.beginPath();
       ctx.moveTo(bx + r, by);
@@ -692,11 +685,10 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
       ctx.closePath();
 
       ctx.strokeStyle = labelConfig.borderColor;
-      ctx.lineWidth = labelConfig.borderWidth * labelConfig.scale * pixelRatio;
+      ctx.lineWidth = labelConfig.borderWidth * 2;
       ctx.stroke();
     }
 
-    // Vẽ chữ
     renderBadgeText(ctx, bx, by, badgeWidth, badgeHeight, displayStr, displaySubStr, iconSymbol, showIcon, iconWidth, iconSpacing, horizPadding, vertPadding, effectiveFontSize, subFontSize, is2Line, fontFace);
   }
 
@@ -1063,8 +1055,8 @@ export async function showLabelsForObjects(objects, field) {
     // Tự động tính toán hệ số quy đổi đơn vị (mm -> mét)
     const unitScale = determineUnitScaleFactor(collectedBoxes);
 
-    // Kích thước chuẩn hiển thị icon sprite trên 3D (PointIcon.size)
-    const iconSize = Math.max(38, Math.round(76 * Number(labelConfig.scale || 1.0)));
+    // Kích thước chuẩn hiển thị icon sprite trên 3D (PointIcon.size) — To rõ, sắc nét, dễ đọc
+    const iconSize = Math.max(90, Math.round(210 * Number(labelConfig.scale || 1.15)));
 
     // Chuẩn bị PointIcon cho từng object
     for (let i = 0; i < modelObjects.length; i++) {
@@ -1760,8 +1752,8 @@ function bindCustomizationControls() {
   const scaleVal = document.getElementById("cfg-scale-val");
   if (scaleSlider) {
     scaleSlider.addEventListener("input", (e) => {
-      labelConfig.scale = parseFloat(e.target.value) || 1.0;
-      if (scaleVal) scaleVal.textContent = `${labelConfig.scale.toFixed(1)}x`;
+      labelConfig.scale = parseFloat(e.target.value) || 1.15;
+      if (scaleVal) scaleVal.textContent = `${labelConfig.scale.toFixed(2)}x`;
       updateLivePreview();
       debounceAutoApply();
     });
@@ -1895,7 +1887,7 @@ function bindCustomizationControls() {
       if (fontSizeSlider) fontSizeSlider.value = String(labelConfig.fontSize);
       if (fontSizeVal) fontSizeVal.textContent = `${labelConfig.fontSize}px`;
       if (scaleSlider) scaleSlider.value = String(labelConfig.scale);
-      if (scaleVal) scaleVal.textContent = `${labelConfig.scale.toFixed(1)}x`;
+      if (scaleVal) scaleVal.textContent = `${labelConfig.scale.toFixed(2)}x`;
       if (zOffsetSelect) zOffsetSelect.value = String(labelConfig.zOffset);
       if (radiusSelect) radiusSelect.value = String(labelConfig.borderRadius);
       if (unitScaleSelect) unitScaleSelect.value = labelConfig.unitScale;
@@ -2257,7 +2249,7 @@ async function loadMoreLabels(batchCount = 300) {
       }
 
       const unitScale = determineUnitScaleFactor(collectedBoxes);
-      const iconSize = Math.max(38, Math.round(76 * Number(labelConfig.scale || 1.0)));
+      const iconSize = Math.max(90, Math.round(210 * Number(labelConfig.scale || 1.15)));
 
       for (let i = 0; i < modelObjects.length; i++) {
         if (isLabelLoadingCancelled) break;
