@@ -257,9 +257,15 @@
           <div class="control-row">
             <label for="label-field-select" class="control-label">Hiển thị:</label>
             <select id="label-field-select">
-              <option value="smartName" selected>✨ Tên + Tiết diện (Smart Name)</option>
-              <option value="ifcType">🏢 IFC Type / Type Name (Beam/Column Type)</option>
-              <option value="profile">📐 Profile / Tiết diện (HSS, W, IPE...)</option>
+              <option value="smartName" selected>✨ Tên nhận diện thông minh (Smart Recognition - Đề xuất)</option>
+              <option value="ifcType">🏢 IFC Type / Tiết diện chung (Beam / Member / Column Type)</option>
+              <option value="ifcBeamType">🪵 Ifc Beam Type (Dầm)</option>
+              <option value="ifcMemberType">🏗️ Ifc Member Type (Thanh kết cấu)</option>
+              <option value="ifcColumnType">🏛️ Ifc Column Type (Cột)</option>
+              <option value="ifcPlateType">📐 Ifc Plate Type (Bản mã)</option>
+              <option value="productName">📦 Product Name (Tên cấu kiện file IFC)</option>
+              <option value="productObjectType">🏷️ Product Object Type</option>
+              <option value="profile">📏 Profile / Tiết diện (HSS, W, IPE...)</option>
               <option value="name">🏷️ Tên Object</option>
               <option value="material">🪨 Vật liệu (STEEL, Concrete...)</option>
               <option value="assemblyName">🏗️ Assembly Name / Mark</option>
@@ -290,21 +296,21 @@
           <div class="control-row">
             <label class="control-label">Loại cấu kiện:</label>
             <select id="label-category-select">
-              <option value="beam_column" selected>🎯 Chỉ Dầm &amp; Cột (Chính - Mượt &amp; Rõ)</option>
-              <option value="structural">🏗️ Khung kết cấu (Dầm, Cột, Giằng)</option>
-              <option value="all">🌐 Tất cả cấu kiện (Kèm bản mã, bu-lông)</option>
-              <option value="plate">📐 Chỉ Bản mã / Tấm liên kết</option>
+              <option value="all" selected>🌐 Tất cả cấu kiện (Hiển thị 100% không sót - Mặc định)</option>
+              <option value="structural">🎯 Khung kết cấu chính (Dầm, Cột, Member, Giằng)</option>
+              <option value="beam">🪵 Chỉ Dầm (Beams)</option>
+              <option value="column">🏛️ Chỉ Cột (Columns)</option>
+              <option value="plate">📐 Chỉ Bản mã / Tấm liên kết (Plates)</option>
               <option value="fastener">🔩 Chỉ Bu-lông &amp; Phụ kiện</option>
             </select>
           </div>
           <div class="control-row">
             <label class="control-label">Tối đa:</label>
             <select id="label-limit-select">
-              <option value="300">300 labels (Siêu nhẹ - 60fps)</option>
-              <option value="600" selected>600 labels (Khuyên dùng)</option>
-              <option value="1200">1200 labels</option>
+              <option value="0" selected>⚡ Toàn bộ (Không giới hạn - Hiển thị 100%)</option>
+              <option value="500">500 labels</option>
+              <option value="1000">1000 labels</option>
               <option value="2500">2500 labels</option>
-              <option value="0">⚡ Toàn bộ (Tải tuần tự an toàn)</option>
             </select>
           </div>
 

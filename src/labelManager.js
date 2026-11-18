@@ -29,8 +29,8 @@ let viewerRef = null;
 let labelsVisible = false;
 let currentLabelField = "smartName";
 let labelScope = "all"; // "all" | "selected" | "visible"
-let labelCategory = "beam_column"; // "beam_column" | "structural" | "all" | "plate" | "fastener"
-let labelLimit = 600; // 600 mặc định (khuyên dùng - vừa đủ mượt)
+let labelCategory = "all"; // "all" | "structural" | "beam" | "column" | "plate" | "fastener" (Mặc định: Tất cả)
+let labelLimit = 0; // 0 = Tất cả (Không giới hạn - Hiển thị 100% cấu kiện)
 let labeledObjects = []; // { obj, text, subText, position, iconId, isFallback, category }
 let activeIconCount = 0;
 let isLabelLoadingCancelled = false;
@@ -62,56 +62,36 @@ const DEFAULT_LABEL_CONFIG = {
 // Cấu hình hiện hành
 let labelConfig = { ...DEFAULT_LABEL_CONFIG };
 
-// ── Phân loại Cấu kiện Kết cấu Thép / BIM ──
+// ── Phân loại Cấu kiện Kết cấu Thép / BIM Thông Minh ──
 export function classifyObjectCategory(obj) {
   if (!obj) return "other";
   const cls = (obj.ifcClass || "").toLowerCase();
   const name = (obj.name || "").toUpperCase();
   const desc = (obj.description || "").toUpperCase();
-  const type = (obj.ifcType || obj.typeName || "").toUpperCase();
+  const type = (obj.ifcType || obj.typeName || obj.profile || obj.smartName || "").toUpperCase();
 
-  // 1. Cột (Column)
+  // 1. BU LÔNG & ĐAI ỐC PHẢI XÉT TRƯỚC HẾT (Tránh nhầm đai ốc chân cột thành Cột!)
   if (
-    cls.includes("column") ||
-    name.startsWith("COL") ||
-    name.startsWith("PILLAR") ||
-    name.startsWith("POST") ||
-    name.includes("COLUMN")
+    cls.includes("fastener") ||
+    cls.includes("bolt") ||
+    cls.includes("accessory") ||
+    Boolean(obj.ifcFastenerType) ||
+    name.startsWith("NUT") ||
+    name.startsWith("BOLT") ||
+    name.startsWith("WASH") ||
+    name.startsWith("ANCHOR") ||
+    type.startsWith("NUT") ||
+    type.startsWith("BOLT") ||
+    type.startsWith("M2") ||
+    type.startsWith("M3")
   ) {
-    return "column";
+    return "fastener";
   }
 
-  // 2. Dầm (Beam)
-  if (
-    cls.includes("beam") ||
-    name.startsWith("BEAM") ||
-    name.startsWith("GIRDER") ||
-    name.startsWith("JOIST") ||
-    name.startsWith("RAFTER") ||
-    name.startsWith("PURLIN") ||
-    name.includes("BEAM") ||
-    name.startsWith("B_")
-  ) {
-    return "beam";
-  }
-
-  // 3. Thanh giằng / Khung dàn (Member / Truss / Brace)
-  if (
-    cls.includes("member") ||
-    cls.includes("truss") ||
-    cls.includes("brace") ||
-    name.startsWith("BRACE") ||
-    name.startsWith("TRUSS") ||
-    name.startsWith("STRUT") ||
-    name.startsWith("TIE") ||
-    name.includes("BRACING")
-  ) {
-    return "member";
-  }
-
-  // 4. Bản mã / Tấm liên kết (Plate / Baseplate / Stiffener)
+  // 2. BẢN MÃ & TẤM LIÊN KẾT PHẢI XÉT THỨ HAI (Tránh nhầm bản mã chân cột thành Cột!)
   if (
     cls.includes("plate") ||
+    Boolean(obj.ifcPlateType) ||
     name.startsWith("PLT") ||
     name.startsWith("BPL") ||
     name.startsWith("SPLICE") ||
@@ -120,22 +100,61 @@ export function classifyObjectCategory(obj) {
     name.startsWith("SHIM") ||
     name.startsWith("CAP") ||
     type.startsWith("PLT") ||
-    type.startsWith("BPL")
+    type.startsWith("BPL") ||
+    type.startsWith("FLAT")
   ) {
     return "plate";
   }
 
-  // 5. Bu lông / Phụ kiện liên kết (Fastener / Bolt / Accessory)
+  // 3. DẦM (BEAM)
   if (
-    cls.includes("fastener") ||
-    cls.includes("bolt") ||
-    cls.includes("accessory") ||
-    name.startsWith("BOLT") ||
-    name.startsWith("NUT") ||
-    name.startsWith("WASH") ||
-    name.includes("FASTENER")
+    cls.includes("beam") ||
+    Boolean(obj.ifcBeamType) ||
+    name.startsWith("BEAM") ||
+    name.startsWith("GIRDER") ||
+    name.startsWith("JOIST") ||
+    name.startsWith("RAFTER") ||
+    name.startsWith("PURLIN") ||
+    name.startsWith("B_") ||
+    name.includes("BEAM") ||
+    desc.includes("BEAM")
   ) {
-    return "fastener";
+    return "beam";
+  }
+
+  // 4. CỘT (COLUMN)
+  if (
+    cls.includes("column") ||
+    Boolean(obj.ifcColumnType) ||
+    name.startsWith("COL") ||
+    name.startsWith("PILLAR") ||
+    name.startsWith("POST") ||
+    name.startsWith("C_") ||
+    name.includes("COLUMN") ||
+    desc.includes("COLUMN")
+  ) {
+    return "column";
+  }
+
+  // 5. THANH KẾT CẤU CHÍNH / KHUNG DÀN / GIẰNG (MEMBER)
+  if (
+    cls.includes("member") ||
+    Boolean(obj.ifcMemberType) ||
+    cls.includes("truss") ||
+    cls.includes("brace") ||
+    name.startsWith("BRACE") ||
+    name.startsWith("TRUSS") ||
+    name.startsWith("STRUT") ||
+    name.startsWith("TIE") ||
+    name.startsWith("MEMBER") ||
+    name.startsWith("M_") ||
+    type.startsWith("HSS") ||
+    type.startsWith("W") ||
+    type.startsWith("IPE") ||
+    type.startsWith("HEA") ||
+    type.startsWith("HEB")
+  ) {
+    return "member";
   }
 
   return "other";
@@ -145,9 +164,9 @@ export function classifyObjectCategory(obj) {
 export const CATEGORY_COLORS = {
   beam: "#2563EB",     // Xanh dương đậm — Dầm chính/phụ
   column: "#059669",   // Xanh ngọc lục bảo — Cột
-  member: "#7C3AED",   // Tím hoàng gia — Giằng, Khung dàn
+  member: "#7C3AED",   // Tím hoàng gia — Thanh kết cấu / Giằng / Khung dàn
   plate: "#D97706",    // Hổ phách / Cam đồng — Bản mã, Stiffener
-  fastener: "#DC2626", // Đỏ — Bu-lông, ốc vít
+  fastener: "#DC2626", // Đỏ — Bu-lông, đai ốc
   other: "#475569",    // Xám than chì — Cấu kiện khác
 };
 
@@ -155,13 +174,13 @@ export const CATEGORY_COLORS = {
 export const CATEGORY_LABELS_VI = {
   beam: "DẦM",
   column: "CỘT",
-  member: "GIẰNG",
+  member: "KẾT CẤU",
   plate: "BẢN MÃ",
   fastener: "BU-LÔNG",
   other: "CẤU KIỆN",
 };
 
-// Thứ tự ưu tiên cấu kiện (Dầm & Cột luôn được ưu tiên gắn nhãn trước!)
+// Thứ tự ưu tiên cấu kiện (Dầm, Cột, Thanh kết cấu luôn được ưu tiên trước!)
 const CATEGORY_PRIORITY = {
   column: 1,
   beam: 2,
@@ -175,8 +194,14 @@ const CATEGORY_PRIORITY = {
 const FIELD_ICONS = {
   smartName: "✨",
   ifcType: "🏢",
+  ifcBeamType: "🪵",
+  ifcMemberType: "🏗️",
+  ifcColumnType: "🏛️",
+  ifcPlateType: "📐",
+  productName: "📦",
+  productObjectType: "🏷️",
+  profile: "📏",
   name: "🏷️",
-  profile: "📐",
   material: "🪨",
   assemblyName: "🏗️",
   assemblyPos: "📍",
@@ -198,9 +223,15 @@ const FIELD_ICONS = {
 
 // ── Danh sách các trường hiển thị ──
 export const LABEL_FIELD_OPTIONS = [
-  { value: "smartName", label: "✨ Tên + Tiết diện (Smart Name)" },
-  { value: "ifcType", label: "🏢 IFC Type / Type Name (Beam/Column Type)" },
-  { value: "profile", label: "📐 Profile / Tiết diện (HSS, W, IPE...)" },
+  { value: "smartName", label: "✨ Tên nhận diện thông minh (Smart Recognition - Đề xuất)" },
+  { value: "ifcType", label: "🏢 IFC Type / Tiết diện chung (Beam / Member / Column Type)" },
+  { value: "ifcBeamType", label: "🪵 Ifc Beam Type (Dầm)" },
+  { value: "ifcMemberType", label: "🏗️ Ifc Member Type (Thanh kết cấu)" },
+  { value: "ifcColumnType", label: "🏛️ Ifc Column Type (Cột)" },
+  { value: "ifcPlateType", label: "📐 Ifc Plate Type (Bản mã)" },
+  { value: "productName", label: "📦 Product Name (Tên cấu kiện từ file IFC)" },
+  { value: "productObjectType", label: "🏷️ Product Object Type" },
+  { value: "profile", label: "📏 Profile / Tiết diện (HSS, W, IPE...)" },
   { value: "name", label: "🏷️ Tên Object" },
   { value: "material", label: "🪨 Vật liệu (STEEL, Concrete...)" },
   { value: "assemblyName", label: "🏗️ Assembly Name / Mark" },
@@ -843,25 +874,33 @@ export async function showLabelsForObjects(objects, field) {
   }
 
   // 2. Lọc theo Loại Cấu Kiện (Category Filter)
-  // GIẢI PHÁP ĐẶC TRỊ: Giúp giảm tải 90% số lượng cấu kiện phụ và ngăn chặn lag/văng!
-  if (labelCategory === "beam_column") {
-    targetObjects = targetObjects.filter((o) => {
-      const cat = classifyObjectCategory(o);
-      return cat === "beam" || cat === "column";
-    });
-  } else if (labelCategory === "structural") {
+  if (labelCategory === "structural") {
+    // Khung kết cấu chính: Dầm, Cột, Thanh kết cấu (Member), Giằng
     targetObjects = targetObjects.filter((o) => {
       const cat = classifyObjectCategory(o);
       return cat === "beam" || cat === "column" || cat === "member";
     });
+  } else if (labelCategory === "beam") {
+    targetObjects = targetObjects.filter((o) => {
+      return classifyObjectCategory(o) === "beam" || Boolean(o.ifcBeamType);
+    });
+  } else if (labelCategory === "column") {
+    targetObjects = targetObjects.filter((o) => {
+      return classifyObjectCategory(o) === "column" || Boolean(o.ifcColumnType);
+    });
   } else if (labelCategory === "plate") {
-    targetObjects = targetObjects.filter((o) => classifyObjectCategory(o) === "plate");
+    targetObjects = targetObjects.filter((o) => {
+      return classifyObjectCategory(o) === "plate" || Boolean(o.ifcPlateType);
+    });
   } else if (labelCategory === "fastener") {
-    targetObjects = targetObjects.filter((o) => classifyObjectCategory(o) === "fastener");
+    targetObjects = targetObjects.filter((o) => {
+      return classifyObjectCategory(o) === "fastener" || Boolean(o.ifcFastenerType);
+    });
   }
+  // MẶC ĐỊNH ("all"): GIỮ NGUYÊN 100% CẤU KIỆN, KHÔNG BỎ QUA BẤT KỲ CẤU KIỆN NÀO!
 
   // 3. Sắp xếp ưu tiên theo Vai trò Kết cấu (Structural Priority)
-  // ĐẢM BẢO: Cột & Dầm (ở tất cả các tầng, kể cả vòng dưới cùng) luôn được gán nhãn trước!
+  // ĐẢM BẢO: Dầm & Cột luôn được render đầu tiên trên toàn bộ chiều cao (từ tầng dưới lên đỉnh)
   targetObjects.sort((a, b) => {
     const catA = classifyObjectCategory(a);
     const catB = classifyObjectCategory(b);
@@ -877,7 +916,7 @@ export async function showLabelsForObjects(objects, field) {
 
   const totalMatchingObjects = targetObjects.length;
 
-  // 4. Giới hạn số lượng (nếu người dùng chọn limit > 0)
+  // 4. Giới hạn số lượng (chỉ giới hạn khi người dùng chủ động chọn limit > 0)
   if (labelLimit > 0 && targetObjects.length > labelLimit) {
     targetObjects = targetObjects.slice(0, labelLimit);
     console.log(`[LabelManager] Áp dụng giới hạn: ${labelLimit} / ${totalMatchingObjects} cấu kiện`);
@@ -1227,24 +1266,52 @@ function getFormattedLabelText(obj, field) {
 
   switch (field) {
     case "smartName": {
-      if (obj.fullName) val = obj.fullName;
-      else if (obj.name && obj.ifcType && obj.name !== obj.ifcType) val = `${obj.name} [${obj.ifcType}]`;
-      else val = obj.name || obj.ifcType || obj.profile;
-      sub = obj.material || obj.assemblyPos || obj.profile || "";
+      val = obj.smartName || obj.ifcBeamType || obj.ifcMemberType || obj.ifcColumnType || obj.ifcPlateType || obj.ifcFastenerType || obj.ifcType || obj.profile || obj.fullName || obj.name;
+      sub = obj.material || obj.assemblyPos || obj.ifcClass || "";
+      break;
+    }
+    case "ifcBeamType": {
+      val = obj.ifcBeamType || (obj.ifcClass && obj.ifcClass.toLowerCase().includes("beam") ? obj.ifcType || obj.profile : null);
+      sub = obj.material || obj.name || "";
+      break;
+    }
+    case "ifcMemberType": {
+      val = obj.ifcMemberType || (obj.ifcClass && obj.ifcClass.toLowerCase().includes("member") ? obj.ifcType || obj.profile : null);
+      sub = obj.material || obj.name || "";
+      break;
+    }
+    case "ifcColumnType": {
+      val = obj.ifcColumnType || (obj.ifcClass && obj.ifcClass.toLowerCase().includes("column") ? obj.ifcType || obj.profile : null);
+      sub = obj.material || obj.name || "";
+      break;
+    }
+    case "ifcPlateType": {
+      val = obj.ifcPlateType || (obj.ifcClass && obj.ifcClass.toLowerCase().includes("plate") ? obj.ifcType || obj.profile : null);
+      sub = obj.material || obj.name || "";
+      break;
+    }
+    case "productName": {
+      val = obj.productName || obj.name;
+      sub = obj.ifcType || obj.profile || obj.material || "";
+      break;
+    }
+    case "productObjectType": {
+      val = obj.productObjectType || obj.type || obj.ifcClass;
+      sub = obj.name || obj.ifcType || "";
       break;
     }
     case "ifcType": {
-      val = obj.ifcType || obj.typeName || obj.type || obj.profile;
+      val = obj.ifcType || obj.ifcBeamType || obj.ifcMemberType || obj.ifcColumnType || obj.ifcPlateType || obj.typeName || obj.profile;
       sub = obj.material || obj.name || "";
       break;
     }
     case "profile": {
-      val = obj.profile || obj.ifcType;
+      val = obj.profile || obj.ifcType || obj.ifcBeamType || obj.ifcMemberType;
       sub = obj.material || obj.name || "";
       break;
     }
     case "name": {
-      val = obj.name;
+      val = obj.name || obj.productName;
       sub = obj.ifcType || obj.profile || obj.material || "";
       break;
     }
@@ -1303,7 +1370,21 @@ function getFormattedLabelText(obj, field) {
       break;
     }
     default: {
-      const v = obj[field];
+      let v = obj[field];
+      if (v === undefined || v === null || v === "" || v === "(Không xác định)") {
+        if (obj.rawProperties) {
+          v = obj.rawProperties[field];
+          if (v === undefined) {
+            const fieldLower = field.toLowerCase();
+            for (const [k, valProp] of Object.entries(obj.rawProperties)) {
+              if (k.toLowerCase() === fieldLower || k.toLowerCase().endsWith(`.${fieldLower}`)) {
+                v = valProp;
+                break;
+              }
+            }
+          }
+        }
+      }
       if (v !== undefined && v !== null && v !== "" && v !== "(Không xác định)") {
         val = String(v);
       }
@@ -1324,12 +1405,18 @@ function getFormattedLabelText(obj, field) {
   // Cơ chế Fallback: Nếu trường trống và bật fallbackToName
   if (labelConfig.fallbackToName) {
     const fallbackVal =
+      obj.smartName ||
+      obj.ifcBeamType ||
+      obj.ifcMemberType ||
+      obj.ifcColumnType ||
+      obj.ifcPlateType ||
       obj.ifcType ||
       obj.name ||
+      obj.productName ||
       obj.profile ||
       obj.assemblyPos ||
       (obj.ifcClass ? `${obj.ifcClass} #${obj.id}` : `Object #${obj.id}`);
-    const fallbackSub = obj.material || obj.profile || "";
+    const fallbackSub = obj.material || obj.profile || obj.ifcClass || "";
     return {
       text: String(fallbackVal).trim(),
       subText: fallbackSub && String(fallbackSub).trim() ? String(fallbackSub).trim() : null,

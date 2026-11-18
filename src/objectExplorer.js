@@ -2278,12 +2278,19 @@ function parseObjectProperties(props, modelId) {
     profile: "",
     ifcType: "",          // Name from Ifc Beam Type, Ifc Column Type, etc. (e.g. "HSS400X400X16")
     typeName: "",         // Type Name
+    ifcBeamType: "",      // Explicit Name from Ifc Beam Type
+    ifcMemberType: "",    // Explicit Name from Ifc Member Type
+    ifcColumnType: "",    // Explicit Name from Ifc Column Type
+    ifcPlateType: "",     // Explicit Name from Ifc Plate Type
+    ifcFastenerType: "",  // Explicit Name from Ifc Mechanical Fastener Type
     modelName: "",        // Loaded model / IFC file name
     fullName: "",         // Combined Name [Type]
+    smartName: "",        // Smart recognized engineering designation
     rawProperties: {},    // Flat key-value property lookup for labels & search
     referenceName: "",    // Reference / Reference Name from IFC
     productName: "",      // Product Name
     productObjectType: "", // Product Object Type
+    productDescription: "", // Product Description
     ifcClass: props.class || "",
     isTekla: false,
     isAssemblyParent: false,     // Marked as IfcElementAssembly or assembly parent node
@@ -2534,7 +2541,8 @@ function parseObjectProperties(props, modelId) {
       }
 
       // ── IFC Type Properties (e.g. Ifc Beam Type, Ifc Column Type, Ifc Member Type, etc.) ──
-      const isIfcTypePSet = setNameNorm.includes("type") || setName.toLowerCase().includes("type");
+      const setNameLower = (pSet.name || "").toLowerCase();
+      const isIfcTypePSet = setNameNorm.includes("type") || setNameLower.includes("type");
       if (isIfcTypePSet) {
         if (
           propName === "name" ||
@@ -2550,7 +2558,29 @@ function parseObjectProperties(props, modelId) {
             if (!result.ifcType) result.ifcType = typeVal;
             if (!result.typeName) result.typeName = typeVal;
             if (!result.profile) result.profile = typeVal;
+
+            if (setNameLower.includes("beam")) result.ifcBeamType = typeVal;
+            if (setNameLower.includes("member")) result.ifcMemberType = typeVal;
+            if (setNameLower.includes("column")) result.ifcColumnType = typeVal;
+            if (setNameLower.includes("plate")) result.ifcPlateType = typeVal;
+            if (setNameLower.includes("fastener") || setNameLower.includes("bolt")) result.ifcFastenerType = typeVal;
           }
+        }
+      }
+
+      // Also check standalone profile / section properties across any property set
+      if (
+        propName === "profile" ||
+        propName === "profilename" ||
+        propName === "section" ||
+        propName === "section name" ||
+        propName === "crosssection" ||
+        propName === "shape"
+      ) {
+        const pVal = String(propValue || "").trim();
+        if (pVal) {
+          if (!result.profile) result.profile = pVal;
+          if (!result.ifcType) result.ifcType = pVal;
         }
       }
 
@@ -3079,17 +3109,17 @@ function parseObjectProperties(props, modelId) {
   // - assemblyPosCode  <- ASSEMBLY_POSITION_CODE only
   // Avoid cross-filling between these fields to prevent false grouping.
 
-  // Smart name resolution: If name is generic (BEAM, COLUMN, etc.) or empty, enrich with IFC type / profile
+  // Smart name resolution: If name is generic (BEAM, COLUMN, POINT, etc.) or empty, enrich with IFC type / profile
   const isGenericName = !result.name ||
-    /^(BEAM|COLUMN|MEMBER|PLATE|SLAB|WALL|OBJECT|ELEMENT|PART|CONTAINER)$/i.test(result.name.trim()) ||
+    /^(BEAM|COLUMN|MEMBER|PLATE|SLAB|WALL|OBJECT|ELEMENT|PART|CONTAINER|POINT|ITEM|COMPONENT|PIECE)$/i.test(result.name.trim()) ||
     /^IFC/i.test(result.name.trim()) ||
     /^OBJECT \d+$/i.test(result.name.trim());
 
+  const bestType = result.ifcBeamType || result.ifcMemberType || result.ifcColumnType || result.ifcPlateType || result.ifcFastenerType || result.ifcType || result.profile;
+
   if (isGenericName) {
-    if (result.ifcType) {
-      result.name = result.ifcType;
-    } else if (result.profile) {
-      result.name = result.profile;
+    if (bestType) {
+      result.name = bestType;
     } else if (result.assemblyPos) {
       result.name = result.assemblyPos;
     } else if (result.referenceName) {
@@ -3098,11 +3128,14 @@ function parseObjectProperties(props, modelId) {
   }
 
   // Combined full name (Tên + Tiết diện)
-  if (result.ifcType && result.name && result.name !== result.ifcType) {
-    result.fullName = `${result.name} [${result.ifcType}]`;
+  if (bestType && result.name && result.name !== bestType) {
+    result.fullName = `${result.name} [${bestType}]`;
   } else {
-    result.fullName = result.name || result.ifcType || `Object #${props.id}`;
+    result.fullName = result.name || bestType || `Object #${props.id}`;
   }
+
+  // Smart Name: The best engineering identifier available
+  result.smartName = bestType || result.name || result.assemblyPos || `Object #${props.id}`;
 
   // Fallback name
   if (!result.name) result.name = `Object #${props.id}`;
