@@ -339,8 +339,14 @@ export async function scanObjects() {
       }
     }
 
-    // Save model names for Excel export
+    // Save model names for Excel export and object tagging
     loadedModelNames = models.map(m => m.name || m.fileName || m.id || "").filter(n => n);
+    const modelNameMap = new Map();
+    for (const m of models) {
+      if (m && m.id) {
+        modelNameMap.set(m.id, m.name || m.fileName || m.id || "");
+      }
+    }
     console.log("[ObjectExplorer] Loaded model names:", loadedModelNames);
 
     // Strategy 1: getObjects() returns ModelObjects[] with full ObjectProperties
@@ -460,6 +466,11 @@ export async function scanObjects() {
     }
     const beforeDedup = allObjects.length;
     allObjects = Array.from(seen.values());
+    for (const obj of allObjects) {
+      if (!obj.modelName && obj.modelId) {
+        obj.modelName = modelNameMap.get(obj.modelId) || "";
+      }
+    }
     if (beforeDedup !== allObjects.length) {
       console.log(`[ObjectExplorer] Deduplicated: ${beforeDedup} → ${allObjects.length} objects (removed ${beforeDedup - allObjects.length} duplicates)`);
     }
@@ -1051,39 +1062,65 @@ export async function scanObjects() {
   }
 }
 
-// ── Fetch properties in batches (parallel) ──
+// ── Fetch properties in batches (with concurrency limit and retry) ──
 async function fetchAndParseProperties(modelId, objectIds) {
-  const BATCH_SIZE = 200;
-  const batchPromises = [];
-  for (let i = 0; i < objectIds.length; i += BATCH_SIZE) {
-    const batch = objectIds.slice(i, i + BATCH_SIZE);
-    batchPromises.push(
-      viewerRef.getObjectProperties(modelId, batch).then(propsArray => {
-        const results = [];
-        if (propsArray) {
-          for (const props of propsArray) {
-            results.push(parseObjectProperties(props, modelId));
+  const BATCH_SIZE = 100;
+  const CONCURRENCY = 4;
+  for (let i = 0; i < objectIds.length; i += BATCH_SIZE * CONCURRENCY) {
+    const chunkPromises = [];
+    for (let c = 0; c < CONCURRENCY; c++) {
+      const start = i + c * BATCH_SIZE;
+      if (start >= objectIds.length) break;
+      const batch = objectIds.slice(start, start + BATCH_SIZE);
+      chunkPromises.push(fetchSingleBatchWithRetry(modelId, batch));
+    }
+    const chunkResults = await Promise.all(chunkPromises);
+    for (const results of chunkResults) {
+      for (const obj of results) {
+        allObjects.push(obj);
+      }
+    }
+  }
+}
+
+async function fetchSingleBatchWithRetry(modelId, batch) {
+  try {
+    const propsArray = await viewerRef.getObjectProperties(modelId, batch);
+    if (propsArray && Array.isArray(propsArray)) {
+      return propsArray.map((props) => parseObjectProperties(props, modelId));
+    }
+    return [];
+  } catch (err) {
+    console.warn(`[ObjectExplorer] Batch of ${batch.length} failed, retrying in smaller chunks:`, err);
+    const subResults = [];
+    const SUB_SIZE = 25;
+    for (let s = 0; s < batch.length; s += SUB_SIZE) {
+      const subBatch = batch.slice(s, s + SUB_SIZE);
+      try {
+        const subProps = await viewerRef.getObjectProperties(modelId, subBatch);
+        if (subProps && Array.isArray(subProps)) {
+          for (const p of subProps) {
+            subResults.push(parseObjectProperties(p, modelId));
           }
         }
-        return results;
-      }).catch(e => {
-        console.warn(`[ObjectExplorer] batch failed:`, e);
-        return batch.map(objId => ({
-          id: objId, modelId, name: `Object ${objId}`,
-          assembly: "", assemblyName: "", assemblyPos: "", assemblyPosCode: "",
-          group: "", type: "", material: "",
-          volume: 0, weight: 0, area: 0, length: 0,
-          profile: "", ifcClass: "", isTekla: false, isTeklaBolt: false,
-        }));
-      })
-    );
-  }
-  // Run all batches in parallel
-  const batchResults = await Promise.all(batchPromises);
-  for (const results of batchResults) {
-    for (const obj of results) {
-      allObjects.push(obj);
+      } catch (subErr) {
+        console.warn(`[ObjectExplorer] Sub-batch of ${subBatch.length} failed:`, subErr);
+        for (const id of subBatch) {
+          subResults.push({
+            id,
+            modelId,
+            name: `Object #${id}`,
+            ifcClass: "IfcBuildingElement",
+            volume: 0,
+            weight: 0,
+            area: 0,
+            length: 0,
+            rawProperties: {},
+          });
+        }
+      }
     }
+    return subResults;
   }
 }
 
@@ -2239,6 +2276,11 @@ function parseObjectProperties(props, modelId) {
     netArea: 0,            // Net surface area (excludes openings/cuts)
     length: 0,
     profile: "",
+    ifcType: "",          // Name from Ifc Beam Type, Ifc Column Type, etc. (e.g. "HSS400X400X16")
+    typeName: "",         // Type Name
+    modelName: "",        // Loaded model / IFC file name
+    fullName: "",         // Combined Name [Type]
+    rawProperties: {},    // Flat key-value property lookup for labels & search
     referenceName: "",    // Reference / Reference Name from IFC
     productName: "",      // Product Name
     productObjectType: "", // Product Object Type
@@ -2481,6 +2523,54 @@ function parseObjectProperties(props, modelId) {
       const propName = (prop.name || "").toLowerCase();
       const propValue = prop.value;
       const propType = prop.type;
+      const rawPropName = prop.name || "";
+
+      // Store into flat rawProperties
+      if (rawPropName && propValue !== undefined && propValue !== null) {
+        result.rawProperties[rawPropName] = propValue;
+        if (pSet.name) {
+          result.rawProperties[`${pSet.name}.${rawPropName}`] = propValue;
+        }
+      }
+
+      // ── IFC Type Properties (e.g. Ifc Beam Type, Ifc Column Type, Ifc Member Type, etc.) ──
+      const isIfcTypePSet = setNameNorm.includes("type") || setName.toLowerCase().includes("type");
+      if (isIfcTypePSet) {
+        if (
+          propName === "name" ||
+          propName === "typename" ||
+          propName === "type name" ||
+          propName === "type" ||
+          propName === "profile" ||
+          propName === "profilename" ||
+          propName === "section"
+        ) {
+          const typeVal = String(propValue || "").trim();
+          if (typeVal) {
+            if (!result.ifcType) result.ifcType = typeVal;
+            if (!result.typeName) result.typeName = typeVal;
+            if (!result.profile) result.profile = typeVal;
+          }
+        }
+      }
+
+      // ── IFC Material Properties (e.g. Ifc Material, Material, Materials, Pset_MaterialCommon) ──
+      const isIfcMaterialPSet = setNameNorm.includes("material") || setName.toLowerCase().includes("material");
+      if (isIfcMaterialPSet) {
+        if (
+          propName === "material" ||
+          propName === "material name" ||
+          propName === "materials" ||
+          propName === "name" ||
+          propName === "standard" ||
+          propName === "grade"
+        ) {
+          const matVal = String(propValue || "").trim();
+          if (matVal && !result.material) {
+            result.material = matVal;
+          }
+        }
+      }
 
       // Name (if not already set from product)
       if (!result.name && (propName === "name" || propName === "tên")) {
@@ -2488,7 +2578,6 @@ function parseObjectProperties(props, modelId) {
       }
 
       // ── Assembly Properties Detection (using centralized classifier) ──
-      const rawPropName = prop.name || "";
       const asmVal = String(propValue || "").trim();
 
       if (asmVal) {
@@ -2990,8 +3079,33 @@ function parseObjectProperties(props, modelId) {
   // - assemblyPosCode  <- ASSEMBLY_POSITION_CODE only
   // Avoid cross-filling between these fields to prevent false grouping.
 
+  // Smart name resolution: If name is generic (BEAM, COLUMN, etc.) or empty, enrich with IFC type / profile
+  const isGenericName = !result.name ||
+    /^(BEAM|COLUMN|MEMBER|PLATE|SLAB|WALL|OBJECT|ELEMENT|PART|CONTAINER)$/i.test(result.name.trim()) ||
+    /^IFC/i.test(result.name.trim()) ||
+    /^OBJECT \d+$/i.test(result.name.trim());
+
+  if (isGenericName) {
+    if (result.ifcType) {
+      result.name = result.ifcType;
+    } else if (result.profile) {
+      result.name = result.profile;
+    } else if (result.assemblyPos) {
+      result.name = result.assemblyPos;
+    } else if (result.referenceName) {
+      result.name = result.referenceName;
+    }
+  }
+
+  // Combined full name (Tên + Tiết diện)
+  if (result.ifcType && result.name && result.name !== result.ifcType) {
+    result.fullName = `${result.name} [${result.ifcType}]`;
+  } else {
+    result.fullName = result.name || result.ifcType || `Object #${props.id}`;
+  }
+
   // Fallback name
-  if (!result.name) result.name = `Object ${props.id}`;
+  if (!result.name) result.name = `Object #${props.id}`;
 
   // Calculate weight from volume if not provided
   // Fixed density for all objects: 7850 kg/m³
@@ -3075,6 +3189,10 @@ function onSearchInput(e) {
           o.material.toLowerCase().includes(q) ||
           o.ifcClass.toLowerCase().includes(q) ||
           (o.profile && o.profile.toLowerCase().includes(q)) ||
+          (o.ifcType && o.ifcType.toLowerCase().includes(q)) ||
+          (o.typeName && o.typeName.toLowerCase().includes(q)) ||
+          (o.fullName && o.fullName.toLowerCase().includes(q)) ||
+          (o.modelName && o.modelName.toLowerCase().includes(q)) ||
           (o.referenceName && o.referenceName.toLowerCase().includes(q)) ||
           (o.boltStandard && o.boltStandard.toLowerCase().includes(q)) ||
           (o.boltFullName && o.boltFullName.toLowerCase().includes(q)) ||

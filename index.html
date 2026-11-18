@@ -257,22 +257,26 @@
           <div class="control-row">
             <label for="label-field-select" class="control-label">Hiển thị:</label>
             <select id="label-field-select">
+              <option value="smartName" selected>✨ Tên + Tiết diện (Smart Name)</option>
+              <option value="ifcType">🏢 IFC Type / Type Name (Beam/Column Type)</option>
+              <option value="profile">📐 Profile / Tiết diện (HSS, W, IPE...)</option>
               <option value="name">🏷️ Tên Object</option>
-              <option value="assemblyName">🏗️ Assembly Name</option>
-              <option value="assemblyPos">📍 Assembly Pos</option>
+              <option value="material">🪨 Vật liệu (STEEL, Concrete...)</option>
+              <option value="assemblyName">🏗️ Assembly Name / Mark</option>
+              <option value="assemblyPos">📍 Assembly Pos / Part Pos</option>
               <option value="assemblyPosCode">🔢 Position Code</option>
-              <option value="profile">📐 Profile Name</option>
               <option value="referenceName">📎 Reference Name</option>
               <option value="ifcClass">🧱 IFC Class</option>
-              <option value="material">🪨 Vật liệu</option>
-              <option value="weight">⚖️ Khối lượng (kg)</option>
+              <option value="weight">⚖️ Khối lượng (kg / tấn)</option>
               <option value="volume">📦 Thể tích (m³)</option>
+              <option value="length">📏 Chiều dài (mm)</option>
               <option value="type">📦 Object Type</option>
+              <option value="modelName">📁 File IFC / Model Name</option>
               <option value="revitType">🔧 Revit Type</option>
               <option value="revitFamily">🏠 Revit Family</option>
+              <option value="level">🏢 Tầng / Level</option>
               <option value="description">📝 Mô tả</option>
               <option value="tag">🔖 Tag</option>
-              <option value="group">📁 Group</option>
             </select>
           </div>
           <div class="control-row">
@@ -286,11 +290,11 @@
           <div class="control-row">
             <label class="control-label">Tối đa:</label>
             <select id="label-limit-select">
-              <option value="100">100 labels</option>
-              <option value="200">200 labels</option>
-              <option value="500" selected>500 labels</option>
+              <option value="0" selected>⚡ Tất cả (Không giới hạn - Khuyên dùng)</option>
+              <option value="500">500 labels</option>
               <option value="1000">1000 labels</option>
-              <option value="0">Tất cả (không giới hạn)</option>
+              <option value="2000">2000 labels</option>
+              <option value="5000">5000 labels</option>
             </select>
           </div>
 
@@ -419,7 +423,8 @@
                 <div class="config-item">
                   <label for="cfg-badge-mode" class="config-sublabel">Kiểu hiển thị 3D:</label>
                   <select id="cfg-badge-mode">
-                    <option value="canvasBadge" selected>🏷️ Thẻ chữ màu (Custom Badge)</option>
+                    <option value="canvasBadge" selected>🏷️ Thẻ chữ nổi bật (BIM Tag)</option>
+                    <option value="card2Line">🔖 Thẻ 2 dòng (Tên + Tiết diện/Vật liệu)</option>
                     <option value="pinMarker">📍 Ghim Pin 3D</option>
                     <option value="both">🏷️ Thẻ + Ghim</option>
                   </select>

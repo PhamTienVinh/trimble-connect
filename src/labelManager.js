@@ -23,9 +23,9 @@ import {
 let apiRef = null;
 let viewerRef = null;
 let labelsVisible = false;
-let currentLabelField = "name";
+let currentLabelField = "smartName";
 let labelScope = "all"; // "all" | "selected" | "visible"
-let labelLimit = 500; // 0 = không giới hạn
+let labelLimit = 0; // 0 = tất cả (không giới hạn)
 let labeledObjects = []; // { obj, text, position, iconId, isFallback }
 let activeIconCount = 0;
 
@@ -41,7 +41,7 @@ const DEFAULT_LABEL_CONFIG = {
   opacity: 0.95, // Độ mờ nền
   zOffset: 0.15, // Độ cao nhô lên khỏi đỉnh cấu kiện (m)
   unitScale: "auto", // "auto" | "mm" | "m"
-  badgeMode: "canvasBadge", // "canvasBadge" | "pinMarker" | "both"
+  badgeMode: "canvasBadge", // "canvasBadge" | "card2Line" | "pinMarker" | "both"
   hasShadow: true, // Bóng đổ 3D
   showIcon: true, // Hiện biểu tượng icon
   fallbackToName: true, // Tự động dùng Tên nếu trường trống
@@ -53,19 +53,24 @@ let labelConfig = { ...DEFAULT_LABEL_CONFIG };
 
 // ── Biểu tượng Icon đại diện cho từng loại trường ──
 const FIELD_ICONS = {
+  smartName: "✨",
+  ifcType: "🏢",
   name: "🏷️",
+  profile: "📐",
+  material: "🪨",
   assemblyName: "🏗️",
   assemblyPos: "📍",
   assemblyPosCode: "🔢",
-  profile: "📐",
   referenceName: "📎",
   ifcClass: "🧱",
-  material: "🪨",
   weight: "⚖️",
   volume: "📦",
+  length: "📏",
   type: "📦",
-  revitType: "🏢",
+  modelName: "📁",
+  revitType: "🔧",
   revitFamily: "🏠",
+  level: "🏢",
   description: "📝",
   tag: "🔖",
   group: "📁",
@@ -73,22 +78,26 @@ const FIELD_ICONS = {
 
 // ── Danh sách các trường hiển thị ──
 export const LABEL_FIELD_OPTIONS = [
+  { value: "smartName", label: "✨ Tên + Tiết diện (Smart Name)" },
+  { value: "ifcType", label: "🏢 IFC Type / Type Name (Beam/Column Type)" },
+  { value: "profile", label: "📐 Profile / Tiết diện (HSS, W, IPE...)" },
   { value: "name", label: "🏷️ Tên Object" },
-  { value: "assemblyName", label: "🏗️ Assembly Name" },
-  { value: "assemblyPos", label: "📍 Assembly Pos" },
+  { value: "material", label: "🪨 Vật liệu (STEEL, Concrete...)" },
+  { value: "assemblyName", label: "🏗️ Assembly Name / Mark" },
+  { value: "assemblyPos", label: "📍 Assembly Pos / Part Pos" },
   { value: "assemblyPosCode", label: "🔢 Position Code" },
-  { value: "profile", label: "📐 Profile Name" },
   { value: "referenceName", label: "📎 Reference Name" },
   { value: "ifcClass", label: "🧱 IFC Class" },
-  { value: "material", label: "🪨 Vật liệu" },
-  { value: "weight", label: "⚖️ Khối lượng (kg)" },
+  { value: "weight", label: "⚖️ Khối lượng (kg / tấn)" },
   { value: "volume", label: "📦 Thể tích (m³)" },
+  { value: "length", label: "📏 Chiều dài (mm)" },
   { value: "type", label: "📦 Object Type" },
-  { value: "revitType", label: "🏢 Revit Type" },
+  { value: "modelName", label: "📁 File IFC / Model Name" },
+  { value: "revitType", label: "🔧 Revit Type" },
   { value: "revitFamily", label: "🏠 Revit Family" },
+  { value: "level", label: "🏢 Tầng / Level" },
   { value: "description", label: "📝 Mô tả" },
   { value: "tag", label: "🔖 Tag" },
-  { value: "group", label: "📁 Group" },
 ];
 
 /**
@@ -141,11 +150,8 @@ function determineUnitScaleFactor(bboxes) {
   if (labelConfig.unitScale === "mm") return 0.001;
   if (labelConfig.unitScale === "m") return 1.0;
 
-  if (!bboxes || bboxes.length === 0) return 1.0;
-
-  // Chế độ "auto": Phân tích kích thước trung bình và cực đại của cấu kiện
-  let totalSpan = 0;
-  let count = 0;
+  // Chế độ "auto": Phân tích kích thước và tọa độ
+  let maxCoord = 0;
   let maxSpan = 0;
 
   for (const b of bboxes) {
@@ -154,23 +160,20 @@ function determineUnitScaleFactor(bboxes) {
     const spanY = Math.abs(b.max.y - b.min.y);
     const spanZ = Math.abs(b.max.z - b.min.z);
     const span = Math.max(spanX, spanY, spanZ);
-    if (span > 0) {
-      totalSpan += span;
-      count++;
-      if (span > maxSpan) maxSpan = span;
-    }
+    if (span > maxSpan) maxSpan = span;
+
+    const c = Math.max(Math.abs(b.max.x), Math.abs(b.max.y), Math.abs(b.max.z));
+    if (c > maxCoord) maxCoord = c;
   }
 
-  const avgSpan = count > 0 ? totalSpan / count : 0;
-
-  // Nếu kích thước trung bình của các cấu kiện > 25 (hoặc max > 100),
-  // chắc chắn 100% mô hình xuất ra đơn vị Milimét (mm). Cần quy đổi mm -> mét (chia 1000).
-  if (avgSpan > 25 || maxSpan > 100) {
-    console.log(`[LabelManager] Tự động phát hiện đơn vị MILIMÉT (avgSpan=${avgSpan.toFixed(1)}, maxSpan=${maxSpan.toFixed(1)}). Tỉ lệ: chia 1000.`);
+  // Nếu kích thước 1 cấu kiện > 50 (không dầm/cột nào dài > 50m trong xây dựng thông thường)
+  // hoặc tọa độ vượt quá 500 (500 mét), thì mô hình đang dùng đơn vị Milimét!
+  if (maxSpan > 50 || maxCoord > 500) {
+    console.log(`[LabelManager] Tự động phát hiện đơn vị MILIMÉT (maxCoord=${maxCoord.toFixed(1)}, maxSpan=${maxSpan.toFixed(1)}). Chuyển đổi mm -> mét (chia 1000).`);
     return 0.001;
   }
 
-  console.log(`[LabelManager] Tự động phát hiện đơn vị MÉT (avgSpan=${avgSpan.toFixed(2)}, maxSpan=${maxSpan.toFixed(2)}). Tỉ lệ: 1:1.`);
+  console.log(`[LabelManager] Tự động phát hiện đơn vị MÉT (maxCoord=${maxCoord.toFixed(2)}, maxSpan=${maxSpan.toFixed(2)}). Giữ nguyên 1:1.`);
   return 1.0;
 }
 
@@ -190,29 +193,30 @@ function hexToRgba(hex, alpha = 1.0) {
 }
 
 /**
- * Tạo icon Ghim 3D dạng Pin Marker sắc nét (Retina 2x PNG)
+ * Tạo icon Ghim 3D dạng Pin Marker sắc nét trong Square Canvas (Retina 2x PNG)
  */
 function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
   const pixelRatio = 2;
-  const w = 48 * pixelRatio;
-  const h = 64 * pixelRatio;
+  const squareSize = 128 * pixelRatio;
   const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
+  canvas.width = squareSize;
+  canvas.height = squareSize;
   const ctx = canvas.getContext("2d");
 
-  const cx = w / 2;
-  const headR = 19 * pixelRatio;
-  const cy = 23 * pixelRatio;
+  ctx.clearRect(0, 0, squareSize, squareSize);
+
+  const cx = squareSize / 2;
+  const headR = 26 * pixelRatio;
+  const cy = 34 * pixelRatio;
   const tipX = cx;
-  const tipY = h - 5 * pixelRatio;
+  const tipY = squareSize - 14 * pixelRatio;
 
   // Drop shadow
   if (labelConfig.hasShadow) {
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.5)";
-    ctx.shadowBlur = 5 * pixelRatio;
-    ctx.shadowOffsetY = 3 * pixelRatio;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+    ctx.shadowBlur = 8 * pixelRatio;
+    ctx.shadowOffsetY = 4 * pixelRatio;
   }
 
   // Pin outer path
@@ -228,94 +232,120 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
   }
 
   // White border
-  ctx.lineWidth = 2.5 * pixelRatio;
+  ctx.lineWidth = 3 * pixelRatio;
   ctx.strokeStyle = "#FFFFFF";
   ctx.stroke();
 
   // Inner white circle
   ctx.beginPath();
-  ctx.arc(cx, cy, 13 * pixelRatio, 0, Math.PI * 2);
+  ctx.arc(cx, cy, 18 * pixelRatio, 0, Math.PI * 2);
   ctx.fillStyle = "#FFFFFF";
   ctx.fill();
 
   // Symbol inside
-  ctx.font = `${Math.round(13 * pixelRatio)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.font = `${Math.round(18 * pixelRatio)}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(textSymbol, cx, cy);
 
-  return {
-    url: canvas.toDataURL("image/png"),
-    width: w,
-    height: h,
-  };
+  return canvas.toDataURL("image/png");
 }
 
 /**
  * Vẽ thẻ nhãn tùy biến lên HTML5 Canvas sắc nét (Retina 2x)
- * Trả về Data URI PNG Base64 để nhúng làm 3D Sprite trong Trimble Connect Viewer
+ * Trả về Data URI PNG Base64 trong Canvas VUÔNG (Square Canvas)
+ *
+ * QUAN TRỌNG: Trimble Connect 3D Viewer luôn áp texture lên mặt phẳng Sprite quad VUÔNG (1:1).
+ * Nếu truyền texture hình chữ nhật (ví dụ 180x40), viewer sẽ nén/kéo dãn làm chữ bị méo mó/dẹp!
+ * Bằng cách đặt Canvas là hình vuông (squareSize x squareSize) với nền trong suốt (transparent padding),
+ * thẻ nhãn ở giữa sẽ giữ NGUYÊN 100% tỉ lệ thật (aspect ratio chuẩn), chữ KHÔNG BAO GIỜ BỊ DẸP!
  */
-function createLabelBadgeCanvas(text, iconSymbol = "🏷️") {
+function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null) {
   const pixelRatio = 2; // Vẽ 2x để nhãn trên 3D không bị mờ
   const effectiveFontSize = Math.round(labelConfig.fontSize * labelConfig.scale * pixelRatio);
-
   const fontFace = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif';
 
-  // Rút gọn text nếu quá dài để tránh nhãn kéo dài vô tận trên 3D view
-  const displayStr = text.length > 32 ? text.slice(0, 30) + "…" : text;
+  // Rút gọn text nếu quá dài
+  const displayStr = text && text.length > 32 ? text.slice(0, 30) + "…" : (text || "");
+  const displaySubStr = subText && subText.length > 30 ? subText.slice(0, 28) + "…" : subText;
 
   // Dùng canvas tạm để đo chiều rộng text
   const tempCanvas = document.createElement("canvas");
   const tempCtx = tempCanvas.getContext("2d");
   tempCtx.font = `bold ${effectiveFontSize}px ${fontFace}`;
 
-  const textMetrics = tempCtx.measureText(displayStr);
-  const textWidth = Math.ceil(textMetrics.width);
+  let contentWidth = Math.ceil(tempCtx.measureText(displayStr).width);
+
+  const is2Line = Boolean(displaySubStr) && labelConfig.badgeMode === "card2Line";
+  const subFontSize = Math.round(effectiveFontSize * 0.78);
+
+  if (is2Line) {
+    tempCtx.font = `normal ${subFontSize}px ${fontFace}`;
+    const subWidth = Math.ceil(tempCtx.measureText(displaySubStr).width);
+    contentWidth = Math.max(contentWidth, subWidth);
+  }
 
   const showIcon = labelConfig.showIcon && Boolean(iconSymbol);
-  const iconWidth = showIcon ? Math.round(effectiveFontSize * 1.05) : 0;
-  const iconSpacing = showIcon ? Math.round(effectiveFontSize * 0.35) : 0;
+  const iconWidth = showIcon ? Math.round(effectiveFontSize * 1.1) : 0;
+  const iconSpacing = showIcon ? Math.round(effectiveFontSize * 0.4) : 0;
 
-  const horizPadding = Math.round(10 * labelConfig.scale * pixelRatio);
-  const vertPadding = Math.round(6 * labelConfig.scale * pixelRatio);
+  const horizPadding = Math.round(14 * labelConfig.scale * pixelRatio);
+  const vertPadding = Math.round(8 * labelConfig.scale * pixelRatio);
 
-  const badgeWidth = textWidth + iconWidth + iconSpacing + horizPadding * 2;
-  const badgeHeight = effectiveFontSize + vertPadding * 2;
+  const badgeWidth = Math.max(contentWidth + iconWidth + iconSpacing + horizPadding * 2, 80 * pixelRatio);
+  const badgeHeight = is2Line
+    ? Math.round(effectiveFontSize + subFontSize + vertPadding * 2 + 4 * pixelRatio)
+    : Math.round(effectiveFontSize + vertPadding * 2);
 
-  const shadowMargin = labelConfig.hasShadow ? Math.round(5 * pixelRatio) : 2;
-  const canvasWidth = badgeWidth + shadowMargin * 2;
-  const canvasHeight = badgeHeight + shadowMargin * 2;
+  // Kích thước đuôi kim chỉ (pointer tail)
+  const tailHeight = Math.round(9 * labelConfig.scale * pixelRatio);
+  const totalGraphicHeight = badgeHeight + tailHeight;
+
+  // TẠO CANVAS VUÔNG (Square Canvas) để tương thích 1:1 với Three.js Sprite quad của Trimble Connect
+  const shadowMargin = labelConfig.hasShadow ? Math.round(8 * pixelRatio) : 4;
+  const maxDim = Math.max(badgeWidth + shadowMargin * 2, totalGraphicHeight + shadowMargin * 2);
+  const squareSize = Math.max(256, Math.ceil(maxDim * 1.05));
 
   const canvas = document.createElement("canvas");
-  canvas.width = canvasWidth;
-  canvas.height = canvasHeight;
+  canvas.width = squareSize;
+  canvas.height = squareSize;
   const ctx = canvas.getContext("2d");
 
-  ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+  ctx.clearRect(0, 0, squareSize, squareSize);
 
-  const x = shadowMargin;
-  const y = shadowMargin;
+  // Căn thẻ vào giữa canvas vuông
+  const x = Math.round((squareSize - badgeWidth) / 2);
+  const y = Math.round((squareSize - totalGraphicHeight) / 2);
   const r = Math.min(
     Math.round(labelConfig.borderRadius * labelConfig.scale * pixelRatio),
     badgeHeight / 2
   );
 
+  const centerX = x + badgeWidth / 2;
+  const tailHalfW = Math.round(8 * labelConfig.scale * pixelRatio);
+
   // Đổ bóng 3D
   if (labelConfig.hasShadow) {
     ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
-    ctx.shadowBlur = Math.round(5 * pixelRatio);
+    ctx.shadowColor = "rgba(0, 0, 0, 0.65)";
+    ctx.shadowBlur = Math.round(8 * pixelRatio);
     ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = Math.round(2.5 * pixelRatio);
+    ctx.shadowOffsetY = Math.round(4 * pixelRatio);
   }
 
-  // Vẽ hình chữ nhật bo góc làm nền
+  // Vẽ hình chữ nhật bo góc kèm đuôi kim chỉ xuống đỉnh cấu kiện
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + badgeWidth - r, y);
   ctx.quadraticCurveTo(x + badgeWidth, y, x + badgeWidth, y + r);
   ctx.lineTo(x + badgeWidth, y + badgeHeight - r);
   ctx.quadraticCurveTo(x + badgeWidth, y + badgeHeight, x + badgeWidth - r, y + badgeHeight);
+
+  // Đuôi tam giác chỉ xuống (Anchor pointer)
+  ctx.lineTo(centerX + tailHalfW, y + badgeHeight);
+  ctx.lineTo(centerX, y + badgeHeight + tailHeight);
+  ctx.lineTo(centerX - tailHalfW, y + badgeHeight);
+
   ctx.lineTo(x + r, y + badgeHeight);
   ctx.quadraticCurveTo(x, y + badgeHeight, x, y + badgeHeight - r);
   ctx.lineTo(x, y + r);
@@ -337,6 +367,11 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️") {
     ctx.quadraticCurveTo(x + badgeWidth, y, x + badgeWidth, y + r);
     ctx.lineTo(x + badgeWidth, y + badgeHeight - r);
     ctx.quadraticCurveTo(x + badgeWidth, y + badgeHeight, x + badgeWidth - r, y + badgeHeight);
+
+    ctx.lineTo(centerX + tailHalfW, y + badgeHeight);
+    ctx.lineTo(centerX, y + badgeHeight + tailHeight);
+    ctx.lineTo(centerX - tailHalfW, y + badgeHeight);
+
     ctx.lineTo(x + r, y + badgeHeight);
     ctx.quadraticCurveTo(x, y + badgeHeight, x, y + badgeHeight - r);
     ctx.lineTo(x, y + r);
@@ -350,25 +385,43 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️") {
 
   // Tọa độ vẽ text & icon
   let drawX = x + horizPadding;
-  const baselineY = y + vertPadding + Math.round(effectiveFontSize * 0.82);
 
-  // Vẽ Icon
-  if (showIcon) {
-    ctx.font = `${Math.round(effectiveFontSize * 0.95)}px ${fontFace}`;
-    ctx.fillText(iconSymbol, drawX, baselineY);
-    drawX += iconWidth + iconSpacing;
+  if (is2Line) {
+    // ── Thẻ 2 dòng (BIM 2-Line Card) ──
+    const line1Y = y + vertPadding + Math.round(effectiveFontSize * 0.82);
+    const line2Y = line1Y + Math.round(subFontSize * 1.25);
+
+    if (showIcon) {
+      ctx.font = `${Math.round(effectiveFontSize * 1.05)}px ${fontFace}`;
+      ctx.fillText(iconSymbol, drawX, line1Y + Math.round(subFontSize * 0.35));
+      drawX += iconWidth + iconSpacing;
+    }
+
+    // Dòng 1: Tiêu đề / Tên chính (In đậm)
+    ctx.font = `bold ${effectiveFontSize}px ${fontFace}`;
+    ctx.fillStyle = labelConfig.textColor;
+    ctx.fillText(displayStr, drawX, line1Y);
+
+    // Dòng 2: Thông số phụ (Tiết diện, Vật liệu...)
+    ctx.font = `normal ${subFontSize}px ${fontFace}`;
+    ctx.fillStyle = hexToRgba(labelConfig.textColor, 0.88);
+    ctx.fillText(displaySubStr, drawX, line2Y);
+  } else {
+    // ── Thẻ 1 dòng (Pill Badge) ──
+    const baselineY = y + vertPadding + Math.round(effectiveFontSize * 0.82);
+
+    if (showIcon) {
+      ctx.font = `${Math.round(effectiveFontSize * 0.95)}px ${fontFace}`;
+      ctx.fillText(iconSymbol, drawX, baselineY);
+      drawX += iconWidth + iconSpacing;
+    }
+
+    ctx.font = `bold ${effectiveFontSize}px ${fontFace}`;
+    ctx.fillStyle = labelConfig.textColor;
+    ctx.fillText(displayStr, drawX, baselineY);
   }
 
-  // Vẽ Nội dung Text
-  ctx.font = `bold ${effectiveFontSize}px ${fontFace}`;
-  ctx.fillStyle = labelConfig.textColor;
-  ctx.fillText(displayStr, drawX, baselineY);
-
-  return {
-    url: canvas.toDataURL("image/png"),
-    width: canvasWidth,
-    height: canvasHeight,
-  };
+  return canvas.toDataURL("image/png");
 }
 
 /**
@@ -392,35 +445,6 @@ export function initLabelManager(api, viewer) {
       applyLabels();
     }
   });
-
-  // Lắng nghe tương tác click trực tiếp vào icon trên 3D Viewer
-  if (viewerRef && typeof viewerRef.on === "function") {
-    try {
-      viewerRef.on("viewer.onIconPicked", (data) => {
-        console.log("[LabelManager] 3D Icon picked:", data);
-        if (data && Array.isArray(data) && data.length > 0) {
-          const picked = data[0];
-          const pickedId = picked.id !== undefined ? picked.id : picked;
-          const found = labeledObjects.find((item) => item.iconId === pickedId);
-          if (found && found.obj && viewerRef) {
-            viewerRef.setSelection(
-              {
-                modelObjectIds: [
-                  {
-                    modelId: found.obj.modelId,
-                    objectRuntimeIds: [found.obj.id],
-                  },
-                ],
-              },
-              "set"
-            );
-          }
-        }
-      });
-    } catch (e) {
-      // Bỏ qua nếu onIconPicked không hỗ trợ trên phiên bản hiện hành
-    }
-  }
 
   // Gắn sự kiện cho các điều khiển UI & bảng tùy biến
   bindUIControls();
@@ -491,6 +515,7 @@ export async function showLabelsForObjects(objects, field) {
   for (const [modelId, modelObjects] of byModel) {
     const objectIds = modelObjects.map((o) => o.id);
     const bboxMap = new Map();
+    const posMap = new Map();
     const collectedBoxes = [];
 
     // Query bounding boxes theo từng mẩu nhỏ (BATCH 50)
@@ -500,17 +525,12 @@ export async function showLabelsForObjects(objects, field) {
       try {
         const bboxes = await viewerRef.getObjectBoundingBoxes(modelId, batchIds);
         if (bboxes && Array.isArray(bboxes)) {
-          for (let k = 0; k < bboxes.length; k++) {
-            const rawBox = bboxes[k];
+          for (const rawBox of bboxes) {
             const parsed = extractBoundingBox(rawBox);
-            if (parsed) {
+            if (parsed && rawBox && rawBox.id !== undefined && rawBox.id !== null) {
               collectedBoxes.push(parsed);
-              if (rawBox && rawBox.id !== undefined && rawBox.id !== null) {
-                bboxMap.set(rawBox.id, parsed);
-              }
-              if (k < batchIds.length) {
-                bboxMap.set(batchIds[k], parsed);
-              }
+              bboxMap.set(rawBox.id, parsed);
+              bboxMap.set(Number(rawBox.id), parsed);
             }
           }
         }
@@ -519,47 +539,72 @@ export async function showLabelsForObjects(objects, field) {
       }
     }
 
+    // Tự động tìm các cấu kiện chưa có bounding box để fallback sang getObjectPositions
+    const missingIds = objectIds.filter(
+      (id) => !bboxMap.has(id) && !bboxMap.has(Number(id))
+    );
+    if (missingIds.length > 0 && typeof viewerRef.getObjectPositions === "function") {
+      console.log(`[LabelManager] Tìm tọa độ bổ sung cho ${missingIds.length} cấu kiện qua getObjectPositions...`);
+      for (let m = 0; m < missingIds.length; m += 100) {
+        const subMissing = missingIds.slice(m, m + 100);
+        try {
+          const positions = await viewerRef.getObjectPositions(modelId, subMissing);
+          if (positions && Array.isArray(positions)) {
+            for (const p of positions) {
+              if (p && p.position && p.id !== undefined) {
+                posMap.set(p.id, p.position);
+                posMap.set(Number(p.id), p.position);
+              }
+            }
+          }
+        } catch (posErr) {
+          // Bỏ qua lỗi fallback
+        }
+      }
+    }
+
     // Tự động tính toán hệ số quy đổi đơn vị (mm -> mét)
     const unitScale = determineUnitScaleFactor(collectedBoxes);
 
     // Kích thước hiển thị icon sprite trên 3D (PointIcon.size)
-    const iconSize = Math.max(24, Math.round(54 * Number(labelConfig.scale || 1.0)));
+    const iconSize = Math.max(36, Math.round(88 * Number(labelConfig.scale || 1.0)));
 
     // Tiến hành gắn nhãn cho từng object
     for (let i = 0; i < modelObjects.length; i++) {
       const obj = modelObjects[i];
-      const bbox = bboxMap.get(obj.id);
+      const bbox = bboxMap.get(obj.id) || bboxMap.get(Number(obj.id));
+      const posFallback = posMap.get(obj.id) || posMap.get(Number(obj.id));
 
-      if (!bbox) continue; // Không tìm thấy tọa độ
+      if (!bbox && !posFallback) continue; // Không tìm thấy tọa độ
 
       // Tọa độ đã quy đổi sang mét
-      const centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
-      const centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
-      const topZ = (bbox.max.z * unitScale) + Number(labelConfig.zOffset || 0.15);
+      let centerX, centerY, topZ;
+      if (bbox) {
+        centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
+        centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
+        topZ = (bbox.max.z * unitScale) + Number(labelConfig.zOffset || 0.15);
+      } else {
+        centerX = posFallback.x * unitScale;
+        centerY = posFallback.y * unitScale;
+        topZ = (posFallback.z * unitScale) + Number(labelConfig.zOffset || 0.15);
+      }
 
-      // Lấy giá trị chuỗi hiển thị
-      const { text: labelText, isFallback } = getFormattedLabelText(obj, currentLabelField);
+      // Lấy giá trị chuỗi hiển thị & chuỗi phụ (2 dòng)
+      const { text: labelText, subText, isFallback } = getFormattedLabelText(obj, currentLabelField);
       if (!labelText) continue;
 
-      // Sinh URL icon theo chế độ hiển thị
-      let iconPathUrl;
-      let badgeW = 64;
-      let badgeH = 64;
-      if (labelConfig.badgeMode === "pinMarker") {
-        const pinRes = createPinMarkerCanvas(labelConfig.bgColor, iconSymbol);
-        iconPathUrl = pinRes.url;
-        badgeW = pinRes.width;
-        badgeH = pinRes.height;
-      } else {
-        // "canvasBadge" hoặc "both"
-        let cached = canvasCache.get(labelText);
-        if (!cached) {
-          cached = createLabelBadgeCanvas(labelText, iconSymbol);
-          canvasCache.set(labelText, cached);
+      // Sinh URL icon theo chế độ hiển thị (Square Canvas không bị dẹp)
+      const cacheKey = `${labelText}__${subText || ""}__${labelConfig.badgeMode}__${labelConfig.bgColor}__${labelConfig.scale}`;
+      let iconPathUrl = canvasCache.get(cacheKey);
+
+      if (!iconPathUrl) {
+        if (labelConfig.badgeMode === "pinMarker") {
+          iconPathUrl = createPinMarkerCanvas(labelConfig.bgColor, iconSymbol);
+        } else {
+          // "canvasBadge" hoặc "card2Line" hoặc "both"
+          iconPathUrl = createLabelBadgeCanvas(labelText, iconSymbol, subText);
         }
-        iconPathUrl = cached.url;
-        badgeW = cached.width;
-        badgeH = cached.height;
+        canvasCache.set(cacheKey, iconPathUrl);
       }
 
       // PointIcon ID BẮT BUỘC là NUMBER trong Trimble Connect API
@@ -569,8 +614,6 @@ export async function showLabelsForObjects(objects, field) {
         id: numericId, // Phải là Number!
         iconPath: iconPathUrl, // Thuộc tính chuẩn của PointIcon!
         size: iconSize, // Kích thước icon (Number)
-        width: Math.round(badgeW / 2),
-        height: Math.round(badgeH / 2),
         position: { x: centerX, y: centerY, z: topZ }, // Tọa độ (m)
         // Các thuộc tính phụ trợ tương thích chéo:
         icon: iconPathUrl,
@@ -584,6 +627,7 @@ export async function showLabelsForObjects(objects, field) {
       successfulLabeled.push({
         obj,
         text: labelText,
+        subText,
         position: pointIcon.position,
         iconId: numericId,
         isFallback,
@@ -627,7 +671,7 @@ export async function showLabelsForObjects(objects, field) {
     }
 
     console.log(`[LabelManager] ✓ Đã gắn ${addedCount} thẻ label 3D (Field: ${currentLabelField})`);
-    updateUIState(labeledObjects.length);
+    updateUIState(labeledObjects.length, null, targetObjects.length);
   } else {
     labelsVisible = false;
     labeledObjects = [];
@@ -708,49 +752,89 @@ export async function applyLabels() {
 }
 
 /**
- * Định dạng giá trị hiển thị trên thẻ label kèm cơ chế fallback
+ * Định dạng giá trị hiển thị trên thẻ label kèm cơ chế fallback thông minh
  */
 function getFormattedLabelText(obj, field) {
-  if (!obj) return { text: null, isFallback: false };
+  if (!obj) return { text: null, subText: null, isFallback: false };
 
   let val = null;
+  let sub = null;
 
   switch (field) {
+    case "smartName": {
+      if (obj.fullName) val = obj.fullName;
+      else if (obj.name && obj.ifcType && obj.name !== obj.ifcType) val = `${obj.name} [${obj.ifcType}]`;
+      else val = obj.name || obj.ifcType || obj.profile;
+      sub = obj.material || obj.assemblyPos || obj.profile || "";
+      break;
+    }
+    case "ifcType": {
+      val = obj.ifcType || obj.typeName || obj.type || obj.profile;
+      sub = obj.material || obj.name || "";
+      break;
+    }
+    case "profile": {
+      val = obj.profile || obj.ifcType;
+      sub = obj.material || obj.name || "";
+      break;
+    }
+    case "name": {
+      val = obj.name;
+      sub = obj.ifcType || obj.profile || obj.material || "";
+      break;
+    }
+    case "material": {
+      val = obj.material;
+      sub = obj.ifcType || obj.name || obj.profile || "";
+      break;
+    }
+    case "modelName": {
+      val = obj.modelName || obj.fileName;
+      sub = obj.name || obj.ifcType || "";
+      break;
+    }
     case "weight": {
       const w = obj.weight || obj.netWeight || obj.grossWeight || 0;
       if (w > 0) {
-        val = w >= 1000 ? `${(w / 1000).toFixed(2)} t` : `${w.toFixed(1)} kg`;
+        val = w >= 1000 ? `${(w / 1000).toFixed(2)} tấn` : `${w.toFixed(1)} kg`;
       }
+      sub = obj.name || obj.ifcType || "";
       break;
     }
     case "volume": {
       const v = obj.volume || obj.netVolume || obj.grossVolume || 0;
       if (v > 0) val = `${v.toFixed(3)} m³`;
+      sub = obj.name || obj.ifcType || "";
       break;
     }
     case "area": {
       const a = obj.area || obj.grossArea || obj.netArea || 0;
       if (a > 0) val = `${a.toFixed(2)} m²`;
+      sub = obj.name || obj.ifcType || "";
       break;
     }
     case "length": {
       const l = obj.length || 0;
       if (l > 0) val = `${Math.round(l * 1000)} mm`;
+      sub = obj.name || obj.ifcType || "";
       break;
     }
     case "assemblyName": {
       const v = obj.assemblyName || obj.assembly;
       if (v && v !== "(Không xác định)") val = String(v);
+      sub = obj.assemblyPos || obj.name || "";
       break;
     }
     case "assemblyPos": {
       const v = obj.assemblyPos;
       if (v && v !== "(Không xác định)") val = String(v);
+      sub = obj.assemblyName || obj.name || "";
       break;
     }
     case "assemblyPosCode": {
       const v = obj.assemblyPosCode;
       if (v && v !== "(Không xác định)") val = String(v);
+      sub = obj.assemblyName || obj.name || "";
       break;
     }
     default: {
@@ -758,22 +842,37 @@ function getFormattedLabelText(obj, field) {
       if (v !== undefined && v !== null && v !== "" && v !== "(Không xác định)") {
         val = String(v);
       }
+      sub = obj.name || obj.ifcType || "";
       break;
     }
   }
 
   // Nếu có giá trị thực
-  if (val) {
-    return { text: val, isFallback: false };
+  if (val && String(val).trim() && val !== "(Không xác định)") {
+    return {
+      text: String(val).trim(),
+      subText: sub && String(sub).trim() && sub !== "(Không xác định)" ? String(sub).trim() : null,
+      isFallback: false,
+    };
   }
 
   // Cơ chế Fallback: Nếu trường trống và bật fallbackToName
   if (labelConfig.fallbackToName) {
-    const fallbackVal = obj.name || (obj.ifcClass ? `${obj.ifcClass} #${obj.id}` : `Object #${obj.id}`);
-    return { text: fallbackVal, isFallback: true };
+    const fallbackVal =
+      obj.ifcType ||
+      obj.name ||
+      obj.profile ||
+      obj.assemblyPos ||
+      (obj.ifcClass ? `${obj.ifcClass} #${obj.id}` : `Object #${obj.id}`);
+    const fallbackSub = obj.material || obj.profile || "";
+    return {
+      text: String(fallbackVal).trim(),
+      subText: fallbackSub && String(fallbackSub).trim() ? String(fallbackSub).trim() : null,
+      isFallback: true,
+    };
   }
 
-  return { text: null, isFallback: false };
+  return { text: null, subText: null, isFallback: false };
 }
 
 /**
@@ -782,11 +881,13 @@ function getFormattedLabelText(obj, field) {
 function buildTooltipText(obj) {
   const parts = [];
   if (obj.name) parts.push(`Tên: ${obj.name}`);
+  if (obj.ifcType) parts.push(`Type: ${obj.ifcType}`);
+  if (obj.profile) parts.push(`Profile: ${obj.profile}`);
+  if (obj.material) parts.push(`Vật liệu: ${obj.material}`);
   if (obj.assemblyName) parts.push(`Assembly: ${obj.assemblyName}`);
   if (obj.assemblyPos) parts.push(`Pos: ${obj.assemblyPos}`);
-  if (obj.profile) parts.push(`Profile: ${obj.profile}`);
   if (obj.ifcClass) parts.push(`IFC: ${obj.ifcClass}`);
-  if (obj.material) parts.push(`Vật liệu: ${obj.material}`);
+  if (obj.modelName) parts.push(`File: ${obj.modelName}`);
 
   const w = obj.weight || obj.netWeight || 0;
   if (w > 0) {
@@ -806,9 +907,45 @@ function updateLivePreview() {
 
   if (!sampleBadge) return;
 
-  const fieldOpt = LABEL_FIELD_OPTIONS.find((o) => o.value === currentLabelField);
   const iconSymbol = FIELD_ICONS[currentLabelField] || "🏷️";
-  const sampleLabelText = fieldOpt ? `Mẫu: ${fieldOpt.label.split(" ")[1] || "Cấu kiện"}` : "Mẫu Nhãn Cấu Kiện";
+  let sampleMain = "Mẫu Cấu Kiện";
+  let sampleSub = "STEEL/A572-GR.50";
+
+  switch (currentLabelField) {
+    case "smartName":
+      sampleMain = "BEAM [HSS400X400X16]";
+      sampleSub = "STEEL/A572-GR.50";
+      break;
+    case "ifcType":
+      sampleMain = "HSS400X400X16";
+      sampleSub = "STEEL/A572-GR.50";
+      break;
+    case "profile":
+      sampleMain = "HSS400X400X16";
+      sampleSub = "STEEL/A572-GR.50";
+      break;
+    case "material":
+      sampleMain = "STEEL/A572-GR.50";
+      sampleSub = "HSS400X400X16";
+      break;
+    case "name":
+      sampleMain = "BEAM #105";
+      sampleSub = "HSS400X400X16";
+      break;
+    case "assemblyName":
+      sampleMain = "B101";
+      sampleSub = "ASSEMBLY_B101";
+      break;
+    case "weight":
+      sampleMain = "1.45 tấn";
+      sampleSub = "BEAM [HSS400]";
+      break;
+    default: {
+      const fieldOpt = LABEL_FIELD_OPTIONS.find((o) => o.value === currentLabelField);
+      sampleMain = fieldOpt ? `Mẫu: ${fieldOpt.label.split(" ")[1] || "Cấu kiện"}` : "Mẫu Nhãn Cấu Kiện";
+      break;
+    }
+  }
 
   if (sampleIcon) {
     sampleIcon.textContent = iconSymbol;
@@ -816,7 +953,11 @@ function updateLivePreview() {
   }
 
   if (sampleText) {
-    sampleText.textContent = sampleLabelText;
+    if (labelConfig.badgeMode === "card2Line") {
+      sampleText.innerHTML = `<span style="font-weight:bold;">${escapeHtml(sampleMain)}</span><br><span style="font-size:0.8em;opacity:0.85;">${escapeHtml(sampleSub)}</span>`;
+    } else {
+      sampleText.textContent = sampleMain;
+    }
   }
 
   sampleBadge.style.backgroundColor = hexToRgba(labelConfig.bgColor, labelConfig.opacity);
@@ -1137,7 +1278,7 @@ function bindUIControls() {
 /**
  * Cập nhật thanh trạng thái giao diện
  */
-function updateUIState(count = 0, customMessage = null) {
+function updateUIState(count = 0, customMessage = null, totalAvailable = 0) {
   const statusIcon = document.getElementById("label-status-icon");
   const statusText = document.getElementById("label-status-text");
   const statsRow = document.getElementById("label-stats-row");
@@ -1152,7 +1293,13 @@ function updateUIState(count = 0, customMessage = null) {
 
   if (labelsVisible && count > 0) {
     if (statusIcon) statusIcon.textContent = "🟢";
-    if (statusText) statusText.textContent = `Đang hiển thị trên 3D: ${fieldTitle}`;
+    if (statusText) {
+      if (labelLimit > 0 && totalAvailable > labelLimit) {
+        statusText.textContent = `Đang hiển thị ${count} / ${totalAvailable} (${fieldTitle}). ⚠️ Chọn "Tất cả" ở mục Tối đa để hiện đủ 100%!`;
+      } else {
+        statusText.textContent = `Đang hiển thị trên 3D: ${fieldTitle} (${count} cấu kiện)`;
+      }
+    }
     if (statsRow) statsRow.style.display = "flex";
     if (countDisplay) countDisplay.textContent = `${count} labels`;
     if (fieldDisplay) fieldDisplay.textContent = fieldTitle;
@@ -1199,12 +1346,13 @@ function renderPreviewList() {
   let html = "";
   labeledObjects.slice(0, 150).forEach((item, idx) => {
     const obj = item.obj;
-    const name = obj.name || `Object #${obj.id}`;
+    const name = obj.fullName || obj.name || (obj.ifcType ? `${obj.ifcType}` : `Object #${obj.id}`);
     const val = item.text;
+    const sub = item.subText;
     const modelId = obj.modelId;
     const id = obj.id;
     const fallbackBadge = item.isFallback
-      ? '<span class="label-fallback-indicator" title="Giá trị tự động thay thế bằng Tên cấu kiện do trường được chọn bị trống">Tên</span>'
+      ? '<span class="label-fallback-indicator" title="Giá trị tự động thay thế bằng Tên/Type cấu kiện do trường được chọn bị trống">Tên</span>'
       : "";
 
     html += `
@@ -1212,7 +1360,7 @@ function renderPreviewList() {
         <span class="label-preview-num">${idx + 1}</span>
         <div class="label-preview-info">
           <div class="label-preview-title">${escapeHtml(name)}</div>
-          <div class="label-preview-sub">ID: ${id} | ${escapeHtml(obj.ifcClass || "IFC")}</div>
+          <div class="label-preview-sub">ID: ${id} | ${escapeHtml(obj.ifcClass || "IFC")}${sub ? " | " + escapeHtml(sub) : ""}</div>
         </div>
         <div class="label-preview-right">
           ${fallbackBadge}
