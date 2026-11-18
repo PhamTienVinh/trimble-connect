@@ -322,7 +322,7 @@ export function getAssemblyContainers() {
 
 // ── Object Scanning ──
 export async function scanObjects() {
-  showLoading(true);
+  showLoading(true, "Đang kết nối mô hình 3D...");
   allObjects = [];
 
   try {
@@ -348,6 +348,8 @@ export async function scanObjects() {
       }
     }
     console.log("[ObjectExplorer] Loaded model names:", loadedModelNames);
+
+    showLoading(true, "Đang đọc danh sách cấu kiện từ viewer...");
 
     // Strategy 1: getObjects() returns ModelObjects[] with full ObjectProperties
     let modelObjectsList = [];
@@ -1062,10 +1064,13 @@ export async function scanObjects() {
   }
 }
 
-// ── Fetch properties in batches (with concurrency limit and retry) ──
+// ── Fetch properties in batches (with adaptive batching, concurrency limit, and live progress) ──
 async function fetchAndParseProperties(modelId, objectIds) {
-  const BATCH_SIZE = 100;
+  const isLargeModel = objectIds.length > 5000;
+  const BATCH_SIZE = isLargeModel ? 250 : 150;
   const CONCURRENCY = 4;
+  let processed = 0;
+
   for (let i = 0; i < objectIds.length; i += BATCH_SIZE * CONCURRENCY) {
     const chunkPromises = [];
     for (let c = 0; c < CONCURRENCY; c++) {
@@ -1080,6 +1085,13 @@ async function fetchAndParseProperties(modelId, objectIds) {
         allObjects.push(obj);
       }
     }
+
+    processed = Math.min(i + BATCH_SIZE * CONCURRENCY, objectIds.length);
+    const pct = Math.round((processed / objectIds.length) * 100);
+    showLoading(true, `Đang quét mô hình: ${processed.toLocaleString()} / ${objectIds.length.toLocaleString()} cấu kiện (${pct}%)...`);
+    
+    // Nhường quyền cho browser event loop để UI không bị đơ và giải phóng bộ nhớ tạm
+    await new Promise((r) => setTimeout(r, 0));
   }
 }
 
@@ -1093,7 +1105,7 @@ async function fetchSingleBatchWithRetry(modelId, batch) {
   } catch (err) {
     console.warn(`[ObjectExplorer] Batch of ${batch.length} failed, retrying in smaller chunks:`, err);
     const subResults = [];
-    const SUB_SIZE = 25;
+    const SUB_SIZE = 50;
     for (let s = 0; s < batch.length; s += SUB_SIZE) {
       const subBatch = batch.slice(s, s + SUB_SIZE);
       try {
@@ -2532,11 +2544,11 @@ function parseObjectProperties(props, modelId) {
       const propType = prop.type;
       const rawPropName = prop.name || "";
 
-      // Store into flat rawProperties
-      if (rawPropName && propValue !== undefined && propValue !== null) {
-        result.rawProperties[rawPropName] = propValue;
-        if (pSet.name) {
-          result.rawProperties[`${pSet.name}.${rawPropName}`] = propValue;
+      // Store into flat rawProperties (tiết kiệm bộ nhớ cho mô hình lớn 50,000 objects)
+      if (rawPropName && propValue !== undefined && propValue !== null && propValue !== "") {
+        const strVal = String(propValue);
+        if (strVal.length < 150) {
+          result.rawProperties[rawPropName] = propValue;
         }
       }
 
@@ -5126,10 +5138,18 @@ function updateSummary() {
 
 
 
-function showLoading(show) {
-  document.getElementById("loading-overlay").style.display = show
-    ? "flex"
-    : "none";
+function showLoading(show, message = null) {
+  const overlay = document.getElementById("loading-overlay");
+  if (!overlay) return;
+  overlay.style.display = show ? "flex" : "none";
+  const p = overlay.querySelector("p");
+  if (p) {
+    if (message) {
+      p.textContent = message;
+    } else if (!show) {
+      p.textContent = "Đang quét objects...";
+    }
+  }
 }
 
 function showPlaceholder() {

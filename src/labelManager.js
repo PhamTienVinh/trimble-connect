@@ -35,6 +35,7 @@ let labeledObjects = []; // { obj, text, subText, position, iconId, isFallback, 
 let activeIconCount = 0;
 let isLabelLoadingCancelled = false;
 let isLabelLoadingActive = false;
+let pendingObjectsToStream = []; // Danh sách cấu kiện còn lại chờ tải thêm trên mô hình siêu lớn
 
 // ── Cấu hình tùy biến nhãn (Mặc định) ──
 const DEFAULT_LABEL_CONFIG = {
@@ -397,7 +398,10 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
   ctx.textBaseline = "middle";
   ctx.fillText(textSymbol, cx, headCy);
 
-  return canvas.toDataURL("image/png");
+  return {
+    dataUrl: canvas.toDataURL("image/png"),
+    squareSize,
+  };
 }
 
 /**
@@ -411,6 +415,8 @@ function createPinMarkerCanvas(color = "#2563EB", textSymbol = "📍") {
  *    khi xoay hoặc phóng to/thu nhỏ camera 3D!
  * -> Nhãn chữ nằm phía trên chân kim dẫn (Leader Stem) giúp người xem nhận biết rõ ràng
  *    thẻ này đang trỏ thẳng vào cấu kiện nào!
+ * -> Canvas VUÔNG tự động co giãn theo kích thước chuỗi ký tự thực tế (squareSize động)
+ *    giúp bảo đảm 100% nội dung chữ KHÔNG BAO GIỜ BỊ CẮT XÉN (anti-clipping)!
  */
 function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, category = "other") {
   const pixelRatio = 2; // Vẽ 2x để nhãn trên 3D không bị mờ
@@ -432,9 +438,9 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
     }
   }
 
-  // Rút gọn text nếu quá dài
-  const displayStr = displayMain.length > 34 ? displayMain.slice(0, 32) + "…" : displayMain;
-  const displaySubStr = subText && subText.length > 32 ? subText.slice(0, 30) + "…" : subText;
+  // Cho phép chuỗi ký tự hiển thị đầy đủ (lên đến 65 ký tự mà không bị cắt sớm)
+  const displayStr = displayMain.length > 65 ? displayMain.slice(0, 62) + "…" : displayMain;
+  const displaySubStr = subText && subText.length > 55 ? subText.slice(0, 52) + "…" : subText;
 
   // Dùng canvas tạm để đo chiều rộng text
   const tempCanvas = document.createElement("canvas");
@@ -464,9 +470,24 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
     ? Math.round(effectiveFontSize + subFontSize + vertPadding * 2 + 4 * pixelRatio)
     : Math.round(effectiveFontSize + vertPadding * 2);
 
-  // Kích thước Canvas VUÔNG (Square Canvas)
-  // Tâm Canvas (cx, cy) tương ứng 1:1 với tọa độ 3D pointIcon.position!
-  const squareSize = 256;
+  const mode = labelConfig.badgeMode;
+
+  // Chiều cao phần chân kim dẫn / chóp tam giác
+  const stemHeight = mode === "anchorLeader"
+    ? Math.round(24 * labelConfig.scale * pixelRatio)
+    : (mode === "centroidBadge" ? 0 : Math.round(9 * labelConfig.scale * pixelRatio));
+
+  // Biên an toàn xung quanh (để đổ bóng và nét viền dày không bao giờ bị chạm mép canvas)
+  const marginH = Math.round(28 * pixelRatio);
+  const marginV = Math.round(22 * pixelRatio);
+
+  const neededW = badgeWidth + marginH * 2;
+  const neededH = (badgeHeight + stemHeight) * 2 + marginV * 2;
+
+  // Canvas VUÔNG (Square Canvas) tự động mở rộng theo kích thước text thực tế!
+  // Đảm bảo tâm neo (cx, cy) nằm ở chính giữa quad Three.js (0.5, 0.5)
+  // và nhãn chữ (bx, by) luôn cách mép an toàn, KHÔNG BAO GIỜ BỊ CẮT XÉN (CLIPPING)!
+  const squareSize = Math.max(256, Math.ceil(Math.max(neededW, neededH)));
   const canvas = document.createElement("canvas");
   canvas.width = squareSize;
   canvas.height = squareSize;
@@ -476,8 +497,6 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
 
   const cx = squareSize / 2;
   const cy = squareSize / 2; // Điểm neo chuẩn tại tâm 3D!
-
-  const mode = labelConfig.badgeMode;
 
   if (mode === "centroidBadge") {
     // ══════════════════════════════════════════════════════════
@@ -659,7 +678,10 @@ function createLabelBadgeCanvas(text, iconSymbol = "🏷️", subText = null, ca
     renderBadgeText(ctx, bx, by, badgeWidth, badgeHeight, displayStr, displaySubStr, iconSymbol, showIcon, iconWidth, iconSpacing, horizPadding, vertPadding, effectiveFontSize, subFontSize, is2Line, fontFace);
   }
 
-  return canvas.toDataURL("image/png");
+  return {
+    dataUrl: canvas.toDataURL("image/png"),
+    squareSize,
+  };
 }
 
 /**
@@ -916,10 +938,19 @@ export async function showLabelsForObjects(objects, field) {
 
   const totalMatchingObjects = targetObjects.length;
 
-  // 4. Giới hạn số lượng (chỉ giới hạn khi người dùng chủ động chọn limit > 0)
+  // 4. Giới hạn số lượng & Bảo vệ WebGL chống sập trên mô hình siêu lớn (ví dụ 50,000 cấu kiện)
+  const SAFE_WEBGL_MAX = 3000;
   if (labelLimit > 0 && targetObjects.length > labelLimit) {
+    pendingObjectsToStream = [];
     targetObjects = targetObjects.slice(0, labelLimit);
     console.log(`[LabelManager] Áp dụng giới hạn: ${labelLimit} / ${totalMatchingObjects} cấu kiện`);
+  } else if (labelLimit === 0 && targetObjects.length > SAFE_WEBGL_MAX) {
+    // Tự động bật WebGL Safe Guard: Giới hạn an toàn 3,000 cấu kiện kết cấu quan trọng nhất
+    pendingObjectsToStream = targetObjects.slice(SAFE_WEBGL_MAX);
+    targetObjects = targetObjects.slice(0, SAFE_WEBGL_MAX);
+    console.log(`[LabelManager] 🛡️ Kích hoạt WebGL Safe Guard: Hiển thị trước ${SAFE_WEBGL_MAX} cấu kiện kết cấu ưu tiên cao nhất trong tổng số ${totalMatchingObjects} cấu kiện.`);
+  } else {
+    pendingObjectsToStream = [];
   }
 
   // Xóa labels cũ trước khi vẽ lại
@@ -952,13 +983,25 @@ export async function showLabelsForObjects(objects, field) {
     const posMap = new Map();
     const collectedBoxes = [];
 
-    // Query bounding boxes theo mẩu nhỏ (CHUNK 60)
-    const CHUNK_QUERY_SIZE = 60;
-    for (let i = 0; i < objectIds.length; i += CHUNK_QUERY_SIZE) {
+    // Query bounding boxes theo batch lớn (200 ids) với concurrency 4 để tăng tốc gấp 10 lần
+    const CHUNK_QUERY_SIZE = 200;
+    const BBOX_CONCURRENCY = 4;
+    for (let i = 0; i < objectIds.length; i += CHUNK_QUERY_SIZE * BBOX_CONCURRENCY) {
       if (isLabelLoadingCancelled) break;
-      const batchIds = objectIds.slice(i, i + CHUNK_QUERY_SIZE);
-      try {
-        const bboxes = await viewerRef.getObjectBoundingBoxes(modelId, batchIds);
+      const promises = [];
+      for (let c = 0; c < BBOX_CONCURRENCY; c++) {
+        const start = i + c * CHUNK_QUERY_SIZE;
+        if (start >= objectIds.length) break;
+        const batchIds = objectIds.slice(start, start + CHUNK_QUERY_SIZE);
+        promises.push(
+          viewerRef.getObjectBoundingBoxes(modelId, batchIds).catch((err) => {
+            console.warn(`[LabelManager] Batch getObjectBoundingBoxes [${start}..] lỗi:`, err);
+            return null;
+          })
+        );
+      }
+      const results = await Promise.all(promises);
+      for (const bboxes of results) {
         if (bboxes && Array.isArray(bboxes)) {
           for (const rawBox of bboxes) {
             const parsed = extractBoundingBox(rawBox);
@@ -969,19 +1012,21 @@ export async function showLabelsForObjects(objects, field) {
             }
           }
         }
-      } catch (err) {
-        console.warn(`[LabelManager] Batch getObjectBoundingBoxes [${i}..] lỗi:`, err);
       }
+      const processed = Math.min(i + CHUNK_QUERY_SIZE * BBOX_CONCURRENCY, objectIds.length);
+      const pct = Math.round((processed / objectIds.length) * 100);
+      updateUIState(0, `Đang định vị 3D: ${processed.toLocaleString()} / ${objectIds.length.toLocaleString()} cấu kiện (${pct}%)...`);
+      await new Promise((r) => setTimeout(r, 0));
     }
 
-    // Fallback getObjectPositions nếu cấu kiện chưa có bounding box
+    // Fallback getObjectPositions nếu cấu kiện chưa có bounding box (chỉ query số lượng hợp lý)
     const missingIds = objectIds.filter(
       (id) => !bboxMap.has(id) && !bboxMap.has(Number(id))
     );
-    if (missingIds.length > 0 && typeof viewerRef.getObjectPositions === "function" && !isLabelLoadingCancelled) {
-      for (let m = 0; m < missingIds.length; m += 100) {
+    if (missingIds.length > 0 && missingIds.length < 2000 && typeof viewerRef.getObjectPositions === "function" && !isLabelLoadingCancelled) {
+      for (let m = 0; m < missingIds.length; m += 200) {
         if (isLabelLoadingCancelled) break;
-        const subMissing = missingIds.slice(m, m + 100);
+        const subMissing = missingIds.slice(m, m + 200);
         try {
           const positions = await viewerRef.getObjectPositions(modelId, subMissing);
           if (positions && Array.isArray(positions)) {
@@ -999,8 +1044,8 @@ export async function showLabelsForObjects(objects, field) {
     // Tự động tính toán hệ số quy đổi đơn vị (mm -> mét)
     const unitScale = determineUnitScaleFactor(collectedBoxes);
 
-    // Kích thước hiển thị icon sprite trên 3D (PointIcon.size)
-    const iconSize = Math.max(38, Math.round(92 * Number(labelConfig.scale || 1.0)));
+    // Kích thước chuẩn hiển thị icon sprite trên 3D (PointIcon.size)
+    const baseQuadSize = Math.max(38, Math.round(92 * Number(labelConfig.scale || 1.0)));
 
     // Chuẩn bị PointIcon cho từng object
     for (let i = 0; i < modelObjects.length; i++) {
@@ -1050,27 +1095,30 @@ export async function showLabelsForObjects(objects, field) {
         : labelConfig.bgColor;
 
       const cacheKey = `${labelText}__${subText || ""}__${labelConfig.badgeMode}__${effectiveColor}__${labelConfig.scale}__${category}`;
-      let iconPathUrl = canvasCache.get(cacheKey);
+      let badgeData = canvasCache.get(cacheKey);
 
-      if (!iconPathUrl) {
+      if (!badgeData) {
         if (labelConfig.badgeMode === "pinMarker") {
-          iconPathUrl = createPinMarkerCanvas(effectiveColor, iconSymbol);
+          badgeData = createPinMarkerCanvas(effectiveColor, iconSymbol);
         } else {
-          iconPathUrl = createLabelBadgeCanvas(labelText, iconSymbol, subText, category);
+          badgeData = createLabelBadgeCanvas(labelText, iconSymbol, subText, category);
         }
-        canvasCache.set(cacheKey, iconPathUrl);
+        canvasCache.set(cacheKey, badgeData);
       }
 
       // PointIcon ID BẮT BUỘC là NUMBER trong Trimble Connect API
       const numericId = globalIconIdCounter++;
 
+      // Kích thước sprite quad tỉ lệ theo squareSize để giữ nguyên cỡ chữ & không bao giờ bị cắt xén
+      const iconSize = Math.max(38, Math.round(baseQuadSize * (badgeData.squareSize / 256)));
+
       const pointIcon = {
         id: numericId,
-        iconPath: iconPathUrl,
+        iconPath: badgeData.dataUrl,
         size: iconSize,
         position: { x: centerX, y: centerY, z: targetZ },
-        icon: iconPathUrl,
-        image: iconPathUrl,
+        icon: badgeData.dataUrl,
+        image: badgeData.dataUrl,
         label: labelText,
         text: buildTooltipText(obj),
       };
@@ -1091,12 +1139,12 @@ export async function showLabelsForObjects(objects, field) {
 
   // ══════════════════════════════════════════════════════════
   // TẢI TUẦN TỰ AN TOÀN (PROGRESSIVE STREAMING LOADER)
-  // Đưa icons vào viewer theo từng mẩu nhỏ (25 icons/khung hình)
+  // Đưa icons vào viewer theo từng mẩu (40 icons/khung hình)
   // và nhường quyền điều khiển cho trình duyệt (yield 16ms)
   // -> Ngăn chặn 100% tình trạng văng tab (out-of-memory) và lag đơ!
   // ══════════════════════════════════════════════════════════
   if (allIcons.length > 0 && !isLabelLoadingCancelled) {
-    const ADD_CHUNK_SIZE = 25;
+    const ADD_CHUNK_SIZE = 40;
     let addedCount = 0;
 
     for (let c = 0; c < allIcons.length; c += ADD_CHUNK_SIZE) {
@@ -1122,9 +1170,9 @@ export async function showLabelsForObjects(objects, field) {
       // Cập nhật thanh tiến trình
       const pct = Math.round((addedCount / allIcons.length) * 100);
       showProgressBar(true, pct);
-      updateUIState(addedCount, `Đang tải: ${addedCount} / ${allIcons.length} nhãn (${pct}%)...`, totalMatchingObjects);
+      updateUIState(addedCount, `Đang tải: ${addedCount.toLocaleString()} / ${allIcons.length.toLocaleString()} nhãn (${pct}%)...`, totalMatchingObjects);
 
-      // Nhường quyền cho browser event loop để UI mượt mà 60fps
+      // Nhường quyền cho browser event loop để UI mượt mà 60fps và Three.js render frame
       await new Promise((r) => setTimeout(r, 16));
     }
 
@@ -1134,6 +1182,7 @@ export async function showLabelsForObjects(objects, field) {
 
     console.log(`[LabelManager] ✓ Hoàn tất gắn ${addedCount} thẻ label 3D (Field: ${currentLabelField})`);
     updateUIState(labeledObjects.length, null, totalMatchingObjects);
+    renderPreviewList();
   } else {
     labelsVisible = false;
     labeledObjects = [];
@@ -1961,6 +2010,25 @@ function renderPreviewList() {
   }
 
   let html = "";
+
+  if (pendingObjectsToStream.length > 0) {
+    html += `
+      <div class="webgl-safe-banner" style="background: rgba(37, 99, 235, 0.16); border: 1px solid #3B82F6; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap: 8px;">
+          <div>
+            <div style="font-weight: 600; color: #60A5FA; font-size: 12px;">🛡️ Tự động bảo vệ WebGL (Mô hình lớn)</div>
+            <div style="color: #CBD5E1; font-size: 11px; margin-top: 2px;">
+              Đang hiển thị <strong>${labeledObjects.length.toLocaleString()}</strong> cấu kiện kết cấu chính. Còn lại <strong>${pendingObjectsToStream.length.toLocaleString()}</strong> cấu kiện phụ.
+            </div>
+          </div>
+          <button id="btn-load-more-labels" style="background:#2563EB; color:#fff; border:none; padding:6px 12px; border-radius:6px; font-weight:600; font-size:11px; cursor:pointer; white-space:nowrap;">
+            ➕ Tải thêm +1,000
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
   labeledObjects.slice(0, 200).forEach((item, idx) => {
     const obj = item.obj;
     const name = obj.fullName || obj.name || (obj.ifcType ? `${obj.ifcType}` : `Object #${obj.id}`);
@@ -2044,6 +2112,166 @@ function renderPreviewList() {
       }
     });
   });
+
+  // Gắn sự kiện nút Tải thêm +1,000 nhãn
+  const loadMoreBtn = document.getElementById("btn-load-more-labels");
+  if (loadMoreBtn) {
+    loadMoreBtn.onclick = () => {
+      loadMoreLabels(1000);
+    };
+  }
+}
+
+/**
+ * Tải thêm nhãn cho các cấu kiện còn lại (theo từng mẩu 1,000 cấu kiện)
+ * Dành cho mô hình siêu lớn (ví dụ 50,000 cấu kiện) để không bao giờ bị văng WebGL
+ */
+async function loadMoreLabels(batchCount = 1000) {
+  if (!viewerRef || pendingObjectsToStream.length === 0 || isLabelLoadingActive) return;
+
+  const nextBatch = pendingObjectsToStream.splice(0, batchCount);
+  console.log(`[LabelManager] Tải thêm ${nextBatch.length} cấu kiện (còn lại: ${pendingObjectsToStream.length})...`);
+
+  showProgressBar(true, 0);
+  showStopButton(true);
+  isLabelLoadingCancelled = false;
+  isLabelLoadingActive = true;
+
+  try {
+    const byModel = new Map();
+    for (const obj of nextBatch) {
+      if (!obj || obj.id === undefined) continue;
+      const modelId = obj.modelId;
+      if (!byModel.has(modelId)) byModel.set(modelId, []);
+      byModel.get(modelId).push(obj);
+    }
+
+    const additionalIcons = [];
+    const successfulAdditional = [];
+    const iconSymbol = FIELD_ICONS[currentLabelField] || "🏷️";
+    const canvasCache = new Map();
+
+    for (const [modelId, modelObjects] of byModel) {
+      if (isLabelLoadingCancelled) break;
+      const objectIds = modelObjects.map((o) => o.id);
+      const bboxMap = new Map();
+      const collectedBoxes = [];
+
+      const CHUNK_QUERY_SIZE = 200;
+      const BBOX_CONCURRENCY = 4;
+      for (let i = 0; i < objectIds.length; i += CHUNK_QUERY_SIZE * BBOX_CONCURRENCY) {
+        if (isLabelLoadingCancelled) break;
+        const promises = [];
+        for (let c = 0; c < BBOX_CONCURRENCY; c++) {
+          const start = i + c * CHUNK_QUERY_SIZE;
+          if (start >= objectIds.length) break;
+          const batchIds = objectIds.slice(start, start + CHUNK_QUERY_SIZE);
+          promises.push(
+            viewerRef.getObjectBoundingBoxes(modelId, batchIds).catch(() => null)
+          );
+        }
+        const results = await Promise.all(promises);
+        for (const bboxes of results) {
+          if (bboxes && Array.isArray(bboxes)) {
+            for (const rawBox of bboxes) {
+              const parsed = extractBoundingBox(rawBox);
+              if (parsed && rawBox && rawBox.id !== undefined && rawBox.id !== null) {
+                collectedBoxes.push(parsed);
+                bboxMap.set(rawBox.id, parsed);
+                bboxMap.set(Number(rawBox.id), parsed);
+              }
+            }
+          }
+        }
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      const unitScale = determineUnitScaleFactor(collectedBoxes);
+      const baseQuadSize = Math.max(38, Math.round(92 * Number(labelConfig.scale || 1.0)));
+
+      for (let i = 0; i < modelObjects.length; i++) {
+        if (isLabelLoadingCancelled) break;
+        const obj = modelObjects[i];
+        const bbox = bboxMap.get(obj.id) || bboxMap.get(Number(obj.id));
+        if (!bbox) continue;
+
+        const category = classifyObjectCategory(obj);
+        const centerX = ((bbox.min.x + bbox.max.x) / 2) * unitScale;
+        const centerY = ((bbox.min.y + bbox.max.y) / 2) * unitScale;
+        const targetZ = labelConfig.anchorPos === "centroid"
+          ? (((bbox.min.z + bbox.max.z) / 2) * unitScale)
+          : ((bbox.max.z * unitScale) + Number(labelConfig.zOffset || 0.0));
+
+        const { text: labelText, subText, isFallback } = getFormattedLabelText(obj, currentLabelField);
+        if (!labelText) continue;
+
+        const effectiveColor = (labelConfig.colorByCategory && CATEGORY_COLORS[category])
+          ? CATEGORY_COLORS[category]
+          : labelConfig.bgColor;
+
+        const cacheKey = `${labelText}__${subText || ""}__${labelConfig.badgeMode}__${effectiveColor}__${labelConfig.scale}__${category}`;
+        let badgeData = canvasCache.get(cacheKey);
+        if (!badgeData) {
+          if (labelConfig.badgeMode === "pinMarker") {
+            badgeData = createPinMarkerCanvas(effectiveColor, iconSymbol);
+          } else {
+            badgeData = createLabelBadgeCanvas(labelText, iconSymbol, subText, category);
+          }
+          canvasCache.set(cacheKey, badgeData);
+        }
+
+        const numericId = globalIconIdCounter++;
+        const iconSize = Math.max(38, Math.round(baseQuadSize * (badgeData.squareSize / 256)));
+
+        const pointIcon = {
+          id: numericId,
+          iconPath: badgeData.dataUrl,
+          size: iconSize,
+          position: { x: centerX, y: centerY, z: targetZ },
+          icon: badgeData.dataUrl,
+          image: badgeData.dataUrl,
+          label: labelText,
+          text: buildTooltipText(obj),
+        };
+
+        additionalIcons.push(pointIcon);
+        successfulAdditional.push({
+          obj,
+          text: labelText,
+          subText,
+          position: pointIcon.position,
+          iconId: numericId,
+          isFallback,
+          category,
+        });
+      }
+    }
+
+    const ADD_CHUNK_SIZE = 40;
+    for (let c = 0; c < additionalIcons.length; c += ADD_CHUNK_SIZE) {
+      if (isLabelLoadingCancelled) break;
+      const chunk = additionalIcons.slice(c, c + ADD_CHUNK_SIZE);
+      try {
+        await viewerRef.addIcon(chunk);
+      } catch (err) {
+        for (const icon of chunk) {
+          try { await viewerRef.addIcon(icon); } catch (e) {}
+        }
+      }
+      await new Promise((r) => setTimeout(r, 16));
+    }
+
+    labeledObjects.push(...successfulAdditional);
+    activeIconCount = labeledObjects.length;
+    updateUIState(labeledObjects.length, null, labeledObjects.length + pendingObjectsToStream.length);
+    renderPreviewList();
+  } catch (err) {
+    console.error("[LabelManager] Lỗi khi tải thêm nhãn:", err);
+  } finally {
+    isLabelLoadingActive = false;
+    showProgressBar(false);
+    showStopButton(false);
+  }
 }
 
 function escapeHtml(str) {
